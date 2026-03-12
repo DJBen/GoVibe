@@ -2,6 +2,8 @@
 
 GoVibe is an open-source remote terminal app that lets you control a Mac terminal session from an iPhone or iPad in real time.
 
+![GoVibe demo](https://raw.githubusercontent.com/DJBen/GoVibe/codex/media-assets/assets/govibe-demo.gif)
+
 ```
 iOS App ──WebSocket──▶ Cloud Run Relay ◀──WebSocket── Mac CLI (GoVibeMacCli)
                               │
@@ -188,9 +190,7 @@ The app discovers available Mac sessions automatically — no device ID needed.
 
 For iOS, config comes from `ios/Config/Shared.xcconfig` and is embedded into the app Info.plist at build time. For Mac CLI, variables are shell environment variables.
 
-In `.xcconfig`, avoid literal values like `https://...` because `//` starts a comment. Use the provided `$(GOVIBE_SCHEME_SEPARATOR)` helper.
-
-The iOS app intentionally crashes at startup with a descriptive error if either value is empty or still set to its default `DUMMY_*` placeholder.
+The iOS app intentionally crashes at startup with a descriptive error if any required `GOVIBE_GCP_*` value is empty or still set to a `DUMMY_*` placeholder.
 
 ---
 
