@@ -80,10 +80,28 @@ struct TerminalSurfaceView: UIViewRepresentable {
         }
 
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
+            // Drop XTWINOPS responses (ESC [ <digits/semicolons> t) that SwiftTerm
+            // generates in reply to terminal-size queries embedded in the stream.
+            // Forwarding them back through the relay injects them as PTY stdin,
+            // causing tmux to echo them as literal text.
+            let bytes = Array(data)
+            if isXtwinopsResponse(bytes) { return }
             let vm = viewModel
             let payload = Data(data)
             Task { @MainActor in
                 vm?.sendInputDataAsync(payload)
+            }
+        }
+
+        private func isXtwinopsResponse(_ bytes: [UInt8]) -> Bool {
+            // ESC [ <one-or-more digits/semicolons> t
+            guard bytes.count >= 5,
+                  bytes[0] == 0x1B,
+                  bytes[1] == 0x5B,
+                  bytes.last == 0x74
+            else { return false }
+            return bytes.dropFirst(2).dropLast().allSatisfy {
+                $0 == 0x3B || ($0 >= 0x30 && $0 <= 0x39)  // ';' or '0'–'9'
             }
         }
 
