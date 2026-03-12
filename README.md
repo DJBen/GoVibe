@@ -94,9 +94,9 @@ swift run GoVibeMacCli
    # Or point it at the local emulator — the emulator bypasses API key validation
    ```
 2. Open `ios/GoVibe.xcworkspace` in Xcode.
-3. Set the following environment variables in the GoVibe scheme (Product > Scheme > Edit Scheme > Run > Arguments > Environment Variables):
-   - `GOVIBE_API_BASE` = `http://127.0.0.1:5001/<project-id>/us-central1/api`
-   - `GOVIBE_RELAY_WS_BASE` = `ws://localhost:8080/relay`
+3. Edit `ios/Config/Shared.xcconfig` and set:
+   - `GOVIBE_API_BASE = http://127.0.0.1:5001/<project-id>/us-central1/api`
+   - `GOVIBE_RELAY_WS_BASE = ws://localhost:8080/relay`
 4. Run on Simulator. Available Mac sessions are discovered automatically from the relay.
 
 ---
@@ -160,7 +160,7 @@ swift run --package-path ios/GoVibeMacCli GoVibeMacCli
 
 ### Step 7: Run the iOS App
 
-Set `GOVIBE_API_BASE` and `GOVIBE_RELAY_WS_BASE` in the Xcode scheme (Product > Scheme > Edit Scheme > Run > Arguments > Environment Variables), then build and run on device. The app discovers available Mac sessions automatically — no device ID needed.
+Set `GOVIBE_API_BASE` and `GOVIBE_RELAY_WS_BASE` in `ios/Config/Shared.xcconfig`, then build and run on device. The app discovers available Mac sessions automatically — no device ID needed.
 
 ---
 
@@ -173,7 +173,9 @@ Set `GOVIBE_API_BASE` and `GOVIBE_RELAY_WS_BASE` in the Xcode scheme (Product > 
 | `GOVIBE_MAC_DEVICE_ID` | Mac CLI only | Unique identifier for this Mac (used as the relay room name). iOS discovers available rooms automatically via the API. |
 | `GOVIBE_SHELL` | Mac CLI only | Shell to launch inside the PTY (default: `$SHELL`) |
 
-`GOVIBE_API_BASE` and `GOVIBE_RELAY_WS_BASE` are required on both sides. The app will crash with a descriptive message at startup if either is missing.
+For iOS, `GOVIBE_API_BASE` and `GOVIBE_RELAY_WS_BASE` come from `ios/Config/Shared.xcconfig` and are embedded into the app Info.plist at build time. For Mac CLI, they are shell environment variables.
+
+The iOS app intentionally crashes at startup with a descriptive error if either value is empty or still set to its default `DUMMY_*` placeholder.
 
 ---
 

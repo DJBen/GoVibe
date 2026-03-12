@@ -14,13 +14,7 @@ final class SessionStore {
     var currentUserId: String?
 
     init(
-        apiBaseURL: URL = {
-            let raw = ProcessInfo.processInfo.environment["GOVIBE_API_BASE"] ?? ""
-            guard !raw.isEmpty, let url = URL(string: raw) else {
-                fatalError("Set GOVIBE_API_BASE to your Firebase Functions HTTPS URL (e.g. https://<region>-<project>.cloudfunctions.net/api)")
-            }
-            return url
-        }()
+        apiBaseURL: URL = AppRuntimeConfig.apiBaseURL
     ) {
         self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
     }

@@ -26,6 +26,10 @@ TARGETED_DEVICE_FAMILY = 1,2
 GENERATE_INFOPLIST_FILE = YES
 INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+GOVIBE_API_BASE = DUMMY_GOVIBE_API_BASE
+GOVIBE_RELAY_WS_BASE = DUMMY_GOVIBE_RELAY_WS_BASE
+INFOPLIST_KEY_GOVIBE_API_BASE = $(GOVIBE_API_BASE)
+INFOPLIST_KEY_GOVIBE_RELAY_WS_BASE = $(GOVIBE_RELAY_WS_BASE)
 
 // ==========================================
 // Entitlements

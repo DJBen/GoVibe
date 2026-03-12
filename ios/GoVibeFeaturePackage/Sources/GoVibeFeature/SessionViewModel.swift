@@ -34,20 +34,8 @@ final class SessionViewModel {
 
     init(
         macDeviceId: String,
-        apiBaseURL: URL = {
-            let raw = ProcessInfo.processInfo.environment["GOVIBE_API_BASE"] ?? ""
-            guard !raw.isEmpty, let url = URL(string: raw) else {
-                fatalError("Set GOVIBE_API_BASE to your Firebase Functions HTTPS URL (e.g. https://<region>-<project>.cloudfunctions.net/api)")
-            }
-            return url
-        }(),
-        relayBase: String = {
-            let raw = ProcessInfo.processInfo.environment["GOVIBE_RELAY_WS_BASE"] ?? ""
-            guard !raw.isEmpty else {
-                fatalError("Set GOVIBE_RELAY_WS_BASE to your Cloud Run relay WebSocket URL (e.g. wss://<service>.<region>.run.app/relay)")
-            }
-            return raw
-        }()
+        apiBaseURL: URL = AppRuntimeConfig.apiBaseURL,
+        relayBase: String = AppRuntimeConfig.relayWebSocketBase
     ) {
         self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
         self.relayCandidates = [relayBase]
