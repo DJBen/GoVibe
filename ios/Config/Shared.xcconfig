@@ -23,15 +23,11 @@ TARGETED_DEVICE_FAMILY = 1,2
 // ==========================================
 // Info PLIST
 // ==========================================
-GENERATE_INFOPLIST_FILE = YES
-INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait
-INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+GENERATE_INFOPLIST_FILE = NO
+INFOPLIST_FILE = Config/GoVibe-Info.plist
 GOVIBE_GCP_REGION = DUMMY_GCP_REGION
 GOVIBE_GCP_PROJECT_ID = DUMMY_GCP_PROJECT_ID
 GOVIBE_GCP_RELAY_HOST = DUMMY_GCP_RELAY_HOST
-INFOPLIST_KEY_GOVIBE_GCP_REGION = $(GOVIBE_GCP_REGION)
-INFOPLIST_KEY_GOVIBE_GCP_PROJECT_ID = $(GOVIBE_GCP_PROJECT_ID)
-INFOPLIST_KEY_GOVIBE_GCP_RELAY_HOST = $(GOVIBE_GCP_RELAY_HOST)
 
 // ==========================================
 // Entitlements
