@@ -95,8 +95,9 @@ swift run GoVibeMacCli
    ```
 2. Open `ios/GoVibe.xcworkspace` in Xcode.
 3. Edit `ios/Config/Shared.xcconfig` and set:
-   - `GOVIBE_API_BASE = http://127.0.0.1:5001/<project-id>/us-central1/api`
-   - `GOVIBE_RELAY_WS_BASE = ws://localhost:8080/relay`
+   - `GOVIBE_GCP_REGION = us-central1`
+   - `GOVIBE_GCP_PROJECT_ID = <project-id>`
+   - `GOVIBE_GCP_RELAY_HOST = localhost:8080`
 4. Run on Simulator. Available Mac sessions are discovered automatically from the relay.
 
 ---
@@ -133,7 +134,7 @@ firebase use <your-project-id>
 firebase deploy --only functions,firestore
 ```
 
-Note the Functions HTTPS URL printed at the end — you'll need it for `GOVIBE_API_BASE`.
+You'll need the Firebase project ID and region for iOS config (`GOVIBE_GCP_PROJECT_ID`, `GOVIBE_GCP_REGION`).
 
 ### Step 5: Deploy the Cloud Run Relay
 
@@ -146,7 +147,7 @@ gcloud run deploy govibe-relay \
   --project <your-project-id>
 ```
 
-Note the service URL printed at the end — your relay WebSocket base is `wss://<service-url>/relay`.
+Note the service URL printed at the end, then copy only its host into `GOVIBE_GCP_RELAY_HOST` (for example, from `https://abc-uw.a.run.app`, use `abc-uw.a.run.app`).
 
 ### Step 6: Run the Mac CLI
 
@@ -160,7 +161,16 @@ swift run --package-path ios/GoVibeMacCli GoVibeMacCli
 
 ### Step 7: Run the iOS App
 
-Set `GOVIBE_API_BASE` and `GOVIBE_RELAY_WS_BASE` in `ios/Config/Shared.xcconfig`, then build and run on device. The app discovers available Mac sessions automatically — no device ID needed.
+Set these in `ios/Config/Shared.xcconfig`, then build and run on device:
+- `GOVIBE_GCP_REGION = <region>` (for example, `us-west1`)
+- `GOVIBE_GCP_PROJECT_ID = <your-project-id>`
+- `GOVIBE_GCP_RELAY_HOST = <your-cloud-run-host>` (no scheme, no path)
+
+The app assembles:
+- API base: `https://<region>-<project>.cloudfunctions.net/api`
+- Relay WS base: `wss://<relay-host>/relay`
+
+The app discovers available Mac sessions automatically — no device ID needed.
 
 ---
 
@@ -168,12 +178,17 @@ Set `GOVIBE_API_BASE` and `GOVIBE_RELAY_WS_BASE` in `ios/Config/Shared.xcconfig`
 
 | Variable | Used by | Description |
 |----------|---------|-------------|
-| `GOVIBE_API_BASE` | iOS app, Mac CLI | Firebase Functions HTTPS URL, e.g. `https://us-west1-<project>.cloudfunctions.net/api` |
-| `GOVIBE_RELAY_WS_BASE` | iOS app, Mac CLI | Cloud Run relay WebSocket URL, e.g. `wss://<service>.<region>.run.app/relay` |
+| `GOVIBE_GCP_REGION` | iOS app | GCP region used to assemble Functions URL, e.g. `us-west1`. |
+| `GOVIBE_GCP_PROJECT_ID` | iOS app | Firebase/GCP project ID used to assemble Functions URL. |
+| `GOVIBE_GCP_RELAY_HOST` | iOS app | Cloud Run host only (no scheme/path), e.g. `govibe-relay-xxxxx-uw.a.run.app`. |
 | `GOVIBE_MAC_DEVICE_ID` | Mac CLI only | Unique identifier for this Mac (used as the relay room name). iOS discovers available rooms automatically via the API. |
 | `GOVIBE_SHELL` | Mac CLI only | Shell to launch inside the PTY (default: `$SHELL`) |
+| `GOVIBE_API_BASE` | Mac CLI | Full API URL, e.g. `https://us-west1-<project>.cloudfunctions.net/api`. |
+| `GOVIBE_RELAY_WS_BASE` | Mac CLI | Full Relay WS URL, e.g. `wss://<service>.<region>.run.app/relay`. |
 
-For iOS, `GOVIBE_API_BASE` and `GOVIBE_RELAY_WS_BASE` come from `ios/Config/Shared.xcconfig` and are embedded into the app Info.plist at build time. For Mac CLI, they are shell environment variables.
+For iOS, config comes from `ios/Config/Shared.xcconfig` and is embedded into the app Info.plist at build time. For Mac CLI, variables are shell environment variables.
+
+In `.xcconfig`, avoid literal values like `https://...` because `//` starts a comment. Use the provided `$(GOVIBE_SCHEME_SEPARATOR)` helper.
 
 The iOS app intentionally crashes at startup with a descriptive error if either value is empty or still set to its default `DUMMY_*` placeholder.
 

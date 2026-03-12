@@ -11,6 +11,7 @@ DerivedData/
 **/DerivedData/
 **/build/
 *.xcuserstate
+ios/GoVibe.xcodeproj/xcshareddata/xcschemes/GoVibeMacCli.xcscheme
 **/*.xcworkspace/xcuserdata/
 **/*.xcodeproj/xcuserdata/
 **/*.xcodeproj/project.xcworkspace/xcuserdata/
