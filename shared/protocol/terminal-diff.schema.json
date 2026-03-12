@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://govibe.dev/schema/terminal-diff.schema.json",
+  "title": "TerminalDiff",
+  "type": "object",
+  "required": ["type", "seq", "ts", "payload"],
+  "properties": {
+    "type": {
+      "const": "TerminalDiff"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "payload": {
+      "type": "object",
+      "required": ["rows", "cols", "cursorRow", "cursorCol", "dirtyRegions", "cellsDelta"],
+      "properties": {
+        "rows": { "type": "integer", "minimum": 1 },
+        "cols": { "type": "integer", "minimum": 1 },
+        "cursorRow": { "type": "integer", "minimum": 0 },
+        "cursorCol": { "type": "integer", "minimum": 0 },
+        "dirtyRegions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["top", "left", "bottom", "right"],
+            "properties": {
+              "top": { "type": "integer", "minimum": 0 },
+              "left": { "type": "integer", "minimum": 0 },
+              "bottom": { "type": "integer", "minimum": 0 },
+              "right": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "cellsDelta": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["row", "col", "text"],
+            "properties": {
+              "row": { "type": "integer", "minimum": 0 },
+              "col": { "type": "integer", "minimum": 0 },
+              "text": { "type": "string" },
+              "fg": { "type": "string" },
+              "bg": { "type": "string" },
+              "attrs": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

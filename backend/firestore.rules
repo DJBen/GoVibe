@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsResource(data) {
+      return signedIn() && data.ownerUid == request.auth.uid;
+    }
+
+    function ownsSession(sessionId) {
+      return signedIn() &&
+        get(/databases/$(database)/documents/sessions/$(sessionId)).data.ownerUid == request.auth.uid;
+    }
+
+    match /devices/{deviceId} {
+      allow read: if ownsResource(resource.data);
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if ownsResource(resource.data) && request.resource.data.ownerUid == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if ownsResource(resource.data);
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+
+      match /signal/{signalId} {
+        allow read: if ownsSession(sessionId);
+        allow create: if ownsSession(sessionId)
+          && request.resource.data.keys().hasAll(['type', 'fromDeviceId', 'payload', 'createdAt'])
+          && request.resource.data.type in ['offer', 'answer', 'ice'];
+        allow update, delete: if false;
+      }
+    }
+  }
+}

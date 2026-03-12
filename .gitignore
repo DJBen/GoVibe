@@ -1,0 +1,32 @@
+.DS_Store
+node_modules
+**/node_modules
+**/.build
+**/Package.resolved
+backend/functions/lib
+firebase-debug.log
+
+# Xcode / Swift build artifacts
+DerivedData/
+**/DerivedData/
+**/build/
+*.xcuserstate
+**/*.xcworkspace/xcuserdata/
+**/*.xcodeproj/xcuserdata/
+**/*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# SwiftPM / tool caches
+.swiftpm/
+**/.swiftpm/
+
+# Logs
+*.log
+
+# Local env / secrets
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Firebase config — each contributor generates their own from their Firebase project
+ios/Config/GoogleService-Info.plist
