@@ -42,23 +42,29 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
 
     // MARK: - Simulator Discovery
 
-    func findBootedSimulator() -> (udid: String, name: String)? {
+    func findBootedSimulator(preferredUDID: String? = nil) -> (udid: String, name: String)? {
         guard let output = runProcess("/usr/bin/xcrun", args: ["simctl", "list", "devices", "--json"]),
               let data = output.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let devices = json["devices"] as? [String: Any] else { return nil }
 
+        var firstBooted: (udid: String, name: String)?
         for (_, deviceList) in devices {
             guard let list = deviceList as? [[String: Any]] else { continue }
             for device in list {
                 if let state = device["state"] as? String, state == "Booted",
                    let udid = device["udid"] as? String,
                    let name = device["name"] as? String {
-                    return (udid: udid, name: name)
+                    if let preferred = preferredUDID, udid == preferred {
+                        return (udid: udid, name: name)
+                    }
+                    if firstBooted == nil {
+                        firstBooted = (udid: udid, name: name)
+                    }
                 }
             }
         }
-        return nil
+        return firstBooted
     }
 
     // MARK: - Capture
@@ -66,7 +72,7 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
     /// Finds the booted simulator, starts ScreenCaptureKit capture, and calls onSimInfo.
     /// Must be called from an async context. NSApplication must already be initialized
     /// on the main thread before calling this (done in main.swift).
-    func startCapture() async {
+    func startCapture(preferredUDID: String? = nil) async {
         guard !isCapturing else {
             logger.info("startCapture() skipped — already capturing")
             return
@@ -80,7 +86,7 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         }
 
         logger.info("startCapture() — finding booted simulator")
-        guard let simDevice = findBootedSimulator() else {
+        guard let simDevice = findBootedSimulator(preferredUDID: preferredUDID) else {
             logger.error("No booted simulator found. Boot a simulator in Xcode first.")
             return
         }

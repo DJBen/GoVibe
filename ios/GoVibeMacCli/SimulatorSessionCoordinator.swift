@@ -75,7 +75,8 @@ final class SimulatorSessionCoordinator {
             if let info = self.latestSimInfo {
                 self.bridge.sendSimInfo(info)
             }
-            Task { await self.simulatorBridge.startCapture() }
+            let udid = self.latestSimInfo?.udid
+            Task { await self.simulatorBridge.startCapture(preferredUDID: udid) }
         }
 
         bridge.start(room: macDeviceId, relayBase: relayBase)
@@ -86,7 +87,8 @@ final class SimulatorSessionCoordinator {
         // a @MainActor task would never execute (DispatchQueue.main can't drain
         // while the main thread is sleeping). NSApplication is already initialised
         // in main.swift so SCK APIs are safe to call from a background task.
-        Task { await self.simulatorBridge.startCapture() }
+        let preferredUDID = latestSimInfo?.udid
+        Task { await self.simulatorBridge.startCapture(preferredUDID: preferredUDID) }
 
         while running {
             Thread.sleep(forTimeInterval: 1)
