@@ -63,6 +63,7 @@
 				"GoVibe-Info.plist",
 				Release.xcconfig,
 				Shared.xcconfig,
+				Shared.xcconfig.local,
 				Tests.xcconfig,
 			);
 			target = 8B41F6442DEDD0D5001A66F9 /* GoVibe */;
