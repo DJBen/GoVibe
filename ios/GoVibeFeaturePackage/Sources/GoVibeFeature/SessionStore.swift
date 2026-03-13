@@ -35,11 +35,13 @@ final class SessionStore {
         }
 
         // Primary: relay presence (rooms with a Mac currently connected).
+        // When this succeeds, treat relay rooms as source of truth and prune stale
+        // locally persisted sessions that are no longer live.
         // Falls back gracefully — if the relay endpoint fails, locally saved sessions
         // are still shown and the error is surfaced to the user.
         do {
             let relayRooms = try await apiClient.fetchRelayRooms()
-            mergeDiscoveredRooms(relayRooms.roomIds)
+            replaceWithLiveRooms(relayRooms.roomIds)
             if let userId = currentUserId {
                 save(for: userId)
             }
@@ -71,13 +73,17 @@ final class SessionStore {
         save(for: userId)
     }
 
-    private func mergeDiscoveredRooms(_ roomIds: [String]) {
-        var existing = Set(sessions.map(\.roomId))
-        for roomId in roomIds where !existing.contains(roomId) {
-            sessions.append(SavedSession(roomId: roomId))
-            existing.insert(roomId)
-        }
-        sessions.sort { $0.roomId.localizedCaseInsensitiveCompare($1.roomId) == .orderedAscending }
+    private func replaceWithLiveRooms(_ roomIds: [String]) {
+        sessions = roomIds
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .reduce(into: [String]()) { unique, roomId in
+                if !unique.contains(roomId) {
+                    unique.append(roomId)
+                }
+            }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .map(SavedSession.init(roomId:))
     }
 
     private func storageKey(for userId: String) -> String {

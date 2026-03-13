@@ -18,6 +18,8 @@ export interface SessionDoc {
   createdAt: FirebaseFirestore.Timestamp;
   graceUntil?: FirebaseFirestore.Timestamp;
   closedAt?: FirebaseFirestore.Timestamp;
+  closeReason?: string;
+  expiresAt?: FirebaseFirestore.Timestamp;
   lastHeartbeat: FirebaseFirestore.Timestamp;
   icePolicy: "all" | "relay";
   relayRequired: boolean;

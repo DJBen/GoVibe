@@ -4,6 +4,7 @@ import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { Timestamp, getFirestore } from "firebase-admin/firestore";
 import { onRequest } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { z } from "zod";
 import { getConfig } from "./config";
 import { signToken, verifyToken } from "./crypto";
@@ -15,6 +16,11 @@ const firestore = getFirestore();
 const auth = getAuth();
 const app = express();
 const cfg = getConfig();
+const RELAY_ROOMS_COLLECTION = "relay_rooms";
+const STALE_TIMEOUT_MS = 60_000;
+const STALE_RETENTION_MS = 60 * 60 * 1000;
+const STALE_CLOSE_REASON = "stale_peer_absent";
+const OPEN_SESSION_STATES = ["creating", "active", "grace"] as const;
 
 app.use(cors({ origin: true }));
 app.use(express.json());
@@ -366,4 +372,88 @@ export const api = onRequest(
     maxInstances: 50
   },
   app
+);
+
+interface RelayRoomDoc {
+  lastHeartbeat?: FirebaseFirestore.Timestamp;
+}
+
+function isRelayRoomStale(lastHeartbeat: FirebaseFirestore.Timestamp | undefined, staleCutoff: FirebaseFirestore.Timestamp): boolean {
+  if (!lastHeartbeat) {
+    return true;
+  }
+  return lastHeartbeat.toMillis() <= staleCutoff.toMillis();
+}
+
+export const closeStaleSessions = onSchedule(
+  {
+    region: "us-west1",
+    schedule: "every 5 minutes"
+  },
+  async () => {
+    const now = Timestamp.now();
+    const staleCutoff = Timestamp.fromMillis(now.toMillis() - STALE_TIMEOUT_MS);
+    const expiresAt = Timestamp.fromMillis(now.toMillis() + STALE_RETENTION_MS);
+
+    const openSessionsSnap = await firestore
+      .collection("sessions")
+      .where("state", "in", [...OPEN_SESSION_STATES])
+      .get();
+
+    if (openSessionsSnap.empty) {
+      console.info("[closeStaleSessions] no open sessions");
+      return;
+    }
+
+    const peerDeviceIds = Array.from(
+      new Set(
+        openSessionsSnap.docs
+          .map((doc) => (doc.data() as SessionDoc).peerDeviceId)
+          .filter((id) => id.length > 0)
+      )
+    );
+
+    const relayRoomRefs = peerDeviceIds.map((peerDeviceId) => firestore.collection(RELAY_ROOMS_COLLECTION).doc(peerDeviceId));
+    const relayRoomSnaps = relayRoomRefs.length > 0 ? await firestore.getAll(...relayRoomRefs) : [];
+
+    const relayHeartbeatByPeerId = new Map<string, FirebaseFirestore.Timestamp | undefined>();
+    for (const snap of relayRoomSnaps) {
+      const room = snap.data() as RelayRoomDoc | undefined;
+      relayHeartbeatByPeerId.set(snap.id, room?.lastHeartbeat);
+    }
+
+    let batch = firestore.batch();
+    let operations = 0;
+    let closedCount = 0;
+
+    for (const doc of openSessionsSnap.docs) {
+      const session = doc.data() as SessionDoc;
+      const relayHeartbeat = relayHeartbeatByPeerId.get(session.peerDeviceId);
+      if (!isRelayRoomStale(relayHeartbeat, staleCutoff)) {
+        continue;
+      }
+
+      batch.update(doc.ref, {
+        state: "closed",
+        closedAt: now,
+        lastHeartbeat: now,
+        closeReason: STALE_CLOSE_REASON,
+        expiresAt
+      });
+      operations += 1;
+      closedCount += 1;
+
+      if (operations >= 400) {
+        await batch.commit();
+        batch = firestore.batch();
+        operations = 0;
+      }
+    }
+
+    if (operations > 0) {
+      await batch.commit();
+    }
+
+    console.info(`[closeStaleSessions] scanned=${openSessionsSnap.size} closed=${closedCount}`);
+  }
 );
