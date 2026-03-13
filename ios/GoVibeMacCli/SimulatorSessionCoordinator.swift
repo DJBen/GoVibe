@@ -15,18 +15,24 @@ final class SimulatorSessionCoordinator {
     // newly-joining iOS peer gets it within one heartbeat interval.
     private var latestSimInfo: SimInfoPayload?
 
-    init(macDeviceId: String, logger: Logger, relayBase: String) {
+    private let preferredUDID: String?
+    private let preferredPID: pid_t?
+
+    init(macDeviceId: String, logger: Logger, relayBase: String,
+         preferredUDID: String? = nil, preferredPID: pid_t? = nil) {
         self.macDeviceId = macDeviceId
         self.logger = logger
         self.bridge = SignalBridge(logger: logger)
         self.simulatorBridge = SimulatorBridge(logger: logger)
         self.relayBase = relayBase
+        self.preferredUDID = preferredUDID
+        self.preferredPID = preferredPID
     }
 
     func runForever() throws {
         // Build preliminary sim_info (stub dimensions) so iOS can switch to
         // SimulatorView while the async capture pipeline is still starting.
-        if let device = simulatorBridge.findBootedSimulator() {
+        if let device = simulatorBridge.findBootedSimulator(preferredUDID: preferredUDID) {
             latestSimInfo = SimInfoPayload(
                 deviceName: device.name,
                 udid: device.udid,
@@ -78,8 +84,10 @@ final class SimulatorSessionCoordinator {
             if let info = self.latestSimInfo {
                 self.bridge.sendSimInfo(info)
             }
-            let udid = self.latestSimInfo?.udid
-            Task { await self.simulatorBridge.startCapture(preferredUDID: udid) }
+            Task { await self.simulatorBridge.startCapture(
+                preferredUDID: self.preferredUDID ?? self.latestSimInfo?.udid,
+                preferredPID: self.preferredPID
+            ) }
         }
 
         bridge.onPeerLeft = { [weak self] in
@@ -96,8 +104,10 @@ final class SimulatorSessionCoordinator {
         // a @MainActor task would never execute (DispatchQueue.main can't drain
         // while the main thread is sleeping). NSApplication is already initialised
         // in main.swift so SCK APIs are safe to call from a background task.
-        let preferredUDID = latestSimInfo?.udid
-        Task { await self.simulatorBridge.startCapture(preferredUDID: preferredUDID) }
+        Task { await self.simulatorBridge.startCapture(
+            preferredUDID: preferredUDID ?? latestSimInfo?.udid,
+            preferredPID: preferredPID
+        ) }
 
         while running {
             Thread.sleep(forTimeInterval: 1)

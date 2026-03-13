@@ -72,7 +72,7 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
     /// Finds the booted simulator, starts ScreenCaptureKit capture, and calls onSimInfo.
     /// Must be called from an async context. NSApplication must already be initialized
     /// on the main thread before calling this (done in main.swift).
-    func startCapture(preferredUDID: String? = nil) async {
+    func startCapture(preferredUDID: String? = nil, preferredPID: pid_t? = nil) async {
         guard !isCapturing else {
             logger.info("startCapture() skipped — already capturing")
             return
@@ -94,7 +94,10 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         simName = simDevice.name
         logger.info("Found simulator: \(simDevice.name) (\(simDevice.udid))")
 
-        if let app = NSRunningApplication.runningApplications(
+        if let pid = preferredPID {
+            simPID = pid
+            logger.info("Simulator PID (from argument): \(simPID)")
+        } else if let app = NSRunningApplication.runningApplications(
             withBundleIdentifier: "com.apple.iphonesimulator"
         ).first {
             simPID = app.processIdentifier
