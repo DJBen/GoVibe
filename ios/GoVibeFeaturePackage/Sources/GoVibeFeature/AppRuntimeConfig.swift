@@ -2,20 +2,8 @@ import Foundation
 
 enum AppRuntimeConfig {
     private enum Keys {
-        static let gcpRegion = "GOVIBE_GCP_REGION"
-        static let gcpProjectID = "GOVIBE_GCP_PROJECT_ID"
         static let gcpRelayHost = "GOVIBE_GCP_RELAY_HOST"
     }
-
-    static let apiBaseURL: URL = {
-        let region = requiredConfiguredValue(for: Keys.gcpRegion, expectedExample: "us-west1")
-        let projectID = requiredConfiguredValue(for: Keys.gcpProjectID, expectedExample: "my-project-id")
-        let raw = "https://\(region)-\(projectID).cloudfunctions.net/api"
-        guard let url = URL(string: raw) else {
-            fatalError("Invalid assembled API URL: \(raw)")
-        }
-        return url
-    }()
 
     static let relayWebSocketBase: String = {
         let relayHostRaw = requiredConfiguredValue(

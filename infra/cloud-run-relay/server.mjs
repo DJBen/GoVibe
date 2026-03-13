@@ -1,44 +1,7 @@
-import { initializeApp } from "firebase-admin/app";
-import { Timestamp, getFirestore } from "firebase-admin/firestore";
 import http from "node:http";
 import { WebSocketServer } from "ws";
 
 const port = Number(process.env.PORT || 8080);
-const RELAY_ROOMS_COLLECTION = "relay_rooms";
-const HEARTBEAT_INTERVAL_MS = 60_000;
-
-// Auto-initializes from the Cloud Run service account.
-initializeApp();
-const firestore = getFirestore();
-
-async function setRoomPresence(room) {
-  try {
-    await firestore.collection(RELAY_ROOMS_COLLECTION).doc(room).set({
-      connectedAt: Timestamp.now(),
-      lastHeartbeat: Timestamp.now(),
-    });
-  } catch (err) {
-    console.error(`[presence] set failed for ${room}:`, err.message);
-  }
-}
-
-async function updateRoomHeartbeat(room) {
-  try {
-    await firestore.collection(RELAY_ROOMS_COLLECTION).doc(room).update({
-      lastHeartbeat: Timestamp.now(),
-    });
-  } catch (err) {
-    console.error(`[presence] heartbeat failed for ${room}:`, err.message);
-  }
-}
-
-async function deleteRoomPresence(room) {
-  try {
-    await firestore.collection(RELAY_ROOMS_COLLECTION).doc(room).delete();
-  } catch (err) {
-    console.error(`[presence] delete failed for ${room}:`, err.message);
-  }
-}
 
 const server = http.createServer((req, res) => {
   if (req.url === "/healthz") {
@@ -57,12 +20,6 @@ function roomKey(room) {
   return `room:${room}`;
 }
 
-// Refresh lastHeartbeat for every live room so the backend can filter stale entries.
-setInterval(() => {
-  for (const key of rooms.keys()) {
-    updateRoomHeartbeat(key.slice("room:".length));
-  }
-}, HEARTBEAT_INTERVAL_MS);
 
 const wss = new WebSocketServer({ server, path: "/relay" });
 
@@ -80,11 +37,6 @@ wss.on("connection", (ws, req) => {
   const existingPeers = [...peers];
   peers.add(ws);
   rooms.set(key, peers);
-
-  // Write presence the first time any peer joins this room.
-  if (peers.size === 1) {
-    setRoomPresence(room);
-  }
 
   if (existingPeers.length > 0) {
     const msg = JSON.stringify({ type: "peer_joined" });
@@ -107,7 +59,6 @@ wss.on("connection", (ws, req) => {
     peers.delete(ws);
     if (peers.size === 0) {
       rooms.delete(key);
-      deleteRoomPresence(room);
     }
   });
 });

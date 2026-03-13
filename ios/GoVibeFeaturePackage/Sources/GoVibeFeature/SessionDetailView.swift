@@ -81,7 +81,7 @@ struct SessionDetailView: View {
         .background(Color.black)
         .accessibilityIdentifier("govibe_root_view")
         .task {
-            await viewModel.bootstrapAuth()
+            viewModel.connectRelayNow()
         }
         .onDisappear {
             viewModel.disconnectRelay()

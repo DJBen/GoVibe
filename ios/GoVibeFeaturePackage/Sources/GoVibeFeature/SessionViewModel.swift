@@ -1,9 +1,5 @@
-import FirebaseAuth
 import Foundation
 import Observation
-#if canImport(UIKit)
-import UIKit
-#endif
 
 @MainActor
 @Observable
@@ -11,11 +7,8 @@ final class SessionViewModel {
     private static let peerStaleTimeout: TimeInterval = 8
 
     var logs: [TerminalLine] = [TerminalLine(text: "GoVibe ready")]
-    var sessionId: String = ""
-    var isBusy = false
     var relayStatus: String = "Disconnected"
 
-    private let apiClient: GoVibeAPIClient
     private let relayCandidates: [String]
     private var relayTask: URLSessionWebSocketTask?
     private var terminalOutputSink: ((Data) -> Void)?
@@ -29,51 +22,14 @@ final class SessionViewModel {
     private var lastPeerActivityAt: Date?
     private var hasLivePeer = false
 
-    let iosDeviceId: String
     let macDeviceId: String
 
     init(
         macDeviceId: String,
-        apiBaseURL: URL = AppRuntimeConfig.apiBaseURL,
         relayBase: String = AppRuntimeConfig.relayWebSocketBase
     ) {
-        self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
         self.relayCandidates = [relayBase]
-
-        #if canImport(UIKit)
-        self.iosDeviceId = UIDevice.current.identifierForVendor?.uuidString ?? "ios-demo-01"
-        #else
-        self.iosDeviceId = "ios-demo-01"
-        #endif
         self.macDeviceId = macDeviceId
-    }
-
-    func bootstrapAuth() async {
-        if Auth.auth().currentUser == nil {
-            do {
-                _ = try await Auth.auth().signInAnonymously()
-                logs.append(TerminalLine(text: "Signed in anonymously"))
-            } catch {
-                logs.append(TerminalLine(text: "Auth failed: \(error.localizedDescription)"))
-            }
-        }
-
-        connectRelayNow()
-    }
-
-    func createSession() async {
-        isBusy = true
-        defer { isBusy = false }
-
-        do {
-            let response = try await apiClient.sessionCreate(ownerDeviceId: iosDeviceId, peerDeviceId: macDeviceId)
-            sessionId = response.sessionId
-            logs.append(TerminalLine(text: "Session created: \(response.sessionId)"))
-        } catch {
-            logs.append(TerminalLine(text: "Session create failed: \(error.localizedDescription)"))
-        }
-
-        connectRelayNow()
     }
 
     func connectRelayNow() {
