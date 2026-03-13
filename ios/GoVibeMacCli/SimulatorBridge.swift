@@ -72,7 +72,7 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
     /// Finds the booted simulator, starts ScreenCaptureKit capture, and calls onSimInfo.
     /// Must be called from an async context. NSApplication must already be initialized
     /// on the main thread before calling this (done in main.swift).
-    func startCapture(preferredUDID: String? = nil, preferredPID: pid_t? = nil) async {
+    func startCapture(preferredUDID: String? = nil) async {
         guard !isCapturing else {
             logger.info("startCapture() skipped — already capturing")
             return
@@ -94,10 +94,7 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         simName = simDevice.name
         logger.info("Found simulator: \(simDevice.name) (\(simDevice.udid))")
 
-        if let pid = preferredPID {
-            simPID = pid
-            logger.info("Simulator PID (from argument): \(simPID)")
-        } else if let app = NSRunningApplication.runningApplications(
+        if let app = NSRunningApplication.runningApplications(
             withBundleIdentifier: "com.apple.iphonesimulator"
         ).first {
             simPID = app.processIdentifier
@@ -118,15 +115,18 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         }
         logger.info("SCShareableContent returned \(content.windows.count) windows")
 
-        let simWindow = content.windows.first(where: {
-            $0.owningApplication?.bundleIdentifier == "com.apple.iphonesimulator"
-        })
+        let simWindow = selectSimulatorWindow(
+            from: content.windows,
+            simulatorPID: simPID,
+            preferredUDID: simUDID,
+            simulatorName: simName
+        )
         guard let simWindow else {
             let bundleIds = content.windows.compactMap { $0.owningApplication?.bundleIdentifier }
             logger.error("Simulator window not found. Visible app bundle IDs: \(bundleIds.joined(separator: ", "))")
             return
         }
-        logger.info("Found simulator window: \(simWindow.frame)")
+        logger.info("Found simulator window: id=\(simWindow.windowID) title=\(simWindow.title ?? "<untitled>") frame=\(simWindow.frame)")
 
         windowBounds = simWindow.frame
         screenWidth = max(Int(simWindow.frame.width), 1)
@@ -393,8 +393,8 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
     }
 
     func injectButton(action: String) {
-        guard simPID > 0 else {
-            logger.error("injectButton(\(action)) skipped — simPID not set (capture not started?)")
+        guard simPID > 0, !windowBounds.isEmpty else {
+            logger.error("injectButton(\(action)) skipped — simulator target not ready (capture not started?)")
             return
         }
         logger.info("injectButton: \(action) → simPID \(simPID)")
@@ -410,17 +410,137 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         }
 
         guard let (keyCode, flags) = keyEvents else { return }
+        focusCapturedSimulatorWindow()
         if let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) {
             down.flags = flags
-            down.postToPid(simPID)
+            down.post(tap: .cghidEventTap)
         }
         if let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) {
             up.flags = flags
-            up.postToPid(simPID)
+            up.post(tap: .cghidEventTap)
         }
     }
 
     // MARK: - Helpers
+
+    private func focusCapturedSimulatorWindow() {
+        // Keyboard shortcuts in Simulator target the key window, not a UDID, so
+        // explicitly focus the captured window before posting key events.
+        if let app = NSRunningApplication(processIdentifier: simPID) {
+            app.activate(options: [.activateIgnoringOtherApps])
+        }
+
+        let focusPoint = CGPoint(x: windowBounds.midX, y: windowBounds.midY)
+        if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                              mouseCursorPosition: focusPoint, mouseButton: .left) {
+            down.post(tap: .cghidEventTap)
+        }
+        if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                            mouseCursorPosition: focusPoint, mouseButton: .left) {
+            up.post(tap: .cghidEventTap)
+        }
+
+        usleep(50_000)
+    }
+
+    private func selectSimulatorWindow(
+        from windows: [SCWindow],
+        simulatorPID: pid_t,
+        preferredUDID: String?,
+        simulatorName: String
+    ) -> SCWindow? {
+        let bundleMatches = windows.filter {
+            $0.owningApplication?.bundleIdentifier == "com.apple.iphonesimulator"
+        }
+        guard !bundleMatches.isEmpty else { return nil }
+
+        let pidMatches = bundleMatches.filter {
+            $0.owningApplication?.processID == simulatorPID
+        }
+        let pidFiltered = pidMatches.isEmpty ? bundleMatches : pidMatches
+
+        logger.info("Simulator window candidates: bundle=\(bundleMatches.count), pid=\(pidMatches.count)")
+        for window in pidFiltered {
+            logger.info("  candidate id=\(window.windowID) pid=\(window.owningApplication?.processID ?? 0) title=\(window.title ?? "<untitled>") frame=\(window.frame)")
+        }
+
+        var candidates = pidFiltered
+        let normalizedName = simulatorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedName.isEmpty {
+            let nameMatches = candidates.filter { window in
+                (window.title ?? "").localizedCaseInsensitiveContains(normalizedName)
+            }
+            if !nameMatches.isEmpty {
+                logger.info("Filtered candidates by device name '\(normalizedName)': \(nameMatches.count)")
+                candidates = nameMatches
+            }
+        }
+
+        if let preferredUDID, let bestByGeometry = selectWindowByPreferredGeometry(candidates, udid: preferredUDID) {
+            return bestByGeometry
+        }
+
+        return candidates.first
+    }
+
+    private func selectWindowByPreferredGeometry(_ windows: [SCWindow], udid: String) -> SCWindow? {
+        let preferredCenters = preferredWindowCenters(for: udid)
+        guard !preferredCenters.isEmpty else {
+            logger.info("No preferred window geometry found for UDID \(udid)")
+            return nil
+        }
+
+        logger.info("Loaded \(preferredCenters.count) preferred window center(s) for UDID \(udid)")
+
+        let ranked = windows.map { window -> (window: SCWindow, distance: CGFloat) in
+            let center = CGPoint(x: window.frame.midX, y: window.frame.midY)
+            let bestDistance = preferredCenters
+                .map { hypot(center.x - $0.x, center.y - $0.y) }
+                .min() ?? .greatestFiniteMagnitude
+            return (window, bestDistance)
+        }
+        .sorted { $0.distance < $1.distance }
+
+        if let top = ranked.first {
+            logger.info("Geometry-selected simulator window id=\(top.window.windowID) distance=\(String(format: "%.2f", top.distance))")
+            return top.window
+        }
+        return nil
+    }
+
+    private func preferredWindowCenters(for udid: String) -> [CGPoint] {
+        let plistURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Preferences/com.apple.iphonesimulator.plist")
+        guard
+            let root = NSDictionary(contentsOf: plistURL) as? [String: Any],
+            let devicePreferences = root["DevicePreferences"] as? [String: Any],
+            let deviceConfig = devicePreferences[udid] as? [String: Any]
+        else {
+            return []
+        }
+
+        var centers: [CGPoint] = []
+        centers += parseWindowCenters(in: deviceConfig["SimulatorWindowGeometry"])
+        centers += parseWindowCenters(in: deviceConfig["ExternalWindowGeometry"])
+        return centers
+    }
+
+    private func parseWindowCenters(in value: Any?) -> [CGPoint] {
+        guard let geometries = value as? [String: Any] else { return [] }
+        return geometries.values.compactMap { geometry in
+            guard let dict = geometry as? [String: Any] else { return nil }
+            if let centerString = dict["WindowCenter"] as? String {
+                return NSPointFromString(centerString)
+            }
+            if let centerArray = dict["WindowCenter"] as? [CGFloat], centerArray.count == 2 {
+                return CGPoint(x: centerArray[0], y: centerArray[1])
+            }
+            if let centerArray = dict["WindowCenter"] as? [Double], centerArray.count == 2 {
+                return CGPoint(x: centerArray[0], y: centerArray[1])
+            }
+            return nil
+        }
+    }
 
     private func runProcess(_ executable: String, args: [String]) -> String? {
         let p = Process()

@@ -19,6 +19,7 @@ final class SignalBridge: @unchecked Sendable {
     var onScrollCancel: (() -> Void)?
     var onPeerJoined: (() -> Void)?
     var onPeerLeft: (() -> Void)?
+    var onPeerHeartbeat: (() -> Void)?
     var onSimTouch: ((String, Double, Double) -> Void)?
     var onSimPinch: ((String, Double, Double, Double) -> Void)?
     var onSimButton: ((String) -> Void)?
@@ -102,7 +103,7 @@ final class SignalBridge: @unchecked Sendable {
     }
 
     func sendPeerHeartbeat() {
-        enqueueJSON(["type": "peer_heartbeat"])
+        enqueueJSON(["type": "peer_heartbeat", "origin": "mac"])
     }
 
     func sendSimInfo(_ payload: SimInfoPayload) {
@@ -274,6 +275,15 @@ final class SignalBridge: @unchecked Sendable {
 
         if type == "peer_left" {
             onPeerLeft?()
+            return
+        }
+
+        if type == "peer_heartbeat" {
+            let origin = (json["origin"] as? String)?.lowercased()
+            // Ignore our own heartbeat if relay echoes sender messages.
+            if origin != "mac" {
+                onPeerHeartbeat?()
+            }
             return
         }
 

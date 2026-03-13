@@ -78,10 +78,6 @@ struct Simulator: ParsableCommand {
             help: "Simulator device UDID to capture (default: first booted device).")
     var udid: String?
 
-    @Option(name: .customLong("pid"),
-            help: "Simulator.app PID for event injection (default: auto-detected).")
-    var pid: Int?
-
     mutating func run() throws {
         let (relay, deviceId) = try shared.validated()
         let logger = Logger()
@@ -90,7 +86,6 @@ struct Simulator: ParsableCommand {
         logger.info("Relay: \(relay)")
         logger.info("Mode: simulator")
         if let udid { logger.info("Target UDID: \(udid)") }
-        if let pid  { logger.info("Target PID:  \(pid)") }
 
         // NSApplication must be initialized on the main thread before any
         // ScreenCaptureKit work so the CGS (window server) connection is ready.
@@ -101,8 +96,7 @@ struct Simulator: ParsableCommand {
             macDeviceId: deviceId,
             logger: logger,
             relayBase: relay,
-            preferredUDID: udid,
-            preferredPID: pid.map { pid_t($0) }
+            preferredUDID: udid
         )
         setupSignalHandlers(logger: logger, stop: coordinator.stop)
         try coordinator.runForever()
@@ -110,6 +104,8 @@ struct Simulator: ParsableCommand {
 }
 
 // MARK: - Helpers
+
+private var retainedSignalSources: [DispatchSourceSignal] = []
 
 private func setupSignalHandlers(logger: Logger, stop: @escaping () -> Void) {
     signal(SIGINT, SIG_IGN)
@@ -121,6 +117,7 @@ private func setupSignalHandlers(logger: Logger, stop: @escaping () -> Void) {
     sigterm.setEventHandler { logger.info("Received SIGTERM, stopping"); stop() }
     sigint.resume()
     sigterm.resume()
+    retainedSignalSources = [sigint, sigterm]
 }
 
 GoVibeMacCli.main()

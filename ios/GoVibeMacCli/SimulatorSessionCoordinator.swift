@@ -1,6 +1,8 @@
 import Foundation
 
 final class SimulatorSessionCoordinator {
+    private static let peerStaleTimeout: TimeInterval = 10
+
     private let macDeviceId: String
     private let logger: Logger
     private let bridge: SignalBridge
@@ -10,23 +12,22 @@ final class SimulatorSessionCoordinator {
     private var heartbeatTimer: DispatchSourceTimer?
     private var retirementSent = false
     private var hasPeer = false
+    private var lastPeerActivityAt: Date?
     // Latest sim_info to broadcast — starts as preliminary stub, upgraded to real
     // dimensions once capture starts. Always sent on every heartbeat so any
     // newly-joining iOS peer gets it within one heartbeat interval.
     private var latestSimInfo: SimInfoPayload?
 
     private let preferredUDID: String?
-    private let preferredPID: pid_t?
 
     init(macDeviceId: String, logger: Logger, relayBase: String,
-         preferredUDID: String? = nil, preferredPID: pid_t? = nil) {
+         preferredUDID: String? = nil) {
         self.macDeviceId = macDeviceId
         self.logger = logger
         self.bridge = SignalBridge(logger: logger)
         self.simulatorBridge = SimulatorBridge(logger: logger)
         self.relayBase = relayBase
         self.preferredUDID = preferredUDID
-        self.preferredPID = preferredPID
     }
 
     func runForever() throws {
@@ -61,17 +62,24 @@ final class SimulatorSessionCoordinator {
 
         // Wire touch/button messages from relay to injector.
         bridge.onSimTouch = { [weak self] phase, x, y in
+            self?.recordPeerActivity()
             self?.simulatorBridge.injectTouch(phase: phase, x: x, y: y)
         }
         bridge.onSimPinch = { [weak self] phase, centerX, centerY, scale in
+            self?.recordPeerActivity()
             self?.simulatorBridge.injectPinch(phase: phase, centerX: centerX,
                                                centerY: centerY, scale: scale)
         }
         bridge.onSimButton = { [weak self] action in
+            self?.recordPeerActivity()
             self?.simulatorBridge.injectButton(action: action)
         }
         bridge.onSimKeyframeRequest = { [weak self] in
+            self?.recordPeerActivity()
             self?.simulatorBridge.forceKeyframe()
+        }
+        bridge.onPeerHeartbeat = { [weak self] in
+            self?.recordPeerActivity()
         }
 
         // When iOS joins, immediately push latestSimInfo so it switches to
@@ -79,21 +87,19 @@ final class SimulatorSessionCoordinator {
         // capture (idempotent — no-op if already running).
         bridge.onPeerJoined = { [weak self] in
             guard let self else { return }
-            self.hasPeer = true
+            self.recordPeerActivity()
             self.logger.info("Peer joined — sending sim_info")
             if let info = self.latestSimInfo {
                 self.bridge.sendSimInfo(info)
             }
             Task { await self.simulatorBridge.startCapture(
-                preferredUDID: self.preferredUDID ?? self.latestSimInfo?.udid,
-                preferredPID: self.preferredPID
+                preferredUDID: self.preferredUDID ?? self.latestSimInfo?.udid
             ) }
         }
 
         bridge.onPeerLeft = { [weak self] in
             guard let self else { return }
-            self.hasPeer = false
-            self.logger.info("Peer left — pausing frame forwarding")
+            self.markPeerOffline(reason: "Peer left")
         }
 
         bridge.start(room: macDeviceId, relayBase: relayBase)
@@ -105,8 +111,7 @@ final class SimulatorSessionCoordinator {
         // while the main thread is sleeping). NSApplication is already initialised
         // in main.swift so SCK APIs are safe to call from a background task.
         Task { await self.simulatorBridge.startCapture(
-            preferredUDID: preferredUDID ?? latestSimInfo?.udid,
-            preferredPID: preferredPID
+            preferredUDID: preferredUDID ?? latestSimInfo?.udid
         ) }
 
         while running {
@@ -119,6 +124,7 @@ final class SimulatorSessionCoordinator {
         timer.schedule(deadline: .now() + 1.0, repeating: 3.0)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            self.checkPeerFreshness()
             self.bridge.sendPeerHeartbeat()
             // Always re-broadcast the latest sim_info so any connected iOS peer
             // has it (covers the case where iOS reconnects mid-session).
@@ -134,6 +140,30 @@ final class SimulatorSessionCoordinator {
         guard !retirementSent else { return }
         retirementSent = true
         bridge.sendPeerRetiredSync(reason: reason)
+    }
+
+    private func recordPeerActivity() {
+        let wasOffline = !hasPeer
+        hasPeer = true
+        lastPeerActivityAt = Date()
+        if wasOffline {
+            logger.info("Peer activity detected — resuming frame forwarding")
+        }
+    }
+
+    private func checkPeerFreshness() {
+        guard hasPeer, let lastPeerActivityAt else { return }
+        let staleSeconds = Date().timeIntervalSince(lastPeerActivityAt)
+        if staleSeconds > Self.peerStaleTimeout {
+            markPeerOffline(reason: "Peer heartbeat timed out (\(Int(staleSeconds))s) — pausing frame forwarding")
+        }
+    }
+
+    private func markPeerOffline(reason: String) {
+        guard hasPeer || lastPeerActivityAt != nil else { return }
+        hasPeer = false
+        lastPeerActivityAt = nil
+        logger.info("\(reason)")
     }
 
     func stop() {

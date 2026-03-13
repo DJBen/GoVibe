@@ -27,6 +27,7 @@ final class SessionViewModel {
     private(set) var isInTmuxScrollMode = false
     var paneProgram: String?
     private var peerWatchdogTask: Task<Void, Never>?
+    private var outboundHeartbeatTask: Task<Void, Never>?
     private var lastPeerActivityAt: Date?
     private var hasLivePeer = false
 
@@ -85,6 +86,7 @@ final class SessionViewModel {
 
     func connectRelayNow() {
         intentionalDisconnect = false
+        stopOutboundHeartbeat()
         relayTask?.cancel(with: .goingAway, reason: nil)
         relayTask = nil
         resetPeerState()
@@ -118,6 +120,7 @@ final class SessionViewModel {
         relayStatus = "Waiting for Mac"
         logs.append(TerminalLine(text: "Relay connected: \(url.absoluteString)"))
         startPeerWatchdog()
+        startOutboundHeartbeat()
         receiveLoop()
         if let size = lastKnownTerminalSize {
             sendResizeAsync(cols: size.cols, rows: size.rows)
@@ -132,6 +135,7 @@ final class SessionViewModel {
                 Task { @MainActor in
                     self.relayTask = nil
                     self.stopPeerWatchdog()
+                    self.stopOutboundHeartbeat()
                     self.resetPeerState()
                     self.relayStatus = "Disconnected"
                     guard !self.intentionalDisconnect else { return }
@@ -178,7 +182,7 @@ final class SessionViewModel {
         peerWatchdogTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                await self?.checkPeerFreshness()
+                self?.checkPeerFreshness()
             }
         }
     }
@@ -186,6 +190,26 @@ final class SessionViewModel {
     private func stopPeerWatchdog() {
         peerWatchdogTask?.cancel()
         peerWatchdogTask = nil
+    }
+
+    private func startOutboundHeartbeat() {
+        stopOutboundHeartbeat()
+        outboundHeartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                await self?.sendClientHeartbeat()
+            }
+        }
+    }
+
+    private func stopOutboundHeartbeat() {
+        outboundHeartbeatTask?.cancel()
+        outboundHeartbeatTask = nil
+    }
+
+    private func sendClientHeartbeat() async {
+        guard relayTask != nil else { return }
+        await sendJSONEnvelope(["type": "peer_heartbeat", "origin": "ios"])
     }
 
     private func recordPeerActivity() {
@@ -269,7 +293,10 @@ final class SessionViewModel {
         }
 
         if type == "peer_heartbeat" {
-            recordPeerActivity()
+            let origin = (json["origin"] as? String)?.lowercased()
+            if origin != "ios" {
+                recordPeerActivity()
+            }
             return
         }
 
@@ -508,6 +535,7 @@ final class SessionViewModel {
     func disconnectRelay() {
         intentionalDisconnect = true
         stopPeerWatchdog()
+        stopOutboundHeartbeat()
         relayTask?.cancel(with: .goingAway, reason: nil)
         relayTask = nil
         #if canImport(UIKit)
