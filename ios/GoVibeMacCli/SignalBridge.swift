@@ -18,6 +18,7 @@ final class SignalBridge: @unchecked Sendable {
     var onScroll: ((Int) -> Void)?
     var onScrollCancel: (() -> Void)?
     var onPeerJoined: (() -> Void)?
+    var onPeerLeft: (() -> Void)?
     var onSimTouch: ((String, Double, Double) -> Void)?
     var onSimPinch: ((String, Double, Double, Double) -> Void)?
     var onSimButton: ((String) -> Void)?
@@ -268,6 +269,11 @@ final class SignalBridge: @unchecked Sendable {
 
         if type == "peer_joined" {
             onPeerJoined?()
+            return
+        }
+
+        if type == "peer_left" {
+            onPeerLeft?()
             return
         }
 

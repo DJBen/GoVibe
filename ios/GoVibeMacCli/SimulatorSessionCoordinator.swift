@@ -9,6 +9,7 @@ final class SimulatorSessionCoordinator {
     private var running = true
     private var heartbeatTimer: DispatchSourceTimer?
     private var retirementSent = false
+    private var hasPeer = false
     // Latest sim_info to broadcast — starts as preliminary stub, upgraded to real
     // dimensions once capture starts. Always sent on every heartbeat so any
     // newly-joining iOS peer gets it within one heartbeat interval.
@@ -46,9 +47,10 @@ final class SimulatorSessionCoordinator {
             self?.bridge.sendSimInfo(info)
         }
 
-        // Forward binary H.264 frames to relay.
+        // Forward binary H.264 frames to relay only while a peer is connected.
         simulatorBridge.onBinaryFrame = { [weak self] data in
-            self?.bridge.sendBinaryFrame(data)
+            guard let self, self.hasPeer else { return }
+            self.bridge.sendBinaryFrame(data)
         }
 
         // Wire touch/button messages from relay to injector.
@@ -71,12 +73,19 @@ final class SimulatorSessionCoordinator {
         // capture (idempotent — no-op if already running).
         bridge.onPeerJoined = { [weak self] in
             guard let self else { return }
+            self.hasPeer = true
             self.logger.info("Peer joined — sending sim_info")
             if let info = self.latestSimInfo {
                 self.bridge.sendSimInfo(info)
             }
             let udid = self.latestSimInfo?.udid
             Task { await self.simulatorBridge.startCapture(preferredUDID: udid) }
+        }
+
+        bridge.onPeerLeft = { [weak self] in
+            guard let self else { return }
+            self.hasPeer = false
+            self.logger.info("Peer left — pausing frame forwarding")
         }
 
         bridge.start(room: macDeviceId, relayBase: relayBase)

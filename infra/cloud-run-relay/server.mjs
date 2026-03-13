@@ -108,6 +108,13 @@ wss.on("connection", (ws, req) => {
     if (peers.size === 0) {
       rooms.delete(key);
       deleteRoomPresence(room);
+    } else {
+      const msg = JSON.stringify({ type: "peer_left" });
+      for (const peer of peers) {
+        if (peer.readyState === peer.OPEN) {
+          peer.send(msg);
+        }
+      }
     }
   });
 });
