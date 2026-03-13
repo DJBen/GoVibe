@@ -60,7 +60,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Debug.xcconfig,
-				GoVibe-Info.plist,
+				"GoVibe-Info.plist",
 				Release.xcconfig,
 				Shared.xcconfig,
 				Tests.xcconfig,
