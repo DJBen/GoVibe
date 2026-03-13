@@ -60,15 +60,14 @@ final class SimulatorSessionCoordinator {
             self.bridge.sendBinaryFrame(data)
         }
 
-        // Wire touch/button messages from relay to injector.
-        bridge.onSimTouch = { [weak self] phase, x, y in
+        // Wire cursor/click/button messages from relay to injector.
+        bridge.onSimCursorMove = { [weak self] dx, dy in
             self?.recordPeerActivity()
-            self?.simulatorBridge.injectTouch(phase: phase, x: x, y: y)
+            self?.simulatorBridge.injectCursorMove(dx: dx, dy: dy)
         }
-        bridge.onSimPinch = { [weak self] phase, centerX, centerY, scale in
+        bridge.onSimClick = { [weak self] clickCount in
             self?.recordPeerActivity()
-            self?.simulatorBridge.injectPinch(phase: phase, centerX: centerX,
-                                               centerY: centerY, scale: scale)
+            self?.simulatorBridge.injectClick(clickCount: clickCount)
         }
         bridge.onSimButton = { [weak self] action in
             self?.recordPeerActivity()
@@ -148,6 +147,12 @@ final class SimulatorSessionCoordinator {
         lastPeerActivityAt = Date()
         if wasOffline {
             logger.info("Peer activity detected — resuming frame forwarding")
+            // If early startup frames were dropped while no peer was marked live,
+            // force a fresh IDR (with SPS/PPS) so iOS can always decode immediately.
+            simulatorBridge.forceKeyframe()
+            if let info = latestSimInfo {
+                bridge.sendSimInfo(info)
+            }
         }
     }
 

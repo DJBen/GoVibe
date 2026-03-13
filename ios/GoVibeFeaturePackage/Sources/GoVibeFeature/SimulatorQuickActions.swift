@@ -33,9 +33,9 @@ struct SimulatorQuickActionsMenu: View {
             }
         } label: {
             Image(systemName: "gamecontroller")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
-                .padding(10)
+                .frame(width: 40, height: 40)
                 .background(.black.opacity(0.35))
                 .clipShape(Circle())
         }

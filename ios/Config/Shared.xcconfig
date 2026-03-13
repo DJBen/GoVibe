@@ -34,3 +34,9 @@ GOVIBE_GCP_RELAY_HOST = DUMMY_GCP_RELAY_HOST
 // ==========================================
 // AI agents can modify Config/GoVibe.entitlements to add capabilities
 CODE_SIGN_ENTITLEMENTS = Config/GoVibe.entitlements
+
+// ==========================================
+// Local overrides (git-ignored)
+// ==========================================
+// Create ios/Config/Shared.xcconfig.local to override any key above.
+#include? "Shared.xcconfig.local"

@@ -20,8 +20,8 @@ final class SignalBridge: @unchecked Sendable {
     var onPeerJoined: (() -> Void)?
     var onPeerLeft: (() -> Void)?
     var onPeerHeartbeat: (() -> Void)?
-    var onSimTouch: ((String, Double, Double) -> Void)?
-    var onSimPinch: ((String, Double, Double, Double) -> Void)?
+    var onSimCursorMove: ((Double, Double) -> Void)?   // dx, dy relative delta
+    var onSimClick: ((Int) -> Void)?                   // clickCount only (trackpad model)
     var onSimButton: ((String) -> Void)?
     var onSimKeyframeRequest: (() -> Void)?
 
@@ -246,8 +246,8 @@ final class SignalBridge: @unchecked Sendable {
                         case .string(let raw):
                             self.handleMessage(raw)
                         case .data(let data):
-                            // Binary frames from iOS (sim_touch etc.) are encoded as JSON text;
-                            // try UTF-8 decode and fall back to ignoring raw binary.
+                            // iOS messages are encoded as JSON text; try UTF-8 decode and
+                            // fall back to ignoring raw binary.
                             if let text = String(data: data, encoding: .utf8) {
                                 self.handleMessage(text)
                             }
@@ -327,20 +327,17 @@ final class SignalBridge: @unchecked Sendable {
             return
         }
 
-        if type == "sim_touch",
-           let phase = json["phase"] as? String,
-           let x = json["x"] as? Double,
-           let y = json["y"] as? Double {
-            onSimTouch?(phase, x, y)
+        if type == "sim_cursor_move",
+           let dx = json["dx"] as? Double,
+           let dy = json["dy"] as? Double {
+            onSimCursorMove?(dx, dy)
             return
         }
 
-        if type == "sim_pinch",
-           let phase = json["phase"] as? String,
-           let centerX = json["centerX"] as? Double,
-           let centerY = json["centerY"] as? Double,
-           let scale = json["scale"] as? Double {
-            onSimPinch?(phase, centerX, centerY, scale)
+        if type == "sim_click",
+           let clickCount = json["clickCount"] as? Int {
+            logger.info("sim_click clicks=\(clickCount)")
+            onSimClick?(clickCount)
             return
         }
 

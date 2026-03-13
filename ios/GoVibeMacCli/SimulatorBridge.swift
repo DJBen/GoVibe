@@ -28,10 +28,12 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
 
     private var simPID: pid_t = 0
     private var windowBounds: CGRect = .zero
+    private var currentCursorPoint: CGPoint?
     private var screenWidth: Int = 390
     private var screenHeight: Int = 844
     private var simUDID: String = ""
     private var simName: String = ""
+    private var needsWindowDisambiguation = true
 
     var onSimInfo: ((SimInfoPayload) -> Void)?
     var onBinaryFrame: ((Data) -> Void)?
@@ -79,6 +81,10 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         }
         logger.info("startCapture() — checking screen recording permission")
 
+        if !AXIsProcessTrusted() {
+            logger.error("Accessibility not granted — click injection will fail. Grant in System Settings → Privacy & Security → Accessibility, then relaunch.")
+        }
+
         guard CGPreflightScreenCaptureAccess() else {
             logger.error("Screen recording permission denied. Grant access in System Settings → Privacy & Security → Screen & System Audio Recording, then relaunch.")
             CGRequestScreenCaptureAccess()
@@ -115,17 +121,20 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         }
         logger.info("SCShareableContent returned \(content.windows.count) windows")
 
-        let simWindow = selectSimulatorWindow(
+        let selectedWindow = selectSimulatorWindow(
             from: content.windows,
             simulatorPID: simPID,
             preferredUDID: simUDID,
             simulatorName: simName
         )
-        guard let simWindow else {
+        guard let selectedWindow else {
             let bundleIds = content.windows.compactMap { $0.owningApplication?.bundleIdentifier }
             logger.error("Simulator window not found. Visible app bundle IDs: \(bundleIds.joined(separator: ", "))")
             return
         }
+        let simWindow = selectedWindow.window
+        needsWindowDisambiguation = selectedWindow.candidateCount > 1
+        logger.info("Simulator window disambiguation needed: \(needsWindowDisambiguation) (candidates=\(selectedWindow.candidateCount))")
         logger.info("Found simulator window: id=\(simWindow.windowID) title=\(simWindow.title ?? "<untitled>") frame=\(simWindow.frame)")
 
         windowBounds = simWindow.frame
@@ -342,54 +351,49 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         forceNextKeyframe = true
     }
 
-    // MARK: - Touch / Button Injection
+    // MARK: - Cursor / Click / Button Injection
 
-    func injectTouch(phase: String, x: Double, y: Double) {
+    /// Moves the cursor by a relative delta (trackpad model).
+    /// dx/dy are normalized by the iOS view size; scaled to window pixel dimensions on Mac.
+    func injectCursorMove(dx: Double, dy: Double) {
         guard simPID > 0, !windowBounds.isEmpty else { return }
-        let absX = windowBounds.origin.x + x * windowBounds.width
-        let absY = windowBounds.origin.y + y * windowBounds.height
-        let point = CGPoint(x: absX, y: absY)
-
-        let eventType: CGEventType
-        switch phase {
-        case "began":   eventType = .leftMouseDown
-        case "moved":   eventType = .leftMouseDragged
-        default:        eventType = .leftMouseUp
-        }
-
-        if let event = CGEvent(mouseEventSource: nil, mouseType: eventType,
-                               mouseCursorPosition: point, mouseButton: .left) {
-            event.postToPid(simPID)
-        }
+        let current = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
+        let newX = max(windowBounds.minX, min(windowBounds.maxX,
+                       current.x + dx * windowBounds.width))
+        let newY = max(windowBounds.minY, min(windowBounds.maxY,
+                       current.y + dy * windowBounds.height))
+        let newPoint = CGPoint(x: newX, y: newY)
+        currentCursorPoint = newPoint
+        CGWarpMouseCursorPosition(newPoint)
     }
 
-    func injectPinch(phase: String, centerX: Double, centerY: Double, scale: Double) {
+    /// Clicks at the current tracked cursor position (trackpad model — no repositioning).
+    func injectClick(clickCount: Int) {
         guard simPID > 0, !windowBounds.isEmpty else { return }
-        let cx = windowBounds.origin.x + centerX * windowBounds.width
-        let cy = windowBounds.origin.y + centerY * windowBounds.height
-        let offset = max(40.0 * scale, 10.0)
+        let point = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
 
-        let point1 = CGPoint(x: cx - offset, y: cy)
-        let point2 = CGPoint(x: cx + offset, y: cy)
-
-        let eventType: CGEventType
-        switch phase {
-        case "began":   eventType = .leftMouseDown
-        case "changed": eventType = .leftMouseDragged
-        default:        eventType = .leftMouseUp
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != simPID,
+           let app = NSRunningApplication(processIdentifier: simPID) {
+            app.activate()
         }
 
-        let flags = CGEventFlags.maskAlternate
-        if let e1 = CGEvent(mouseEventSource: nil, mouseType: eventType,
-                            mouseCursorPosition: point1, mouseButton: .left) {
-            e1.flags = flags
-            e1.postToPid(simPID)
+        func sendClick() {
+            if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                                  mouseCursorPosition: point, mouseButton: .left) {
+                down.post(tap: .cghidEventTap)
+            }
+            if let drag = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged,
+                                  mouseCursorPosition: point, mouseButton: .left) {
+                drag.post(tap: .cghidEventTap)
+            }
+            if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                                mouseCursorPosition: point, mouseButton: .left) {
+                up.post(tap: .cghidEventTap)
+            }
         }
-        if let e2 = CGEvent(mouseEventSource: nil, mouseType: eventType,
-                            mouseCursorPosition: point2, mouseButton: .left) {
-            e2.flags = flags
-            e2.postToPid(simPID)
-        }
+
+        sendClick()
+        if clickCount == 2 { sendClick() }
     }
 
     func injectButton(action: String) {
@@ -410,7 +414,9 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         }
 
         guard let (keyCode, flags) = keyEvents else { return }
-        focusCapturedSimulatorWindow()
+        if needsWindowDisambiguation {
+            focusCapturedSimulatorWindow()
+        }
         if let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) {
             down.flags = flags
             down.post(tap: .cghidEventTap)
@@ -427,7 +433,7 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         // Keyboard shortcuts in Simulator target the key window, not a UDID, so
         // explicitly focus the captured window before posting key events.
         if let app = NSRunningApplication(processIdentifier: simPID) {
-            app.activate(options: [.activateIgnoringOtherApps])
+            app.activate()
         }
 
         let focusPoint = CGPoint(x: windowBounds.midX, y: windowBounds.midY)
@@ -448,7 +454,7 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         simulatorPID: pid_t,
         preferredUDID: String?,
         simulatorName: String
-    ) -> SCWindow? {
+    ) -> (window: SCWindow, candidateCount: Int)? {
         let bundleMatches = windows.filter {
             $0.owningApplication?.bundleIdentifier == "com.apple.iphonesimulator"
         }
@@ -476,11 +482,14 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
             }
         }
 
+        let candidateCount = candidates.count
+
         if let preferredUDID, let bestByGeometry = selectWindowByPreferredGeometry(candidates, udid: preferredUDID) {
-            return bestByGeometry
+            return (bestByGeometry, candidateCount)
         }
 
-        return candidates.first
+        guard let first = candidates.first else { return nil }
+        return (first, candidateCount)
     }
 
     private func selectWindowByPreferredGeometry(_ windows: [SCWindow], udid: String) -> SCWindow? {

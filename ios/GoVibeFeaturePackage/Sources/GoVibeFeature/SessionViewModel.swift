@@ -480,19 +480,14 @@ final class SessionViewModel {
     }
     #endif
 
-    func sendSimTouch(phase: String, x: Double, y: Double) async {
+    func sendSimCursorMove(dx: Double, dy: Double) async {
         guard relayTask != nil else { return }
-        let envelope: [String: Any] = ["type": "sim_touch", "phase": phase, "x": x, "y": y, "id": 0]
-        await sendJSONEnvelope(envelope)
+        await sendJSONEnvelope(["type": "sim_cursor_move", "dx": dx, "dy": dy])
     }
 
-    func sendSimPinch(phase: String, centerX: Double, centerY: Double, scale: Double) async {
+    func sendSimClick(clickCount: Int) async {
         guard relayTask != nil else { return }
-        let envelope: [String: Any] = [
-            "type": "sim_pinch", "phase": phase,
-            "centerX": centerX, "centerY": centerY, "scale": scale
-        ]
-        await sendJSONEnvelope(envelope)
+        await sendJSONEnvelope(["type": "sim_click", "clickCount": clickCount])
     }
 
     func sendSimButton(action: String) async {
@@ -515,13 +510,12 @@ final class SessionViewModel {
         }
     }
 
-    func sendSimTouchAsync(phase: String, x: Double, y: Double) {
-        Task { @MainActor in await sendSimTouch(phase: phase, x: x, y: y) }
+    func sendSimCursorMoveAsync(dx: Double, dy: Double) {
+        Task { @MainActor in await sendSimCursorMove(dx: dx, dy: dy) }
     }
 
-    func sendSimPinchAsync(phase: String, centerX: Double, centerY: Double, scale: Double) {
-        Task { @MainActor in await sendSimPinch(phase: phase, centerX: centerX,
-                                                 centerY: centerY, scale: scale) }
+    func sendSimClickAsync(clickCount: Int) {
+        Task { @MainActor in await sendSimClick(clickCount: clickCount) }
     }
 
     func sendSimButtonAsync(action: String) {
