@@ -36,6 +36,8 @@ struct SessionListView: View {
         }
         .alert("New Session", isPresented: $showingAddAlert) {
             TextField("Room ID", text: $newRoomId)
+                .autocorrectionDisabled()
+                .modifier(NeverAutocapitalize())
             Button("Add") {
                 store.add(roomId: newRoomId)
                 newRoomId = ""
@@ -173,6 +175,16 @@ struct SessionListView: View {
         if let selectedSession, removed.contains(selectedSession) {
             self.selectedSession = nil
         }
+    }
+}
+
+private struct NeverAutocapitalize: ViewModifier {
+    func body(content: Content) -> some View {
+        #if canImport(UIKit)
+        content.textInputAutocapitalization(.never)
+        #else
+        content
+        #endif
     }
 }
 
