@@ -28,11 +28,18 @@ struct SessionDetailView: View {
             statusBar
 
             #if canImport(UIKit)
-            TerminalSurfaceView(viewModel: viewModel)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black)
-                .safeAreaPadding(.bottom, 14)
-                .accessibilityIdentifier("terminal_log_view")
+            if viewModel.simInfo != nil {
+                SimulatorView(viewModel: viewModel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                    .accessibilityIdentifier("simulator_surface_view")
+            } else {
+                TerminalSurfaceView(viewModel: viewModel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                    .safeAreaPadding(.bottom, 14)
+                    .accessibilityIdentifier("terminal_log_view")
+            }
             #else
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
@@ -109,6 +116,11 @@ struct SessionDetailView: View {
                         .clipShape(Capsule())
                 }
                 .accessibilityIdentifier("exit_scroll_button")
+            } else if let simInfo = viewModel.simInfo {
+                Text(simInfo.deviceName)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.green)
+                    .accessibilityIdentifier("sim_device_name_text")
             } else {
                 Text(viewModel.paneProgram ?? "—")
                     .font(.system(.caption, design: .monospaced))

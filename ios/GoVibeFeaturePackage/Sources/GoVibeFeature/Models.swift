@@ -39,3 +39,12 @@ struct SavedSession: Identifiable, Codable, Hashable {
         self.roomId = roomId
     }
 }
+
+struct SimInfo: Codable, Sendable {
+    let deviceName: String
+    let udid: String
+    let screenWidth: Int
+    let screenHeight: Int
+    let scale: Double
+    let fps: Int
+}

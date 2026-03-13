@@ -16,6 +16,8 @@
 		FC9A10132F600001009F5597 /* PtySession.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10032F600001009F5597 /* PtySession.swift */; };
 		FC9A10142F600001009F5597 /* SessionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10042F600001009F5597 /* SessionCoordinator.swift */; };
 		FC9A10152F600001009F5597 /* SignalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10052F600001009F5597 /* SignalBridge.swift */; };
+		FC9A10162F600001009F5597 /* SimulatorBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10062F600001009F5597 /* SimulatorBridge.swift */; };
+		FC9A10172F600001009F5597 /* SimulatorSessionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10072F600001009F5597 /* SimulatorSessionCoordinator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +51,8 @@
 		FC9A10032F600001009F5597 /* PtySession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PtySession.swift; sourceTree = "<group>"; };
 		FC9A10042F600001009F5597 /* SessionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCoordinator.swift; sourceTree = "<group>"; };
 		FC9A10052F600001009F5597 /* SignalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalBridge.swift; sourceTree = "<group>"; };
+		FC9A10062F600001009F5597 /* SimulatorBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorBridge.swift; sourceTree = "<group>"; };
+		FC9A10072F600001009F5597 /* SimulatorSessionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorSessionCoordinator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -151,6 +155,8 @@
 				FC9A10032F600001009F5597 /* PtySession.swift */,
 				FC9A10042F600001009F5597 /* SessionCoordinator.swift */,
 				FC9A10052F600001009F5597 /* SignalBridge.swift */,
+				FC9A10062F600001009F5597 /* SimulatorBridge.swift */,
+				FC9A10072F600001009F5597 /* SimulatorSessionCoordinator.swift */,
 				FC9A10022F600001009F5597 /* main.swift */,
 			);
 			path = GoVibeMacCli;
@@ -315,6 +321,8 @@
 				FC9A10132F600001009F5597 /* PtySession.swift in Sources */,
 				FC9A10142F600001009F5597 /* SessionCoordinator.swift in Sources */,
 				FC9A10152F600001009F5597 /* SignalBridge.swift in Sources */,
+				FC9A10162F600001009F5597 /* SimulatorBridge.swift in Sources */,
+				FC9A10172F600001009F5597 /* SimulatorSessionCoordinator.swift in Sources */,
 				FC9A10122F600001009F5597 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

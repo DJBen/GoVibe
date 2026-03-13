@@ -18,6 +18,10 @@ final class SignalBridge: @unchecked Sendable {
     var onScroll: ((Int) -> Void)?
     var onScrollCancel: (() -> Void)?
     var onPeerJoined: (() -> Void)?
+    var onSimTouch: ((String, Double, Double) -> Void)?
+    var onSimPinch: ((String, Double, Double, Double) -> Void)?
+    var onSimButton: ((String) -> Void)?
+    var onSimKeyframeRequest: (() -> Void)?
 
     init(logger: Logger) {
         self.logger = logger
@@ -98,6 +102,41 @@ final class SignalBridge: @unchecked Sendable {
 
     func sendPeerHeartbeat() {
         enqueueJSON(["type": "peer_heartbeat"])
+    }
+
+    func sendSimInfo(_ payload: SimInfoPayload) {
+        let dict: [String: Any] = [
+            "type": "sim_info",
+            "deviceName": payload.deviceName,
+            "udid": payload.udid,
+            "screenWidth": payload.screenWidth,
+            "screenHeight": payload.screenHeight,
+            "scale": payload.scale,
+            "fps": payload.fps
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+              let json = String(data: data, encoding: .utf8) else {
+            logger.error("sendSimInfo: JSON serialization failed")
+            return
+        }
+        logger.info("sendSimInfo: enqueuing sim_info for \(payload.deviceName) (\(payload.screenWidth)x\(payload.screenHeight))")
+        queue.async {
+            self.outboundQueue.append(json)
+            self.flushOutboundQueueLocked()
+        }
+    }
+
+    /// Send a raw binary WebSocket frame (H.264 NAL units). Fire-and-forget — frames
+    /// are dropped rather than queued if the socket is unavailable.
+    func sendBinaryFrame(_ data: Data) {
+        queue.async {
+            guard let task = self.wsTask else { return }
+            task.send(.data(data)) { [weak self] error in
+                if let error {
+                    self?.logger.error("Binary frame send failed: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     func sendPeerRetired(reason: String) {
@@ -201,15 +240,17 @@ final class SignalBridge: @unchecked Sendable {
                         self.logger.error("Relay receive failed: \(error.localizedDescription)")
                         self.scheduleReconnectLocked()
                     case .success(let message):
-                        let text: String?
                         switch message {
-                        case .string(let raw): text = raw
-                        case .data(let data): text = String(decoding: data, as: UTF8.self)
-                        @unknown default: text = nil
-                        }
-
-                        if let text {
-                            self.handleMessage(text)
+                        case .string(let raw):
+                            self.handleMessage(raw)
+                        case .data(let data):
+                            // Binary frames from iOS (sim_touch etc.) are encoded as JSON text;
+                            // try UTF-8 decode and fall back to ignoring raw binary.
+                            if let text = String(data: data, encoding: .utf8) {
+                                self.handleMessage(text)
+                            }
+                        @unknown default:
+                            break
                         }
                         self.receiveLoop(generation: generation)
                     }
@@ -267,6 +308,34 @@ final class SignalBridge: @unchecked Sendable {
         if type == "terminal_scroll_cancel" {
             logger.info("Relay scroll cancel received")
             onScrollCancel?()
+            return
+        }
+
+        if type == "sim_touch",
+           let phase = json["phase"] as? String,
+           let x = json["x"] as? Double,
+           let y = json["y"] as? Double {
+            onSimTouch?(phase, x, y)
+            return
+        }
+
+        if type == "sim_pinch",
+           let phase = json["phase"] as? String,
+           let centerX = json["centerX"] as? Double,
+           let centerY = json["centerY"] as? Double,
+           let scale = json["scale"] as? Double {
+            onSimPinch?(phase, centerX, centerY, scale)
+            return
+        }
+
+        if type == "sim_button",
+           let action = json["action"] as? String {
+            onSimButton?(action)
+            return
+        }
+
+        if type == "sim_keyframe_request" {
+            onSimKeyframeRequest?()
         }
     }
 }
