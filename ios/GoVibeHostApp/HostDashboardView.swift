@@ -19,15 +19,15 @@ struct HostDashboardView: View {
                 }
             }
             .navigationTitle("GoVibe Host")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showingWizard = true } label: {
-                        Label("Add Session", systemImage: "plus")
-                    }
-                }
-            }
         } detail: {
             sessionInspector
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showingWizard = true } label: {
+                    Label("Add Session", systemImage: "plus")
+                }
+            }
         }
         .sheet(isPresented: $showingWizard) {
             SessionCreationWizard(manager: manager)
