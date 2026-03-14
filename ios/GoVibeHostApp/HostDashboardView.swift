@@ -110,9 +110,11 @@ struct HostDashboardView: View {
 private struct SessionCreationWizard: View {
     let manager: HostSessionManager
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedField: Field?
 
     enum Step { case typeSelection, configure }
     enum SessionKind { case terminal, simulator }
+    enum Field: Hashable { case sessionID, tmuxID }
 
     @State private var step: Step = .typeSelection
     @State private var selectedKind: SessionKind? = nil
@@ -237,76 +239,102 @@ private struct SessionCreationWizard: View {
     }
 
     private var terminalConfigStep: some View {
-        Form {
-            Section {
-                TextField("Session ID", text: $sessionID)
-            } header: {
-                Text("Required")
-            } footer: {
-                Text("A unique identifier peers will use to connect to this session.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                formIntro(
+                    title: "Give this relay a name peers can connect to.",
+                    subtitle: "You can optionally point it at a specific tmux session, or leave that blank and reuse the Session ID."
+                )
+
+                inputBlock(
+                    title: "Session ID",
+                    help: "A unique identifier peers will use to connect to this relay."
+                ) {
+                    TextField("", text: $sessionID, prompt: Text("e.g. ios-dev"))
+                        .textFieldStyle(.plain)
+                        .focused($focusedField, equals: .sessionID)
+                }
+
+                inputBlock(
+                    title: "tmux Session",
+                    help: "Optional. Leave blank to use the Session ID as the tmux session name."
+                ) {
+                    TextField("", text: $tmuxID, prompt: Text("Optional tmux session name"))
+                        .textFieldStyle(.plain)
+                        .focused($focusedField, equals: .tmuxID)
+                }
             }
-            Section {
-                TextField("tmux Session Name", text: $tmuxID)
-            } header: {
-                Text("tmux (Optional)")
-            } footer: {
-                Text("Leave blank to use the Session ID as the tmux session name.")
-            }
+            .padding(28)
         }
-        .formStyle(.grouped)
+        .onAppear { focusedField = .sessionID }
     }
 
     private var simulatorConfigStep: some View {
-        Form {
-            Section {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Make sure your simulator is already running")
-                            .font(.callout)
-                            .foregroundStyle(.primary)
-                        Text("Open Xcode → Open Developer Tool → Simulator, boot the device you want to mirror, then select it below. Only booted simulators appear in the list.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } icon: {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundStyle(.tint)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                formIntro(
+                    title: "Choose a relay name, then pick a booted simulator to mirror.",
+                    subtitle: "Open Xcode → Open Developer Tool → Simulator and boot the device first. Only active simulators appear here."
+                )
+
+                inputBlock(
+                    title: "Session ID",
+                    help: "A unique identifier peers will use to connect to this relay."
+                ) {
+                    TextField("", text: $sessionID, prompt: Text("e.g. sim-ios-18"))
+                        .textFieldStyle(.plain)
+                        .focused($focusedField, equals: .sessionID)
                 }
-            }
 
-            Section {
-                TextField("Session ID", text: $sessionID)
-            } header: {
-                Text("Required")
-            } footer: {
-                Text("A unique identifier peers will use to connect to this session.")
-            }
+                inputBlock(
+                    title: "Target Simulator",
+                    help: "Pick one of the currently booted simulators."
+                ) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text(selectionSummary)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                Task { await refreshSimulators() }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(isLoadingSimulators)
+                            .help("Refresh booted simulators")
+                        }
 
-            Section {
-                if isLoadingSimulators {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Scanning for booted simulators…").foregroundStyle(.secondary)
-                    }
-                } else if pickerSimulators.isEmpty {
-                    Text("No booted simulators found. Boot one in the Simulator app and reopen this sheet.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Picker("Simulator", selection: $simulatorUDID) {
-                        ForEach(pickerSimulators) { sim in
-                            Text("\(sim.name)  ·  \(sim.udid.prefix(8))…").tag(sim.udid)
+                        if isLoadingSimulators {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Scanning for booted simulators…")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 6)
+                        } else if pickerSimulators.isEmpty {
+                            Text("No booted simulators found. Boot one in the Simulator app, then refresh.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 6)
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(pickerSimulators) { sim in
+                                    simulatorOptionRow(sim)
+                                }
+                            }
                         }
                     }
-                    .pickerStyle(.menu)
                 }
-            } header: {
-                Text("Target Simulator")
             }
+            .padding(28)
         }
-        .formStyle(.grouped)
         .task { await refreshSimulators() }
+        .onAppear { focusedField = .sessionID }
     }
 
     // MARK: Helpers
@@ -358,5 +386,82 @@ private struct SessionCreationWizard: View {
             simulatorUDID = simulators.first?.udid ?? ""
         }
         isLoadingSimulators = false
+    }
+
+    private func formIntro(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+            Text(subtitle)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func inputBlock<Content: View>(
+        title: String,
+        help: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            content()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.primary.opacity(0.045))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                }
+            Text(help)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var selectionSummary: String {
+        guard let selected = pickerSimulators.first(where: { $0.udid == simulatorUDID }) else {
+            return "Choose one of the booted simulators below."
+        }
+        return "Selected: \(selected.name)"
+    }
+
+    private func simulatorOptionRow(_ simulator: BootedSimulatorDevice) -> some View {
+        let isSelected = simulator.udid == simulatorUDID
+        return Button {
+            simulatorUDID = simulator.udid
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(simulator.name)
+                        .foregroundStyle(.primary)
+                    Text(simulator.udid)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Spacer()
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.08), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }

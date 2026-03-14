@@ -118,6 +118,7 @@ public final class HostSessionManager {
         sessions.append(descriptor)
         selectedSessionID = descriptor.sessionId
         persistSessions()
+        startSession(id: descriptor.sessionId)
     }
 
     public func createSimulatorSession(config: SimulatorSessionConfig) {
@@ -135,6 +136,7 @@ public final class HostSessionManager {
         sessions.append(descriptor)
         selectedSessionID = descriptor.sessionId
         persistSessions()
+        startSession(id: descriptor.sessionId)
     }
 
     public func startSession(id: String) {
