@@ -38,33 +38,56 @@ public final class HostSessionManager {
             preferredSimulatorUDID: resolvedSettings.preferredSimulatorUDID,
             onboardingCompleted: resolvedSettings.onboardingCompleted
         )
-        self.sessions = defaults.data(forKey: Keys.sessions)
+        let loadedSessions = defaults.data(forKey: Keys.sessions)
             .flatMap { try? JSONDecoder().decode([HostedSessionDescriptor].self, from: $0) } ?? []
+        // Reset any active state — runtimes don't survive across launches.
+        self.sessions = loadedSessions.map { descriptor in
+            var d = descriptor
+            switch d.state {
+            case .stopped, .error:
+                break
+            default:
+                d.state = .stopped
+            }
+            return d
+        }
         self.permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
             screenRecordingGranted: CGPreflightScreenCaptureAccess()
         )
         self.selectedSessionID = sessions.first?.sessionId
-        refreshEnvironment()
+        refreshPermissions()
+        // Persist corrected states so UserDefaults stays consistent.
+        if let data = try? JSONEncoder().encode(self.sessions) {
+            defaults.set(data, forKey: Keys.sessions)
+        }
     }
 
     public func refreshEnvironment() {
+        refreshPermissions()
         bootedSimulators = SimulatorBridge.bootedSimulators()
+    }
+
+    public func refreshPermissions() {
         permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
             screenRecordingGranted: CGPreflightScreenCaptureAccess()
         )
     }
 
+    public func setBootedSimulators(_ simulators: [BootedSimulatorDevice]) {
+        bootedSimulators = simulators
+    }
+
     public func requestAccessibilityAccess() {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-        refreshEnvironment()
+        refreshPermissions()
     }
 
     public func requestScreenRecordingAccess() {
         _ = CGRequestScreenCaptureAccess()
-        refreshEnvironment()
+        refreshPermissions()
     }
 
     public func completeOnboarding(relayBase: String, defaultShellPath: String, preferredSimulatorUDID: String?) {
@@ -73,7 +96,7 @@ public final class HostSessionManager {
         settings.preferredSimulatorUDID = preferredSimulatorUDID
         settings.onboardingCompleted = !settings.relayBase.isEmpty
         persistSettings()
-        refreshEnvironment()
+        refreshPermissions()
     }
 
     public func listSessions() -> [HostedSessionDescriptor] {
