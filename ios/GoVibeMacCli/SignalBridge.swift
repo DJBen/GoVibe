@@ -121,7 +121,6 @@ final class SignalBridge: @unchecked Sendable {
             logger.error("sendSimInfo: JSON serialization failed")
             return
         }
-        logger.info("sendSimInfo: enqueuing sim_info for \(payload.deviceName) (\(payload.screenWidth)x\(payload.screenHeight))")
         queue.async {
             self.outboundQueue.append(json)
             self.flushOutboundQueueLocked()

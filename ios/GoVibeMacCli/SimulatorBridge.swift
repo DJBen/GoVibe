@@ -195,6 +195,19 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
         }
     }
 
+    // MARK: - Foreground Management
+
+    /// Brings the Simulator to front. Call on peer join so the common-case click
+    /// path finds it already frontmost and skips activation entirely.
+    func activateSimulator() {
+        guard simPID > 0, let app = NSRunningApplication(processIdentifier: simPID) else { return }
+        if #available(macOS 14.0, *) {
+            _ = app.activate()
+        } else {
+            app.activate(options: .activateIgnoringOtherApps)
+        }
+    }
+
     // MARK: - Encoder Setup
 
     private func setupEncoder(width: Int, height: Int) throws {
@@ -356,12 +369,17 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
     /// Moves the cursor by a relative delta (trackpad model).
     /// dx/dy are normalized by the iOS view size; scaled to window pixel dimensions on Mac.
     func injectCursorMove(dx: Double, dy: Double) {
+        captureQueue.async { self._injectCursorMove(dx: dx, dy: dy) }
+    }
+
+    private func _injectCursorMove(dx: Double, dy: Double) {
         guard simPID > 0, !windowBounds.isEmpty else { return }
         let current = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
+        let speed = 1.5
         let newX = max(windowBounds.minX, min(windowBounds.maxX,
-                       current.x + dx * windowBounds.width))
+                       current.x + dx * windowBounds.width * speed))
         let newY = max(windowBounds.minY, min(windowBounds.maxY,
-                       current.y + dy * windowBounds.height))
+                       current.y + dy * windowBounds.height * speed))
         let newPoint = CGPoint(x: newX, y: newY)
         currentCursorPoint = newPoint
         CGWarpMouseCursorPosition(newPoint)
@@ -369,13 +387,14 @@ final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, @unchec
 
     /// Clicks at the current tracked cursor position (trackpad model — no repositioning).
     func injectClick(clickCount: Int) {
+        captureQueue.async { self._injectClick(clickCount: clickCount) }
+    }
+
+    private func _injectClick(clickCount: Int) {
         guard simPID > 0, !windowBounds.isEmpty else { return }
         let point = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
 
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier != simPID,
-           let app = NSRunningApplication(processIdentifier: simPID) {
-            app.activate()
-        }
+        activateSimulator()
 
         func sendClick() {
             if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
