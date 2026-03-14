@@ -272,25 +272,64 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     }
 
     public func injectCursorMove(dx: Double, dy: Double) {
-        guard windowBounds.width > 0, windowBounds.height > 0 else { return }
-        if currentCursorPoint == nil {
-            currentCursorPoint = CGPoint(x: windowBounds.midX, y: windowBounds.midY)
+        captureQueue.async {
+            guard self.simPID > 0, !self.windowBounds.isEmpty else { return }
+            let current = self.currentCursorPoint ?? CGPoint(
+                x: self.windowBounds.midX,
+                y: self.windowBounds.midY
+            )
+            let speed = 1.5
+            let newX = max(
+                self.windowBounds.minX,
+                min(self.windowBounds.maxX, current.x + dx * self.windowBounds.width * speed)
+            )
+            let newY = max(
+                self.windowBounds.minY,
+                min(self.windowBounds.maxY, current.y + dy * self.windowBounds.height * speed)
+            )
+            let newPoint = CGPoint(x: newX, y: newY)
+            self.currentCursorPoint = newPoint
+            CGWarpMouseCursorPosition(newPoint)
         }
-        currentCursorPoint!.x = min(max(windowBounds.minX, currentCursorPoint!.x + dx * windowBounds.width), windowBounds.maxX)
-        currentCursorPoint!.y = min(max(windowBounds.minY, currentCursorPoint!.y - dy * windowBounds.height), windowBounds.maxY)
-        moveMouse(to: currentCursorPoint!)
     }
 
     public func injectClick(clickCount: Int) {
-        guard let point = currentCursorPoint else { return }
-        activateSimulator()
-        sendMouseClick(at: point, clickCount: clickCount)
+        captureQueue.async { self._injectClick(clickCount: clickCount) }
+    }
+
+    private func _injectClick(clickCount: Int) {
+        guard simPID > 0, !windowBounds.isEmpty else { return }
+        let point = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
+
+        focusCapturedSimulatorWindow()
+
+        func sendClick() {
+            if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                                  mouseCursorPosition: point, mouseButton: .left) {
+                down.post(tap: .cghidEventTap)
+            }
+            if let drag = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged,
+                                  mouseCursorPosition: point, mouseButton: .left) {
+                drag.post(tap: .cghidEventTap)
+            }
+            if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                                mouseCursorPosition: point, mouseButton: .left) {
+                up.post(tap: .cghidEventTap)
+            }
+        }
+
+        sendClick()
+        if clickCount == 2 {
+            sendClick()
+        }
     }
 
     public func injectButton(action: String) {
         guard let keyCode = buttonActionToKeyCode(action) else { return }
-        activateSimulator()
-        sendKeyPress(keyCode: keyCode)
+        captureQueue.async {
+            self.focusCapturedSimulatorWindow()
+            sendKeyPress(keyCode: keyCode)
+        }
     }
 
     public func forceKeyframe() {
@@ -298,51 +337,93 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     }
 
     private func handleEncodedFrame(sampleBuffer: CMSampleBuffer) {
-        defer { isEncoding = false }
+        defer { captureQueue.async { self.isEncoding = false } }
         guard let dataBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
 
-        var length = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        CMBlockBufferGetDataPointer(dataBuffer, atOffset: 0, lengthAtOffsetOut: nil,
-                                    totalLengthOut: &length, dataPointerOut: &dataPointer)
-        guard let dataPointer, length > 0 else { return }
+        let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+            as? [[CFString: Any]]
+        let isNotSync = attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool ?? false
+        let isIDR = !isNotSync
 
-        var encoded = Data(bytes: dataPointer, count: length)
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[CFString: Any]],
-           let attachment = attachments.first {
-            let isKeyframe = !(attachment[kCMSampleAttachmentKey_NotSync] as? Bool ?? false)
-            if isKeyframe, let format = CMSampleBufferGetFormatDescription(sampleBuffer) {
-                encoded = avccWithParameterSets(formatDescription: format) + encoded
+        if isIDR, let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) {
+            if let parameterFrame = buildParameterSetFrame(from: formatDesc) {
+                onBinaryFrame?(parameterFrame)
             }
         }
-        onBinaryFrame?(encoded)
+
+        let totalLen = CMBlockBufferGetDataLength(dataBuffer)
+        var sliceData = Data(count: totalLen)
+        let copyStatus = sliceData.withUnsafeMutableBytes { rawBuf -> OSStatus in
+            CMBlockBufferCopyDataBytes(
+                dataBuffer,
+                atOffset: 0,
+                dataLength: totalLen,
+                destination: rawBuf.baseAddress!
+            )
+            return noErr
+        }
+        if copyStatus == noErr, !sliceData.isEmpty {
+            onBinaryFrame?(buildFrame(type: 0x02, payload: sliceData))
+        }
     }
 
-    private func avccWithParameterSets(formatDescription: CMFormatDescription) -> Data {
-        var data = Data()
-        var parameterSetCount: Int = 0
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(formatDescription, parameterSetIndex: 0,
-                                                           parameterSetPointerOut: nil,
-                                                           parameterSetSizeOut: nil,
-                                                           parameterSetCountOut: &parameterSetCount,
-                                                           nalUnitHeaderLengthOut: nil)
+    private func buildParameterSetFrame(from formatDesc: CMVideoFormatDescription) -> Data? {
+        var spsPtr: UnsafePointer<UInt8>?
+        var spsLen = 0
+        var ppsPtr: UnsafePointer<UInt8>?
+        var ppsLen = 0
 
-        for index in 0..<parameterSetCount {
-            var parameterSetPointer: UnsafePointer<UInt8>?
-            var parameterSetSize: Int = 0
-            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(formatDescription,
-                                                               parameterSetIndex: index,
-                                                               parameterSetPointerOut: &parameterSetPointer,
-                                                               parameterSetSizeOut: &parameterSetSize,
-                                                               parameterSetCountOut: nil,
-                                                               nalUnitHeaderLengthOut: nil)
-            if let parameterSetPointer, parameterSetSize > 0 {
-                var header = UInt32(parameterSetSize).bigEndian
-                data.append(Data(bytes: &header, count: MemoryLayout<UInt32>.size))
-                data.append(parameterSetPointer, count: parameterSetSize)
-            }
+        guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+            formatDesc,
+            parameterSetIndex: 0,
+            parameterSetPointerOut: &spsPtr,
+            parameterSetSizeOut: &spsLen,
+            parameterSetCountOut: nil,
+            nalUnitHeaderLengthOut: nil
+        ) == noErr,
+        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+            formatDesc,
+            parameterSetIndex: 1,
+            parameterSetPointerOut: &ppsPtr,
+            parameterSetSizeOut: &ppsLen,
+            parameterSetCountOut: nil,
+            nalUnitHeaderLengthOut: nil
+        ) == noErr,
+        let spsPtr, spsLen > 0, let ppsPtr, ppsLen > 0 else { return nil }
+
+        var payload = Data()
+        var spsLenBE = UInt32(spsLen).bigEndian
+        payload.append(contentsOf: withUnsafeBytes(of: &spsLenBE) { Array($0) })
+        payload.append(spsPtr, count: spsLen)
+        var ppsLenBE = UInt32(ppsLen).bigEndian
+        payload.append(contentsOf: withUnsafeBytes(of: &ppsLenBE) { Array($0) })
+        payload.append(ppsPtr, count: ppsLen)
+        return buildFrame(type: 0x01, payload: payload)
+    }
+
+    private func buildFrame(type: UInt8, payload: Data) -> Data {
+        var frame = Data(count: 5 + payload.count)
+        frame[0] = type
+        var lenBE = UInt32(payload.count).bigEndian
+        withUnsafeBytes(of: &lenBE) { frame.replaceSubrange(1..<5, with: $0) }
+        frame.replaceSubrange(5..., with: payload)
+        return frame
+    }
+
+    private func focusCapturedSimulatorWindow() {
+        activateSimulator()
+
+        let focusPoint = CGPoint(x: windowBounds.midX, y: windowBounds.midY)
+        if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                              mouseCursorPosition: focusPoint, mouseButton: .left) {
+            down.post(tap: .cghidEventTap)
         }
-        return data
+        if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                            mouseCursorPosition: focusPoint, mouseButton: .left) {
+            up.post(tap: .cghidEventTap)
+        }
+
+        usleep(50_000)
     }
 }
 
