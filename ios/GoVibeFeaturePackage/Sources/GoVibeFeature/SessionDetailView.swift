@@ -28,11 +28,18 @@ struct SessionDetailView: View {
             statusBar
 
             #if canImport(UIKit)
-            TerminalSurfaceView(viewModel: viewModel)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black)
-                .safeAreaPadding(.bottom, 14)
-                .accessibilityIdentifier("terminal_log_view")
+            if viewModel.simInfo != nil {
+                SimulatorView(viewModel: viewModel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                    .accessibilityIdentifier("simulator_surface_view")
+            } else {
+                TerminalSurfaceView(viewModel: viewModel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+                    .safeAreaPadding(.bottom, 14)
+                    .accessibilityIdentifier("terminal_log_view")
+            }
             #else
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
@@ -53,11 +60,11 @@ struct SessionDetailView: View {
         }
         .overlay(alignment: .topTrailing) {
             if presentationMode == .compact && !viewModel.isInTmuxScrollMode {
-                floatingInfoMenu
+                floatingTopControls
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if let paneProgram = viewModel.paneProgram {
+            if viewModel.simInfo == nil, let paneProgram = viewModel.paneProgram {
                 QuickActionsButton(paneProgram: paneProgram) { data in
                     viewModel.sendInputDataAsync(data)
                 }
@@ -109,6 +116,11 @@ struct SessionDetailView: View {
                         .clipShape(Capsule())
                 }
                 .accessibilityIdentifier("exit_scroll_button")
+            } else if let simInfo = viewModel.simInfo {
+                Text(simInfo.deviceName)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.green)
+                    .accessibilityIdentifier("sim_device_name_text")
             } else {
                 Text(viewModel.paneProgram ?? "—")
                     .font(.system(.caption, design: .monospaced))
@@ -141,20 +153,46 @@ struct SessionDetailView: View {
                 Label("Exit Session", systemImage: "xmark.circle")
             }
         } label: {
-            Image(systemName: "info.circle")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
-                .padding(presentationMode == .compact ? 10 : 0)
-                .background(presentationMode == .compact ? .black.opacity(0.35) : .clear)
-                .clipShape(Circle())
+            if presentationMode == .compact {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .frame(width: 40, height: 40)
+                    .background(.black.opacity(0.35))
+                    .clipShape(Circle())
+            } else {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
         }
         .accessibilityIdentifier("session_info_menu")
     }
 
-    private var floatingInfoMenu: some View {
-        sessionMenu
-            .padding(.top, 12)
-            .padding(.trailing, 12)
+    private var floatingTopControls: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            sessionMenu
+            #if canImport(UIKit)
+            if viewModel.simInfo != nil {
+                SimulatorQuickActionsMenu { action in
+                    viewModel.sendSimButtonAsync(action: action)
+                }
+            } else if let paneProgram = viewModel.paneProgram {
+                QuickActionsButton(paneProgram: paneProgram) { data in
+                    viewModel.sendInputDataAsync(data)
+                }
+            }
+            #endif
+            #if !canImport(UIKit)
+            if let paneProgram = viewModel.paneProgram {
+                QuickActionsButton(paneProgram: paneProgram) { data in
+                    viewModel.sendInputDataAsync(data)
+                }
+            }
+            #endif
+        }
+        .padding(.top, 12)
+        .padding(.trailing, 12)
     }
 
     private func exitSession() {

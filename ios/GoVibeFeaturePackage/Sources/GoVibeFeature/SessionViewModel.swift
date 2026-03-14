@@ -2,6 +2,7 @@ import FirebaseAuth
 import Foundation
 import Observation
 #if canImport(UIKit)
+import AVFoundation
 import UIKit
 #endif
 
@@ -26,8 +27,15 @@ final class SessionViewModel {
     private(set) var isInTmuxScrollMode = false
     var paneProgram: String?
     private var peerWatchdogTask: Task<Void, Never>?
+    private var outboundHeartbeatTask: Task<Void, Never>?
     private var lastPeerActivityAt: Date?
     private var hasLivePeer = false
+
+    // Simulator mirror
+    private(set) var simInfo: SimInfo?
+    #if canImport(UIKit)
+    var videoDecoder: SimulatorVideoDecoder?
+    #endif
 
     let iosDeviceId: String
     let macDeviceId: String
@@ -78,6 +86,7 @@ final class SessionViewModel {
 
     func connectRelayNow() {
         intentionalDisconnect = false
+        stopOutboundHeartbeat()
         relayTask?.cancel(with: .goingAway, reason: nil)
         relayTask = nil
         resetPeerState()
@@ -111,6 +120,7 @@ final class SessionViewModel {
         relayStatus = "Waiting for Mac"
         logs.append(TerminalLine(text: "Relay connected: \(url.absoluteString)"))
         startPeerWatchdog()
+        startOutboundHeartbeat()
         receiveLoop()
         if let size = lastKnownTerminalSize {
             sendResizeAsync(cols: size.cols, rows: size.rows)
@@ -125,6 +135,7 @@ final class SessionViewModel {
                 Task { @MainActor in
                     self.relayTask = nil
                     self.stopPeerWatchdog()
+                    self.stopOutboundHeartbeat()
                     self.resetPeerState()
                     self.relayStatus = "Disconnected"
                     guard !self.intentionalDisconnect else { return }
@@ -132,20 +143,25 @@ final class SessionViewModel {
                     self.connectRelayNow()
                 }
             case .success(let message):
-                let text: String?
                 switch message {
                 case .string(let raw):
-                    text = raw
-                case .data(let data):
-                    text = String(data: data, encoding: .utf8)
-                @unknown default:
-                    text = nil
-                }
-
-                if let text {
                     Task { @MainActor in
-                        self.handleRelayMessage(text)
+                        self.handleRelayMessage(raw)
                     }
+                case .data(let data):
+                    Task { @MainActor in
+                        // The relay forwards all messages as binary WebSocket frames.
+                        // JSON control messages (sim_info, peer_heartbeat, etc.) start with '{'.
+                        // Actual binary H.264 frames use our custom 5-byte header (first byte 0x01 or 0x02).
+                        if data.first != 0x01 && data.first != 0x02,
+                           let text = String(data: data, encoding: .utf8) {
+                            self.handleRelayMessage(text)
+                        } else {
+                            self.handleBinaryRelayFrame(data)
+                        }
+                    }
+                @unknown default:
+                    break
                 }
 
                 Task { @MainActor in
@@ -166,7 +182,7 @@ final class SessionViewModel {
         peerWatchdogTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                await self?.checkPeerFreshness()
+                self?.checkPeerFreshness()
             }
         }
     }
@@ -174,6 +190,26 @@ final class SessionViewModel {
     private func stopPeerWatchdog() {
         peerWatchdogTask?.cancel()
         peerWatchdogTask = nil
+    }
+
+    private func startOutboundHeartbeat() {
+        stopOutboundHeartbeat()
+        outboundHeartbeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                await self?.sendClientHeartbeat()
+            }
+        }
+    }
+
+    private func stopOutboundHeartbeat() {
+        outboundHeartbeatTask?.cancel()
+        outboundHeartbeatTask = nil
+    }
+
+    private func sendClientHeartbeat() async {
+        guard relayTask != nil else { return }
+        await sendJSONEnvelope(["type": "peer_heartbeat", "origin": "ios"])
     }
 
     private func recordPeerActivity() {
@@ -192,6 +228,11 @@ final class SessionViewModel {
         lastPeerActivityAt = nil
         relayStatus = "Peer disconnected"
         paneProgram = nil
+        simInfo = nil
+        #if canImport(UIKit)
+        videoDecoder?.reset()
+        videoDecoder = nil
+        #endif
         terminalResetSink?()
         logs.append(TerminalLine(text: reason))
     }
@@ -200,6 +241,10 @@ final class SessionViewModel {
         hasLivePeer = false
         lastPeerActivityAt = nil
         paneProgram = nil
+        simInfo = nil
+        #if canImport(UIKit)
+        videoDecoder = nil
+        #endif
     }
 
     private func checkPeerFreshness() {
@@ -216,6 +261,29 @@ final class SessionViewModel {
             return
         }
 
+        if type == "sim_info" {
+            recordPeerActivity()
+            if let deviceName = json["deviceName"] as? String,
+               let udid = json["udid"] as? String,
+               let screenWidth = (json["screenWidth"] as? NSNumber)?.intValue,
+               let screenHeight = (json["screenHeight"] as? NSNumber)?.intValue,
+               let scale = (json["scale"] as? NSNumber)?.doubleValue,
+               let fps = (json["fps"] as? NSNumber)?.intValue {
+                let info = SimInfo(deviceName: deviceName, udid: udid,
+                                   screenWidth: screenWidth, screenHeight: screenHeight,
+                                   scale: scale, fps: fps)
+                simInfo = info
+                #if canImport(UIKit)
+                if videoDecoder == nil {
+                    videoDecoder = SimulatorVideoDecoder { [weak self] in
+                        self?.sendSimKeyframeRequestAsync()
+                    }
+                }
+                #endif
+            }
+            return
+        }
+
         if type == "peer_joined" {
             recordPeerActivity()
             if let size = lastKnownTerminalSize {
@@ -225,7 +293,10 @@ final class SessionViewModel {
         }
 
         if type == "peer_heartbeat" {
-            recordPeerActivity()
+            let origin = (json["origin"] as? String)?.lowercased()
+            if origin != "ios" {
+                recordPeerActivity()
+            }
             return
         }
 
@@ -394,11 +465,76 @@ final class SessionViewModel {
         logs.append(TerminalLine(text: "> \(input)"))
     }
 
+    // MARK: - Simulator Mirror
+
+    func handleBinaryRelayFrame(_ data: Data) {
+        recordPeerActivity()
+        #if canImport(UIKit)
+        videoDecoder?.receiveBinaryFrame(data)
+        #endif
+    }
+
+    #if canImport(UIKit)
+    func connectDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
+        videoDecoder?.setDisplayLayer(layer)
+    }
+    #endif
+
+    func sendSimCursorMove(dx: Double, dy: Double) async {
+        guard relayTask != nil else { return }
+        await sendJSONEnvelope(["type": "sim_cursor_move", "dx": dx, "dy": dy])
+    }
+
+    func sendSimClick(clickCount: Int) async {
+        guard relayTask != nil else { return }
+        await sendJSONEnvelope(["type": "sim_click", "clickCount": clickCount])
+    }
+
+    func sendSimButton(action: String) async {
+        guard relayTask != nil else { return }
+        await sendJSONEnvelope(["type": "sim_button", "action": action])
+    }
+
+    private func sendSimKeyframeRequest() async {
+        guard relayTask != nil else { return }
+        await sendJSONEnvelope(["type": "sim_keyframe_request"])
+    }
+
+    private func sendJSONEnvelope(_ envelope: [String: Any]) async {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: envelope)
+            guard let text = String(data: data, encoding: .utf8) else { return }
+            try await relayTask?.send(.string(text))
+        } catch {
+            logs.append(TerminalLine(text: "Send failed: \(error.localizedDescription)"))
+        }
+    }
+
+    func sendSimCursorMoveAsync(dx: Double, dy: Double) {
+        Task { @MainActor in await sendSimCursorMove(dx: dx, dy: dy) }
+    }
+
+    func sendSimClickAsync(clickCount: Int) {
+        Task { @MainActor in await sendSimClick(clickCount: clickCount) }
+    }
+
+    func sendSimButtonAsync(action: String) {
+        Task { @MainActor in await sendSimButton(action: action) }
+    }
+
+    func sendSimKeyframeRequestAsync() {
+        Task { @MainActor in await sendSimKeyframeRequest() }
+    }
+
     func disconnectRelay() {
         intentionalDisconnect = true
         stopPeerWatchdog()
+        stopOutboundHeartbeat()
         relayTask?.cancel(with: .goingAway, reason: nil)
         relayTask = nil
+        #if canImport(UIKit)
+        videoDecoder?.reset()
+        #endif
         resetPeerState()
         relayStatus = "Disconnected"
     }

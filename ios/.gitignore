@@ -5,6 +5,9 @@
 ## User settings
 xcuserdata/
 
+## Schemes (machine-generated, not shared)
+*.xcscheme
+
 ## Obj-C/Swift specific
 *.hmap
 
