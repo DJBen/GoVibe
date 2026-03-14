@@ -4,7 +4,7 @@ public final class RelayTransport: @unchecked Sendable {
     private let logger: HostLogger
     private var wsTask: URLSessionWebSocketTask?
     private let session = URLSession(configuration: .default)
-    private let queue = DispatchQueue(label: "dev.govibe.host.transport")
+    private let queue = DispatchQueue(label: "dev.govibe.host.transport", qos: .userInitiated)
     private var outboundQueue: [String] = []
     private var isSending = false
     private var reconnectScheduled = false
@@ -143,18 +143,16 @@ public final class RelayTransport: @unchecked Sendable {
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
 
-        let group = DispatchGroup()
-        queue.sync {
+        // Best-effort shutdown signal. Do not block the caller on the socket callback,
+        // otherwise UI-triggered stop actions can invert priority against the transport queue.
+        queue.async {
             guard let task = self.wsTask else { return }
-            group.enter()
             task.send(.string(json)) { [weak self] error in
                 if let error {
                     self?.logger.error("Relay send failed: \(error.localizedDescription)")
                 }
-                group.leave()
             }
         }
-        _ = group.wait(timeout: .now() + timeout)
     }
 
     private func enqueueJSON(_ payload: [String: String]) {
