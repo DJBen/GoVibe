@@ -177,10 +177,6 @@ struct SessionDetailView: View {
                 SimulatorQuickActionsMenu { action in
                     viewModel.sendSimButtonAsync(action: action)
                 }
-            } else if let paneProgram = viewModel.paneProgram {
-                QuickActionsButton(paneProgram: paneProgram) { data in
-                    viewModel.sendInputDataAsync(data)
-                }
             }
             #endif
             #if !canImport(UIKit)
