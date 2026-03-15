@@ -5,6 +5,33 @@ import SwiftTerm
 import UIKit
 #endif
 
+enum TerminalScrollPageDirection {
+    case up
+    case down
+}
+
+struct TerminalScrollGestureMapper {
+    func pageLines(
+        for direction: TerminalScrollPageDirection,
+        visibleRows: Int,
+        previousDirection: TerminalScrollPageDirection?
+    ) -> Int {
+        let rows = max(1, visibleRows)
+        let adjustedRows: Int
+        if let previousDirection, previousDirection != direction {
+            adjustedRows = max(1, rows - 2)
+        } else {
+            adjustedRows = rows
+        }
+        switch direction {
+        case .up:
+            return -adjustedRows
+        case .down:
+            return adjustedRows
+        }
+    }
+}
+
 #if canImport(UIKit)
 struct TerminalSurfaceView: UIViewRepresentable {
     @Bindable var viewModel: SessionViewModel
@@ -25,12 +52,17 @@ struct TerminalSurfaceView: UIViewRepresentable {
         terminal.showsHorizontalScrollIndicator = false
         terminal.getTerminal().changeHistorySize(0)
 
-        let scrollPan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRemoteScrollPan(_:)))
-        scrollPan.minimumNumberOfTouches = 1
-        scrollPan.maximumNumberOfTouches = 1
-        scrollPan.cancelsTouchesInView = false
-        terminal.addGestureRecognizer(scrollPan)
-        context.coordinator.scrollPan = scrollPan
+        let scrollSwipeUp = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRemoteScrollSwipe(_:)))
+        scrollSwipeUp.direction = .up
+        scrollSwipeUp.numberOfTouchesRequired = 1
+        terminal.addGestureRecognizer(scrollSwipeUp)
+        context.coordinator.scrollSwipeUp = scrollSwipeUp
+
+        let scrollSwipeDown = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRemoteScrollSwipe(_:)))
+        scrollSwipeDown.direction = .down
+        scrollSwipeDown.numberOfTouchesRequired = 1
+        terminal.addGestureRecognizer(scrollSwipeDown)
+        context.coordinator.scrollSwipeDown = scrollSwipeDown
 
         DispatchQueue.main.async {
             _ = terminal.becomeFirstResponder()
@@ -62,14 +94,15 @@ struct TerminalSurfaceView: UIViewRepresentable {
         coordinator.viewModel?.clearTerminalResetSink()
     }
 
-    final class Coordinator: NSObject, TerminalViewDelegate {
+    @MainActor final class Coordinator: NSObject, @MainActor TerminalViewDelegate {
         weak var viewModel: SessionViewModel?
         weak var terminal: TerminalView?
-        var scrollPan: UIPanGestureRecognizer?
+        var scrollSwipeUp: UISwipeGestureRecognizer?
+        var scrollSwipeDown: UISwipeGestureRecognizer?
         private var lastScrollPosition: Double?
-        private var lastScrollCommandAt = Date.distantPast
-        private var accumulatedPanY: CGFloat = 0
         private var lastRelayConnectTrigger: Int = 0
+        private var lastSwipeDirection: TerminalScrollPageDirection?
+        private var scrollMapper = TerminalScrollGestureMapper()
 
         init(viewModel: SessionViewModel) {
             self.viewModel = viewModel
@@ -150,34 +183,26 @@ struct TerminalSurfaceView: UIViewRepresentable {
             source.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
         }
 
-        @objc func handleRemoteScrollPan(_ gesture: UIPanGestureRecognizer) {
+        private func sendScroll(_ lines: Int) {
+            guard lines != 0 else { return }
+            let vm = viewModel
+            Task { @MainActor in
+                vm?.sendScrollAsync(lines: lines)
+            }
+        }
+
+        @objc func handleRemoteScrollSwipe(_ gesture: UISwipeGestureRecognizer) {
             guard let terminal else { return }
-
-            let translation = gesture.translation(in: terminal)
-            let deltaY = translation.y - accumulatedPanY
-            accumulatedPanY = translation.y
-
-            let pointsPerLine: CGFloat = 8
-            let sensitivityGain: CGFloat = 2.25
-            if abs(deltaY) >= pointsPerLine {
-                let scaled = (abs(deltaY) / pointsPerLine) * sensitivityGain
-                let lines = max(1, Int(scaled.rounded(.down)))
-                let direction = deltaY > 0 ? 1 : -1
-                let now = Date()
-                if now.timeIntervalSince(lastScrollCommandAt) > 0.016 {
-                    lastScrollCommandAt = now
-                    let vm = viewModel
-                    Task { @MainActor in
-                        vm?.sendScrollAsync(lines: direction * lines)
-                    }
-                }
-            }
-
-            if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
-                accumulatedPanY = 0
-                gesture.setTranslation(.zero, in: terminal)
-                _ = terminal.becomeFirstResponder()
-            }
+            let rows = terminal.getTerminal().rows
+            let direction: TerminalScrollPageDirection = gesture.direction == .up ? .up : .down
+            let lines = scrollMapper.pageLines(
+                for: direction,
+                visibleRows: rows,
+                previousDirection: lastSwipeDirection
+            )
+            lastSwipeDirection = direction
+            sendScroll(lines)
+            _ = terminal.becomeFirstResponder()
         }
     }
 }
