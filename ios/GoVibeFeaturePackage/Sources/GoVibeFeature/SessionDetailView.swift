@@ -11,6 +11,7 @@ struct SessionDetailView: View {
     let onExit: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SessionViewModel
+    @State private var showNotificationOnboarding = false
 
     init(
         roomId: String,
@@ -87,6 +88,22 @@ struct SessionDetailView: View {
 #endif
         .background(Color.black)
         .accessibilityIdentifier("govibe_root_view")
+#if canImport(UIKit)
+        .onChange(of: viewModel.paneProgram) { _, newProgram in
+            guard let program = newProgram,
+                  (program == "Claude" || program == "Codex"),
+                  viewModel.relayStatus == "Connected",
+                  !GoVibeBootstrap.hasSeenNotificationOnboarding,
+                  !showNotificationOnboarding else { return }
+            showNotificationOnboarding = true
+        }
+        .sheet(isPresented: $showNotificationOnboarding) {
+            NotificationOnboardingView {
+                showNotificationOnboarding = false
+            }
+            .presentationDetents([.medium])
+        }
+#endif
         .task {
             await viewModel.bootstrapAuth()
         }
