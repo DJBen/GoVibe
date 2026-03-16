@@ -81,6 +81,14 @@ struct TerminalSurfaceView: UIViewRepresentable {
             terminal.feed(byteArray: [0x1B, 0x63][...])
         }
 
+        viewModel.captureSnapshot = { [weak terminal] in
+            guard let terminal, !terminal.bounds.isEmpty else { return nil }
+            let renderer = UIGraphicsImageRenderer(size: terminal.bounds.size)
+            return renderer.image { ctx in
+                terminal.layer.render(in: ctx.cgContext)
+            }
+        }
+
         return terminal
     }
 
@@ -90,6 +98,15 @@ struct TerminalSurfaceView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: TerminalView, coordinator: Coordinator) {
+        // Eagerly capture before the view is torn down so onDisappear can still use it
+        // even if dismantleUIView fires first.
+        if !uiView.bounds.isEmpty {
+            let renderer = UIGraphicsImageRenderer(size: uiView.bounds.size)
+            coordinator.viewModel?.pendingSnapshotImage = renderer.image { ctx in
+                uiView.layer.render(in: ctx.cgContext)
+            }
+        }
+        coordinator.viewModel?.captureSnapshot = nil
         coordinator.viewModel?.clearTerminalOutputSink()
         coordinator.viewModel?.clearTerminalResetSink()
     }
