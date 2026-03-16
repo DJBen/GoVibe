@@ -7,20 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		FCD100012F700001009F5597 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FCD100022F700001009F5597 /* Assets.xcassets */; };
 		8B41F6832DEDD23B001A66F9 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* GoVibeFeature */; };
 		8B41F6852DEDD25C001A66F9 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* GoVibeFeature */; };
-		FCD000102F700001009F5597 /* GoVibeHostCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCD000122F700001009F5597 /* GoVibeHostCore */; };
-		FCD000142F700001009F5597 /* GoVibeHostCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCD000132F700001009F5597 /* GoVibeHostCore */; };
 		FC1BF8842F5ACF1F009F5597 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = FC1BF8832F5ACF1F009F5597 /* GoVibeFeature */; };
 		FC4F5B892F5E73A8004124B8 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = FC1BF8872F5AD100009F5597 /* ArgumentParser */; };
-		FC9A10112F600001009F5597 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10012F600001009F5597 /* Logger.swift */; };
 		FC9A10122F600001009F5597 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10022F600001009F5597 /* main.swift */; };
-		FC9A10132F600001009F5597 /* PtySession.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10032F600001009F5597 /* PtySession.swift */; };
-		FC9A10142F600001009F5597 /* SessionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10042F600001009F5597 /* SessionCoordinator.swift */; };
-		FC9A10152F600001009F5597 /* SignalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10052F600001009F5597 /* SignalBridge.swift */; };
-		FC9A10162F600001009F5597 /* SimulatorBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10062F600001009F5597 /* SimulatorBridge.swift */; };
-		FC9A10172F600001009F5597 /* SimulatorSessionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC9A10072F600001009F5597 /* SimulatorSessionCoordinator.swift */; };
+		FCD000102F700001009F5597 /* GoVibeHostCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCD000122F700001009F5597 /* GoVibeHostCore */; };
+		FCD000142F700001009F5597 /* GoVibeHostCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCD000132F700001009F5597 /* GoVibeHostCore */; };
+		FCD100012F700001009F5597 /* GoVibe/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -48,8 +42,6 @@
 /* Begin PBXFileReference section */
 		8B41F6452DEDD0D5001A66F9 /* GoVibe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoVibe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B41F65C2DEDD0D6001A66F9 /* GoVibe.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoVibe.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		FCD100022F700001009F5597 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = GoVibe/Assets.xcassets; sourceTree = SOURCE_ROOT; };
-		FCD000012F700001009F5597 /* GoVibeHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoVibeHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC1BF8732F5ACDC5009F5597 /* GoVibeMacCli */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = GoVibeMacCli; sourceTree = BUILT_PRODUCTS_DIR; };
 		FC9A10012F600001009F5597 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		FC9A10022F600001009F5597 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -58,6 +50,8 @@
 		FC9A10052F600001009F5597 /* SignalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalBridge.swift; sourceTree = "<group>"; };
 		FC9A10062F600001009F5597 /* SimulatorBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorBridge.swift; sourceTree = "<group>"; };
 		FC9A10072F600001009F5597 /* SimulatorSessionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorSessionCoordinator.swift; sourceTree = "<group>"; };
+		FCD000012F700001009F5597 /* GoVibeHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoVibeHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = GoVibe/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -66,6 +60,8 @@
 			membershipExceptions = (
 				Debug.xcconfig,
 				"GoVibe-Info.plist",
+				HostDebug.xcconfig,
+				HostRelease.xcconfig,
 				Release.xcconfig,
 				Shared.xcconfig,
 				Shared.xcconfig.local,
@@ -119,20 +115,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		FCD000082F700001009F5597 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				FCD000102F700001009F5597 /* GoVibeHostCore in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		FC1BF8702F5ACDC5009F5597 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				FCD000142F700001009F5597 /* GoVibeHostCore in Frameworks */,
 				FC4F5B892F5E73A8004124B8 /* ArgumentParser in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FCD000082F700001009F5597 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FCD000102F700001009F5597 /* GoVibeHostCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,7 +142,7 @@
 				8B41F6472DEDD0D5001A66F9 /* GoVibe */,
 				8B41F65F2DEDD0D6001A66F9 /* GoVibeUITests */,
 				FCD000022F700001009F5597 /* GoVibeHostApp */,
-				FCD100022F700001009F5597 /* Assets.xcassets */,
+				FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */,
 				FC1BF8742F5ACDC6009F5597 /* GoVibeMacCli */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
@@ -237,6 +233,27 @@
 			productReference = 8B41F65C2DEDD0D6001A66F9 /* GoVibe.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		FC1BF8722F5ACDC5009F5597 /* GoVibeMacCli */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FC1BF8772F5ACDC6009F5597 /* Build configuration list for PBXNativeTarget "GoVibeMacCli" */;
+			buildPhases = (
+				FC1BF86F2F5ACDC5009F5597 /* Sources */,
+				FC1BF8702F5ACDC5009F5597 /* Frameworks */,
+				FC1BF8712F5ACDC5009F5597 /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GoVibeMacCli;
+			packageProductDependencies = (
+				FCD000132F700001009F5597 /* GoVibeHostCore */,
+				FC1BF8872F5AD100009F5597 /* ArgumentParser */,
+			);
+			productName = GoVibeMacCli;
+			productReference = FC1BF8732F5ACDC5009F5597 /* GoVibeMacCli */;
+			productType = "com.apple.product-type.tool";
+		};
 		FCD000032F700001009F5597 /* GoVibeHost */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = FCD000042F700001009F5597 /* Build configuration list for PBXNativeTarget "GoVibeHost" */;
@@ -260,27 +277,6 @@
 			productReference = FCD000012F700001009F5597 /* GoVibeHost.app */;
 			productType = "com.apple.product-type.application";
 		};
-		FC1BF8722F5ACDC5009F5597 /* GoVibeMacCli */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = FC1BF8772F5ACDC6009F5597 /* Build configuration list for PBXNativeTarget "GoVibeMacCli" */;
-			buildPhases = (
-				FC1BF86F2F5ACDC5009F5597 /* Sources */,
-				FC1BF8702F5ACDC5009F5597 /* Frameworks */,
-				FC1BF8712F5ACDC5009F5597 /* CopyFiles */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = GoVibeMacCli;
-			packageProductDependencies = (
-				FCD000132F700001009F5597 /* GoVibeHostCore */,
-				FC1BF8872F5AD100009F5597 /* ArgumentParser */,
-			);
-			productName = GoVibeMacCli;
-			productReference = FC1BF8732F5ACDC5009F5597 /* GoVibeMacCli */;
-			productType = "com.apple.product-type.tool";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -298,11 +294,11 @@
 						CreatedOnToolsVersion = 16.3;
 						TestTargetID = 8B41F6442DEDD0D5001A66F9;
 					};
-					FCD000032F700001009F5597 = {
-						CreatedOnToolsVersion = 16.3;
-					};
 					FC1BF8722F5ACDC5009F5597 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					FCD000032F700001009F5597 = {
+						CreatedOnToolsVersion = 16.3;
 					};
 				};
 			};
@@ -352,7 +348,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FCD100012F700001009F5597 /* Assets.xcassets in Resources */,
+				FCD100012F700001009F5597 /* GoVibe/Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -373,18 +369,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		FCD000072F700001009F5597 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		FC1BF86F2F5ACDC5009F5597 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				FC9A10122F600001009F5597 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FCD000072F700001009F5597 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -604,48 +600,6 @@
 			};
 			name = Release;
 		};
-		FCD000052F700001009F5597 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
-			baseConfigurationReferenceRelativePath = HostDebug.xcconfig;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 52RD2GH5DP;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@executable_path/Frameworks",
-				);
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		FCD000062F700001009F5597 /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
-			baseConfigurationReferenceRelativePath = HostRelease.xcconfig;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 52RD2GH5DP;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@executable_path/Frameworks",
-				);
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
 		FC1BF8782F5ACDC6009F5597 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -659,9 +613,7 @@
 					".build/**/*",
 					"*.d",
 				);
-				INCLUDED_SOURCE_FILE_NAMES = (
-					main.swift,
-				);
+				INCLUDED_SOURCE_FILE_NAMES = main.swift;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -684,14 +636,56 @@
 					".build/**/*",
 					"*.d",
 				);
-				INCLUDED_SOURCE_FILE_NAMES = (
-					main.swift,
-				);
+				INCLUDED_SOURCE_FILE_NAMES = main.swift;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		FCD000052F700001009F5597 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
+			baseConfigurationReferenceRelativePath = HostDebug.xcconfig;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 52RD2GH5DP;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/Frameworks",
+				);
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		FCD000062F700001009F5597 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
+			baseConfigurationReferenceRelativePath = HostRelease.xcconfig;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 52RD2GH5DP;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/Frameworks",
+				);
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -726,15 +720,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		FCD000042F700001009F5597 /* Build configuration list for PBXNativeTarget "GoVibeHost" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				FCD000052F700001009F5597 /* Debug */,
-				FCD000062F700001009F5597 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		FC1BF8772F5ACDC6009F5597 /* Build configuration list for PBXNativeTarget "GoVibeMacCli" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -744,16 +729,25 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		FCD000042F700001009F5597 /* Build configuration list for PBXNativeTarget "GoVibeHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FCD000052F700001009F5597 /* Debug */,
+				FCD000062F700001009F5597 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		FCD000112F700001009F5597 /* XCLocalSwiftPackageReference "GoVibeHostCorePackage" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = GoVibeHostCorePackage;
-		};
 		FC1BF8822F5ACF1F009F5597 /* XCLocalSwiftPackageReference "GoVibeFeaturePackage" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = GoVibeFeaturePackage;
+		};
+		FCD000112F700001009F5597 /* XCLocalSwiftPackageReference "GoVibeHostCorePackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = GoVibeHostCorePackage;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -777,6 +771,15 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = GoVibeFeature;
 		};
+		FC1BF8832F5ACF1F009F5597 /* GoVibeFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GoVibeFeature;
+		};
+		FC1BF8872F5AD100009F5597 /* ArgumentParser */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FC1BF8862F5AD100009F5597 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
+			productName = ArgumentParser;
+		};
 		FCD000122F700001009F5597 /* GoVibeHostCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = FCD000112F700001009F5597 /* XCLocalSwiftPackageReference "GoVibeHostCorePackage" */;
@@ -786,15 +789,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FCD000112F700001009F5597 /* XCLocalSwiftPackageReference "GoVibeHostCorePackage" */;
 			productName = GoVibeHostCore;
-		};
-		FC1BF8832F5ACF1F009F5597 /* GoVibeFeature */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = GoVibeFeature;
-		};
-		FC1BF8872F5AD100009F5597 /* ArgumentParser */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = FC1BF8862F5AD100009F5597 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
-			productName = ArgumentParser;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

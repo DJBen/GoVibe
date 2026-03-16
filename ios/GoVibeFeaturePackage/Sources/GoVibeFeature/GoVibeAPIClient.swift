@@ -23,15 +23,6 @@ actor GoVibeAPIClient {
         )
     }
 
-    func fetchRelayRooms() async throws -> SessionDiscoveryResponse {
-        try await request(
-            path: "/relay/rooms",
-            method: "GET",
-            body: nil,
-            responseType: SessionDiscoveryResponse.self
-        )
-    }
-
     func discoverSessions(ownerDeviceId: String? = nil) async throws -> SessionDiscoveryResponse {
         var body: [String: Any] = [:]
         if let ownerDeviceId {
@@ -42,6 +33,14 @@ actor GoVibeAPIClient {
             method: "POST",
             body: body,
             responseType: SessionDiscoveryResponse.self
+        )
+    }
+
+    func registerFCMToken(_ token: String, deviceId: String) async throws {
+        _ = try await request(
+            path: "/device/fcmToken",
+            body: ["deviceId": deviceId, "fcmToken": token],
+            responseType: OkResponse.self
         )
     }
 
@@ -71,6 +70,10 @@ actor GoVibeAPIClient {
 
         return try decoder.decode(responseType, from: data)
     }
+}
+
+private struct OkResponse: Decodable {
+    let ok: Bool
 }
 
 enum APIError: Error {

@@ -4,6 +4,14 @@ import GoVibeHostCore
 struct HostDashboardView: View {
     @State var manager: HostSessionManager
     @State private var showingWizard = false
+    private let relativeDateFormatter = RelativeDateTimeFormatter()
+    private static let logTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("yMdjmmsszzz")
+        return formatter
+    }()
 
     var body: some View {
         NavigationSplitView {
@@ -11,7 +19,7 @@ struct HostDashboardView: View {
                 ForEach(manager.listSessions()) { session in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(session.displayName)
-                        Text("\(session.kind.rawValue.capitalized) • \(session.state.rawValue)")
+                        Text("\(session.kind.rawValue.capitalized) • \(stateDescription(for: session))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -45,9 +53,9 @@ struct HostDashboardView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     LabeledContent("Session ID", value: session.sessionId)
                     LabeledContent("Type", value: session.kind.rawValue.capitalized)
-                    LabeledContent("State", value: session.state.rawValue)
+                    LabeledContent("State", value: stateDescription(for: session))
                     if let lastPeerActivityAt = session.lastPeerActivityAt {
-                        LabeledContent("Last peer activity", value: lastPeerActivityAt.formatted(date: .abbreviated, time: .standard))
+                        LabeledContent("Last active", value: relativeDateFormatter.localizedString(for: lastPeerActivityAt, relativeTo: .now))
                     }
                     HStack {
                         Button(toggleTitle(for: session.state)) { toggleSession(session) }
@@ -100,8 +108,22 @@ struct HostDashboardView: View {
     }
 
     private func logText(for sessionID: String) -> String {
-        let lines = manager.sessionLogs(id: sessionID).map { "[\($0.level.rawValue.uppercased())] \($0.message)" }
+        let lines = manager.sessionLogs(id: sessionID).map {
+            let timestamp = Self.logTimestampFormatter.string(from: $0.timestamp)
+            return "[\(timestamp)] [\($0.level.rawValue.uppercased())] \($0.message)"
+        }
         return lines.isEmpty ? "No logs yet." : lines.joined(separator: "\n")
+    }
+
+    private func stateDescription(for session: HostedSessionDescriptor) -> String {
+        if session.state == .stale {
+            if let lastPeerActivityAt = session.lastPeerActivityAt {
+                return "Last active \(relativeDateFormatter.localizedString(for: lastPeerActivityAt, relativeTo: .now))"
+            }
+            return "Last active a while ago"
+        }
+
+        return session.state.rawValue.capitalized
     }
 }
 

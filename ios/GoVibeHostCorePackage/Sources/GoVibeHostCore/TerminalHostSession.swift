@@ -86,8 +86,8 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.signalStopIfNeeded()
         }
 
-        logWatcher = ClaudeLogWatcher(cwd: NSHomeDirectory(), logger: logger) { [weak self] in
-            self?.bridge.sendPushNotify(event: "claude_waiting")
+        logWatcher = ClaudeLogWatcher(cwd: NSHomeDirectory(), logger: logger) { [weak self] event in
+            self?.bridge.sendPushNotify(event: event.rawValue)
         }
         bridge.start(room: macDeviceId, relayBase: relayBase)
         try pty.start()
