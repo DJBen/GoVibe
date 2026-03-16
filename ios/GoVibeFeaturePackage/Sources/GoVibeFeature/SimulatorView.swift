@@ -447,7 +447,6 @@ struct SimulatorView: View {
             .onAppear {
                 // Wire captureSnapshot here (not in makeUIView) so it's set reliably
                 // after any view-swap ordering issues (e.g. terminal → simulator transition).
-                print("[SimulatorView] onAppear: wiring captureSnapshot to videoDecoder")
                 viewModel.captureSnapshot = { [weak viewModel] in
                     viewModel?.videoDecoder?.captureLastFrame()
                 }

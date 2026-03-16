@@ -240,13 +240,8 @@ struct SessionDetailView: View {
 
     private func exitSession() {
         #if canImport(UIKit)
-        print("[exitSession] captureSnapshot=\(viewModel.captureSnapshot != nil ? "set" : "nil") videoDecoder=\(viewModel.videoDecoder != nil ? "set" : "nil") pendingSnapshot=\(viewModel.pendingSnapshotImage != nil ? "set(\(viewModel.pendingSnapshotImage!.size))" : "nil")")
-        if viewModel.pendingSnapshotImage == nil {
-            let captured = viewModel.captureSnapshot?()
-            print("[exitSession] captureSnapshot() returned \(captured != nil ? "\(captured!.size)" : "nil")")
-            if let captured {
-                viewModel.pendingSnapshotImage = captured
-            }
+        if viewModel.pendingSnapshotImage == nil, let captured = viewModel.captureSnapshot?() {
+            viewModel.pendingSnapshotImage = captured
         }
         #endif
         viewModel.disconnectRelay()

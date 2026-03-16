@@ -411,14 +411,7 @@ struct SessionListView: View {
     private func saveSnapshot(image: UIImage, date: Date, roomId: String) {
         let url = SessionStore.thumbnailURL(for: roomId)
         if let data = image.jpegData(compressionQuality: 0.7) {
-            print("[SessionListView] saveSnapshot: JPEG \(data.count) bytes → \(url.lastPathComponent)")
-            do {
-                try data.write(to: url)
-            } catch {
-                print("[SessionListView] saveSnapshot: write FAILED \(error)")
-            }
-        } else {
-            print("[SessionListView] saveSnapshot: jpegData returned nil for image \(image.size)")
+            try? data.write(to: url)
         }
         store.update(roomId: roomId, lastActiveAt: date)
     }
@@ -460,9 +453,7 @@ private struct SessionCardItem: View {
         .accessibilityIdentifier("session_card_\(session.roomId)")
         .task(id: session.lastActiveAt) {
             let url = SessionStore.thumbnailURL(for: session.roomId)
-            let img = UIImage(contentsOfFile: url.path)
-            print("[SessionCardItem] task fired roomId=\(session.roomId) lastActiveAt=\(session.lastActiveAt?.description ?? "nil") fileExists=\(FileManager.default.fileExists(atPath: url.path)) img=\(img != nil ? "\(img!.size)" : "nil")")
-            thumbnail = img
+            thumbnail = UIImage(contentsOfFile: url.path)
         }
     }
 }
