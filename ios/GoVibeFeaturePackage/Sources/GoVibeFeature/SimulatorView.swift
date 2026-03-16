@@ -514,7 +514,7 @@ struct SimulatorView: View {
                         }
                     }
                     .padding(.leading, 16)
-                    .padding(.trailing, 64) // Avoid overlap with top-right floating controls
+                    .padding(.trailing, 48) // Avoid overlap with top-right floating controls
                     .padding(.top, 20)
                 }
             }
