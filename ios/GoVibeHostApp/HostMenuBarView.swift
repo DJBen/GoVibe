@@ -8,29 +8,26 @@ struct HostMenuBarView: View {
     private let relativeDateFormatter = RelativeDateTimeFormatter()
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
-                Button("Open app") {
+                Button("Open GoVibe Host") {
                     presentMainWindow()
                 }
                 .buttonStyle(.plain)
 
-                Button("Show host ID") {
+                Button("Show Host ID") {
                     presentHostIDWindow()
                 }
                 .buttonStyle(.plain)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer(minLength: 16)
+            Divider()
 
             sessionSummary
                 .frame(maxWidth: .infinity)
 
-            Spacer(minLength: 16)
-
             Divider()
-                .padding(.bottom, 10)
 
             Button("Quit app") {
                 NSApp.terminate(nil)
@@ -40,7 +37,6 @@ struct HostMenuBarView: View {
         }
         .padding(12)
         .frame(width: 320)
-        .frame(minHeight: 280)
     }
 
     @ViewBuilder
@@ -71,6 +67,7 @@ struct HostMenuBarView: View {
                             .font(.caption2)
                             .foregroundStyle(stateColor(for: session.state))
                     }
+                    .padding(.vertical, 2)
                     .frame(maxWidth: .infinity)
                 }
             }
