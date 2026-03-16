@@ -8,11 +8,49 @@ struct HostMenuBarView: View {
     private let relativeDateFormatter = RelativeDateTimeFormatter()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("GoVibe Host")
-                .font(.headline)
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Button("Open app") {
+                    presentMainWindow()
+                }
+                .buttonStyle(.plain)
 
-            Text("\(manager.listSessions().filter { $0.state == .running || $0.state == .waitingForPeer || $0.state == .stale }.count) hosted sessions")
+                Button("Show host ID") {
+                    presentHostIDWindow()
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: 16)
+
+            sessionSummary
+                .frame(maxWidth: .infinity)
+
+            Spacer(minLength: 16)
+
+            Divider()
+                .padding(.bottom, 10)
+
+            Button("Quit app") {
+                NSApp.terminate(nil)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .frame(width: 320)
+        .frame(minHeight: 280)
+    }
+
+    @ViewBuilder
+    private var sessionSummary: some View {
+        let activeCount = manager.listSessions()
+            .filter { $0.state == .running || $0.state == .waitingForPeer || $0.state == .stale }
+            .count
+
+        VStack(spacing: 10) {
+            Text("\(activeCount) hosted sessions")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -20,45 +58,24 @@ struct HostMenuBarView: View {
                 Text("No hosted relay sessions yet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             } else {
                 ForEach(manager.listSessions()) { session in
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(spacing: 2) {
                         Text(session.displayName)
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .font(.caption)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(session.kind.rawValue.capitalized) • \(stateLabel(for: session))")
-                                .font(.caption2)
-                                .foregroundStyle(stateColor(for: session.state))
-                        }
+                        Text("\(session.kind.rawValue.capitalized) • \(stateLabel(for: session))")
+                            .font(.caption2)
+                            .foregroundStyle(stateColor(for: session.state))
                     }
-                    .padding(.vertical, 2)
+                    .frame(maxWidth: .infinity)
                 }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Button("Show Host ID") {
-                    presentHostIDWindow()
-                }
-                .buttonStyle(.plain)
-
-                Button("Open GoVibe Host") {
-                    presentMainWindow()
-                }
-                .buttonStyle(.plain)
-
-                Button("Quit GoVibe Host") {
-                    NSApp.terminate(nil)
-                }
-                .buttonStyle(.plain)
             }
         }
-        .padding(12)
-        .frame(width: 300)
+        .multilineTextAlignment(.center)
     }
 
     private func presentHostIDWindow() {
