@@ -11,6 +11,19 @@ enum DragPhase {
     case ended
 }
 
+// UIScrollView subclass that fires a callback on every layoutSubviews pass.
+// This lets the coordinator size the zoom/player views immediately once UIKit
+// has given the scroll view real bounds — without waiting for the next SwiftUI
+// state change (which would otherwise be the heartbeat, up to 3 s away).
+private final class SimScrollView: UIScrollView {
+    var onLayoutSubviews: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayoutSubviews?()
+    }
+}
+
 struct SimulatorScrollView: UIViewRepresentable {
     let simInfo: SimInfo
     var onDisplayLayer: (AVSampleBufferDisplayLayer) -> Void
@@ -22,7 +35,7 @@ struct SimulatorScrollView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> UIScrollView {
-        let scrollView = UIScrollView()
+        let scrollView = SimScrollView()
         scrollView.backgroundColor = .black
         scrollView.delegate = context.coordinator
         scrollView.minimumZoomScale = 1.0
@@ -35,6 +48,16 @@ struct SimulatorScrollView: UIViewRepresentable {
         // Disable UIScrollView's built-in pan at 1× so it doesn't compete with our
         // custom pan gesture. scrollViewDidZoom re-enables it when zoomed in.
         scrollView.panGestureRecognizer.isEnabled = false
+
+        // Wire the layoutSubviews callback so the player frame is updated as soon as
+        // UIKit sizes the scroll view — not only when SwiftUI state next changes.
+        let coordinator = context.coordinator
+        (scrollView as? SimScrollView)?.onLayoutSubviews = { [weak coordinator, weak scrollView] in
+            guard let coordinator, let scrollView, scrollView.zoomScale == 1.0 else { return }
+            coordinator.zoomView?.frame = scrollView.bounds
+            scrollView.contentSize = scrollView.bounds.size
+            coordinator.layoutPlayerView()
+        }
 
         let zoomView = UIView()
         zoomView.backgroundColor = .black

@@ -496,6 +496,7 @@ final class SessionViewModel {
 
     #if canImport(UIKit)
     func connectDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
+        print("[SessionViewModel] connectDisplayLayer called, decoder=\(videoDecoder != nil ? "ready" : "nil")")
         videoDecoder?.setDisplayLayer(layer)
     }
     #endif

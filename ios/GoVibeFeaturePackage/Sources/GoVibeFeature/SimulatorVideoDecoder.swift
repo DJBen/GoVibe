@@ -24,9 +24,17 @@ final class SimulatorVideoDecoder {
 
     func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
         displayLayer = layer
+        // Discard any format description cached before the display layer was
+        // connected.  Non-IDR frames that arrive while waiting for the
+        // keyframe response would otherwise pass the `guard let formatDescription`
+        // check in handleSlice and get enqueued without a prior IDR, pushing the
+        // layer into a .failed state and causing every subsequent IDR to be
+        // dropped (flush → request → non-IDR frames → fail → drop IDR → loop).
+        formatDescription = nil
         setupTimebase(for: layer)
         // Ask Mac for an IDR frame immediately so the first frame appears
         // without waiting for the next natural keyframe interval.
+        print("[SimVideoDecoder] setDisplayLayer called — requesting keyframe")
         onKeyframeRequest()
     }
 
@@ -104,12 +112,16 @@ final class SimulatorVideoDecoder {
             }
         }
 
-        guard status == noErr, let newFormatDesc else { return }
+        guard status == noErr, let newFormatDesc else {
+            print("[SimVideoDecoder] handleParameterSet: CMVideoFormatDescriptionCreateFromH264ParameterSets FAILED status=\(status)")
+            return
+        }
 
         if let existing = formatDescription,
            CMFormatDescriptionEqual(existing, otherFormatDescription: newFormatDesc) {
             return
         }
+        print("[SimVideoDecoder] handleParameterSet: new format set, flushing layer (layer=\(displayLayer != nil ? "non-nil" : "nil"))")
         formatDescription = newFormatDesc
         displayLayer?.flush()
     }
@@ -117,12 +129,21 @@ final class SimulatorVideoDecoder {
     // MARK: - Video Slice
 
     private func handleSlice(_ data: Data) {
-        guard let formatDescription, let displayLayer else { return }
-
-        if displayLayer.status == .failed {
-            displayLayer.flush()
-            onKeyframeRequest()
+        guard let formatDescription, let displayLayer else {
+            print("[SimVideoDecoder] handleSlice: SKIPPED — formatDescription=\(formatDescription != nil ? "set" : "nil"), displayLayer=\(displayLayer != nil ? "non-nil" : "nil")")
             return
+        }
+
+        let layerStatus = displayLayer.status
+
+        if layerStatus == .failed {
+            print("[SimVideoDecoder] handleSlice: layer .failed — flushing and requesting keyframe")
+            displayLayer.flush()
+            // Don't return — attempt to enqueue the current frame (which may be
+            // the IDR we were waiting for).  If it's a non-IDR the layer will
+            // discard it; if it's the IDR it will display.  A fresh keyframe
+            // request is sent so we recover even if this frame can't decode.
+            onKeyframeRequest()
         }
 
         // Create a CMBlockBuffer that owns its memory.
@@ -170,7 +191,10 @@ final class SimulatorVideoDecoder {
             sampleSizeArray: &size,
             sampleBufferOut: &sampleBuffer
         )
-        guard sbStatus == noErr, let sampleBuffer else { return }
+        guard sbStatus == noErr, let sampleBuffer else {
+            print("[SimVideoDecoder] handleSlice: CMSampleBufferCreateReady FAILED status=\(sbStatus)")
+            return
+        }
 
         displayLayer.enqueue(sampleBuffer)
     }
