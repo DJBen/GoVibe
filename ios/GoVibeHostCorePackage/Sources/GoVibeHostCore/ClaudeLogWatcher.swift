@@ -6,6 +6,7 @@ import Foundation
 /// Polling is driven externally — call `poll()` every second from the host session.
 final class ClaudeLogWatcher {
     private let projectsRoot: URL
+    private let logger: HostLogger
     private var cwd: String
     private var fileURL: URL?
     private var readOffset: UInt64 = 0
@@ -14,8 +15,9 @@ final class ClaudeLogWatcher {
 
     let onTurnComplete: () -> Void
 
-    init(cwd: String, onTurnComplete: @escaping () -> Void) {
+    init(cwd: String, logger: HostLogger, onTurnComplete: @escaping () -> Void) {
         self.cwd = cwd
+        self.logger = logger
         self.projectsRoot = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
         self.onTurnComplete = onTurnComplete
@@ -24,6 +26,7 @@ final class ClaudeLogWatcher {
     /// Update the working directory (e.g. when the tmux pane's cwd changes).
     func updateCwd(_ newCwd: String) {
         guard newCwd != cwd else { return }
+        logger.info("ClaudeLogWatcher: cwd updated \(cwd) → \(newCwd)")
         cwd = newCwd
         fileURL = nil
         readOffset = 0
@@ -47,7 +50,14 @@ final class ClaudeLogWatcher {
 
             if type == "user" {
                 // User replied — allow the next end_turn to fire a notification.
+                if awaitingNextTurn {
+                    logger.info("ClaudeLogWatcher: user turn detected, ready for next end_turn")
+                }
                 awaitingNextTurn = false
+            }
+
+            if type == "assistant", let stopReason {
+                logger.info("ClaudeLogWatcher: assistant stop_reason=\(stopReason) uuid=\(uuid ?? "nil") awaitingNextTurn=\(awaitingNextTurn)")
             }
 
             if type == "assistant",
@@ -55,6 +65,7 @@ final class ClaudeLogWatcher {
                let uuid,
                uuid != lastNotifiedUUID,
                !awaitingNextTurn {
+                logger.info("ClaudeLogWatcher: end_turn detected, firing push notification")
                 lastNotifiedUUID = uuid
                 awaitingNextTurn = true
                 onTurnComplete()
@@ -64,6 +75,7 @@ final class ClaudeLogWatcher {
 
     /// Called when the pane switches away from Claude.
     func reset() {
+        logger.info("ClaudeLogWatcher: reset (pane switched away from Claude)")
         fileURL = nil
         readOffset = 0
         lastNotifiedUUID = nil
@@ -73,14 +85,10 @@ final class ClaudeLogWatcher {
     // MARK: - Private
 
     private func projectDir() -> URL? {
-        // Claude derives the project dir name from the cwd:
-        //   strip the leading '/', then replace every '/' with '-'
-        // e.g. "/Users/sihaolu/Developments/GoVibe" → "-Users-sihaolu-Developments-GoVibe"
-        var dirName = cwd
-        if dirName.hasPrefix("/") {
-            dirName = String(dirName.dropFirst())
-        }
-        dirName = dirName.replacingOccurrences(of: "/", with: "-")
+        // Claude derives the project dir name by replacing every '/' in the cwd with '-'
+        // (including the leading slash), e.g.:
+        //   "/Users/sihaolu/Developments/GoVibe" → "-Users-sihaolu-Developments-GoVibe"
+        let dirName = cwd.replacingOccurrences(of: "/", with: "-")
         let dir = projectsRoot.appendingPathComponent(dirName)
         guard FileManager.default.fileExists(atPath: dir.path) else { return nil }
         return dir
@@ -88,7 +96,10 @@ final class ClaudeLogWatcher {
 
     private func refreshFileIfNeeded() {
         guard let dir = projectDir() else {
-            fileURL = nil
+            if fileURL != nil {
+                logger.info("ClaudeLogWatcher: project dir not found for cwd=\(cwd)")
+                fileURL = nil
+            }
             return
         }
 
@@ -106,13 +117,19 @@ final class ClaudeLogWatcher {
         }
 
         guard let newest else {
-            fileURL = nil
+            if fileURL != nil {
+                logger.info("ClaudeLogWatcher: no .jsonl files found in \(dir.path)")
+                fileURL = nil
+            }
             return
         }
 
         if newest != fileURL {
+            // Seek to end so we don't replay historical turns written before this session started.
+            let endOffset = (try? FileManager.default.attributesOfItem(atPath: newest.path)[.size] as? UInt64) ?? 0
+            logger.info("ClaudeLogWatcher: watching \(newest.lastPathComponent) at offset \(endOffset)")
             fileURL = newest
-            readOffset = 0
+            readOffset = endOffset
         }
     }
 
