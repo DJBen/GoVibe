@@ -32,22 +32,6 @@ cd ../..
 firebase deploy --only functions,firestore
 ```
 
-4. Verify scheduled stale-session cleanup is deployed:
-
-```bash
-gcloud scheduler jobs list --location us-west1 | grep closeStaleSessions
-```
-
-5. Verify Firestore TTL for auto-deletion is active on `sessions.expiresAt`:
-
-```bash
-gcloud firestore fields ttls list \
-  --database='(default)' \
-  --filter='collectionGroup:sessions AND field:expiresAt'
-```
-
-If TTL is not active yet, deploy Firestore config again (`firebase deploy --only firestore`) and wait for TTL field policy propagation.
-
 ## Cloud Run Relay
 
 ```bash

@@ -1,6 +1,14 @@
 import Foundation
 
 public final class HostLogger: @unchecked Sendable {
+    private static let stdoutTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("yMdjmmsszzz")
+        return formatter
+    }()
+
     private let sessionId: String
     private let printToStdout: Bool
     private let sink: (HostLogEntry) -> Void
@@ -29,7 +37,7 @@ public final class HostLogger: @unchecked Sendable {
         queue.async {
             self.sink(entry)
             guard self.printToStdout else { return }
-            let ts = ISO8601DateFormatter().string(from: entry.timestamp)
+            let ts = Self.stdoutTimestampFormatter.string(from: entry.timestamp)
             print("[\(ts)] [\(level.rawValue.uppercased())] \(message)")
             fflush(stdout)
         }

@@ -24,6 +24,9 @@ public final class RelayTransport: @unchecked Sendable {
     public var onSimClick: ((Int) -> Void)?
     public var onSimButton: ((String) -> Void)?
     public var onSimKeyframeRequest: (() -> Void)?
+    public var onSimDragBegin: (() -> Void)?
+    public var onSimDragMove: ((Double, Double) -> Void)?
+    public var onSimDragEnd: (() -> Void)?
 
     public init(logger: HostLogger) {
         self.logger = logger
@@ -81,6 +84,10 @@ public final class RelayTransport: @unchecked Sendable {
             "type": "pane_program",
             "name": name,
         ])
+    }
+
+    public func sendPushNotify(event: String) {
+        enqueueJSON(["type": "push_notify", "event": event])
     }
 
     public func sendSnapshot(_ data: Data) {
@@ -300,6 +307,14 @@ public final class RelayTransport: @unchecked Sendable {
             }
         case "sim_keyframe_request":
             onSimKeyframeRequest?()
+        case "sim_drag_begin":
+            onSimDragBegin?()
+        case "sim_drag_move":
+            if let dx = json["dx"] as? Double, let dy = json["dy"] as? Double {
+                onSimDragMove?(dx, dy)
+            }
+        case "sim_drag_end":
+            onSimDragEnd?()
         default:
             break
         }
