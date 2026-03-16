@@ -27,6 +27,8 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
     private var stopSignalSent = false
     private let stopSemaphore = DispatchSemaphore(value: 0)
 
+    private var logWatcher: ClaudeLogWatcher?
+
     public init(
         hostId: String,
         config: TerminalSessionConfig,
@@ -84,6 +86,9 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.signalStopIfNeeded()
         }
 
+        logWatcher = ClaudeLogWatcher(cwd: NSHomeDirectory()) { [weak self] in
+            self?.bridge.sendPushNotify(event: "claude_waiting")
+        }
         bridge.start(room: macDeviceId, relayBase: relayBase)
         try pty.start()
         startProgramPolling()
@@ -212,10 +217,25 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         guard let sessionName = pty.tmuxSessionName,
               let tmuxPath = PtySession.resolveTmux() else { return }
         let name = currentPaneProgramName(sessionName: sessionName, tmuxPath: tmuxPath)
-        guard !name.isEmpty, name != lastPaneProgram else { return }
-        lastPaneProgram = name
-        bridge.sendPaneProgram(name)
-        logger.info("Pane program changed: \(name)")
+        if !name.isEmpty, name != lastPaneProgram {
+            lastPaneProgram = name
+            bridge.sendPaneProgram(name)
+            logger.info("Pane program changed: \(name)")
+            if name != "Claude" {
+                logWatcher?.reset()
+            } else {
+                // Claude just became active — update the watcher's cwd from the tmux pane.
+                if let paneCwd = runProcessCaptureOutput(
+                    executable: tmuxPath,
+                    arguments: ["display-message", "-p", "-t", sessionName, "#{pane_current_path}"]
+                ) {
+                    logWatcher?.updateCwd(paneCwd)
+                }
+            }
+        }
+        if lastPaneProgram == "Claude" {
+            logWatcher?.poll()
+        }
     }
 
     private func currentPaneProgramName(sessionName: String, tmuxPath: String) -> String {

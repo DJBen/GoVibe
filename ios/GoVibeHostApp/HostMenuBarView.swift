@@ -5,6 +5,7 @@ import AppKit
 struct HostMenuBarView: View {
     @Environment(\.openWindow) private var openWindow
     @State var manager: HostSessionManager
+    private let relativeDateFormatter = RelativeDateTimeFormatter()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -28,7 +29,7 @@ struct HostMenuBarView: View {
                             .font(.caption)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(session.kind.rawValue.capitalized) • \(stateLabel(for: session.state))")
+                            Text("\(session.kind.rawValue.capitalized) • \(stateLabel(for: session))")
                                 .font(.caption2)
                                 .foregroundStyle(stateColor(for: session.state))
                         }
@@ -68,12 +69,17 @@ struct HostMenuBarView: View {
         }
     }
 
-    private func stateLabel(for state: HostedSessionState) -> String {
-        switch state {
+    private func stateLabel(for session: HostedSessionDescriptor) -> String {
+        switch session.state {
         case .waitingForPeer:
-            "Waiting"
+            return "Waiting"
+        case .stale:
+            if let lastPeerActivityAt = session.lastPeerActivityAt {
+                return "Last active \(relativeDateFormatter.localizedString(for: lastPeerActivityAt, relativeTo: .now))"
+            }
+            return "Last active a while ago"
         default:
-            state.rawValue.capitalized
+            return session.state.rawValue.capitalized
         }
     }
 
