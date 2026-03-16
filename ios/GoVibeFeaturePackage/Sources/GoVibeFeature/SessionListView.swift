@@ -114,9 +114,11 @@ struct SessionListView: View {
     }
 
     private func deleteSession(_ session: SavedSession) {
-        store.delete(roomId: session.roomId)
-        if selectedSession == session {
-            selectedSession = nil
+        Task {
+            await store.deleteSession(session)
+            if selectedSession == session {
+                selectedSession = nil
+            }
         }
     }
 
@@ -146,7 +148,69 @@ struct SessionListView: View {
 
     // MARK: - Sectioned List
 
+    @ViewBuilder
     private func sessionSectionedList() -> some View {
+#if canImport(UIKit)
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if let errorMessage = store.errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .font(.footnote)
+                        .padding()
+                }
+
+                ForEach(store.hosts) { host in
+                    Section(header: iosSectionHeader(title: host.name, hostId: host.id)) {
+                        let hostSessions = store.sessions(for: host.id)
+                        if !hostSessions.isEmpty {
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
+                                ForEach(hostSessions) { session in
+                                    SessionCardItem(
+                                        session: session,
+                                        isSelected: session == selectedSession,
+                                        onTap: { handleTap(session) },
+                                        onDelete: { deleteSession(session) }
+                                    )
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                        } else {
+                            Text("No active sessions")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                        }
+
+                        Button {
+                            createSessionForHost = host
+                        } label: {
+                            Label("New Terminal Session", systemImage: "plus")
+                                .foregroundStyle(.tint)
+                                .font(.subheadline.weight(.medium))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                        .accessibilityIdentifier("new_session_\(host.id)")
+                    }
+                }
+
+                if store.hosts.isEmpty && !store.isLoading {
+                    emptyStateView
+                        .padding(.top, 40)
+                }
+            }
+            .padding(.bottom, 40)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+#else
         List {
             if let errorMessage = store.errorMessage {
                 Section {
@@ -160,23 +224,6 @@ struct SessionListView: View {
             ForEach(store.hosts) { host in
                 Section {
                     let hostSessions = store.sessions(for: host.id)
-#if canImport(UIKit)
-                    if !hostSessions.isEmpty {
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                            ForEach(hostSessions) { session in
-                                SessionCardItem(
-                                    session: session,
-                                    isSelected: session == selectedSession,
-                                    onTap: { handleTap(session) },
-                                    onDelete: { deleteSession(session) }
-                                )
-                            }
-                        }
-                        .padding(.vertical, 8)
-                        .listRowInsets(.init())
-                        .listRowBackground(Color.clear)
-                    }
-#else
                     ForEach(hostSessions) { session in
                         sessionRowButton(session)
                             .contextMenu {
@@ -194,7 +241,6 @@ struct SessionListView: View {
                             deleteSession(sessions[index])
                         }
                     }
-#endif
 
                     Button {
                         createSessionForHost = host
@@ -219,52 +265,39 @@ struct SessionListView: View {
                         }
                 }
             }
-
-            // "Other" section for legacy sessions with no host
-            let uncategorized = store.sessionsWithoutHost
-            if !uncategorized.isEmpty {
-                Section("Other") {
-#if canImport(UIKit)
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                        ForEach(uncategorized) { session in
-                            SessionCardItem(
-                                session: session,
-                                isSelected: session == selectedSession,
-                                onTap: { handleTap(session) },
-                                onDelete: { deleteSession(session) }
-                            )
-                        }
-                    }
-                    .padding(.vertical, 8)
-                    .listRowInsets(.init())
-                    .listRowBackground(Color.clear)
-#else
-                    ForEach(uncategorized) { session in
-                        sessionRowButton(session)
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    deleteSession(session)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                    }
-                    .onDelete { offsets in
-                        let sessions = store.sessionsWithoutHost
-                        for index in offsets {
-                            deleteSession(sessions[index])
-                        }
-                    }
+        }
 #endif
+    }
+    
+    #if canImport(UIKit)
+    private func iosSectionHeader(title: String, hostId: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.primary)
+                .textCase(nil)
+            Spacer()
+            Menu {
+                Button(role: .destructive) {
+                    store.removeHost(id: hostId)
+                    if let selected = selectedSession, selected.hostId == hostId {
+                        selectedSession = nil
+                    }
+                } label: {
+                    Label("Remove Host", systemImage: "trash")
                 }
-            }
-
-            // Empty state when no hosts configured
-            if store.hosts.isEmpty && store.sessionsWithoutHost.isEmpty && !store.isLoading {
-                emptyStateRow
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial) // sticky header effect
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
+    #endif
 
     @ViewBuilder
     private func sessionRowButton(_ session: SavedSession) -> some View {
@@ -286,23 +319,21 @@ struct SessionListView: View {
     }
 
     @ViewBuilder
-    private var emptyStateRow: some View {
-        Section {
-            VStack(alignment: .center, spacing: 12) {
-                Image(systemName: "desktopcomputer.and.arrow.down")
-                    .font(.system(size: 36))
-                    .foregroundStyle(.tertiary)
-                Text("No Hosts Added")
-                    .font(.headline)
-                Text("Tap + to add a Mac running GoVibe Host.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
-            .listRowBackground(Color.clear)
+    private var emptyStateView: some View {
+        VStack(alignment: .center, spacing: 12) {
+            Image(systemName: "desktopcomputer.and.arrow.down")
+                .font(.system(size: 36))
+                .foregroundStyle(.tertiary)
+            Text("No Hosts Added")
+                .font(.headline)
+            Text("Tap + to add a Mac running GoVibe Host.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .listRowBackground(Color.clear)
     }
 
     // MARK: - Toolbar
@@ -328,6 +359,7 @@ struct SessionListView: View {
                 }
             } label: {
                 Image(systemName: "plus")
+                    .foregroundStyle(.tint)
             }
             .accessibilityIdentifier("add_session_button")
         }

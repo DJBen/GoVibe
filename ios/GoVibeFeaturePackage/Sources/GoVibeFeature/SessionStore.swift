@@ -15,16 +15,18 @@ final class SessionStore {
     var errorMessage: String?
     var currentUserId: String?
 
+    private struct PersistedSavedSession: Decodable {
+        let roomId: String
+        let hostId: String?
+        let kind: SessionKind?
+        let lastRelayStatus: String?
+        let lastActiveAt: Date?
+    }
+
     init(
         apiBaseURL: URL = AppRuntimeConfig.apiBaseURL
     ) {
         self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
-    }
-
-    // MARK: - Computed
-
-    var sessionsWithoutHost: [SavedSession] {
-        sessions.filter { $0.hostId == nil }
     }
 
     func sessions(for hostId: String) -> [SavedSession] {
@@ -97,13 +99,7 @@ final class SessionStore {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedId.isEmpty, !trimmedName.isEmpty else { return }
         guard !hosts.contains(where: { $0.id == trimmedId }) else { return }
-        let isFirstHost = hosts.isEmpty
         hosts.append(HostInfo(id: trimmedId, name: trimmedName))
-        if isFirstHost {
-            for i in sessions.indices where sessions[i].hostId == nil {
-                sessions[i].hostId = trimmedId
-            }
-        }
         saveHosts(for: userId)
         save(for: userId)
     }
@@ -118,7 +114,7 @@ final class SessionStore {
 
     // MARK: - Session Management
 
-    func add(roomId: String, hostId: String? = nil) {
+    func add(roomId: String, hostId: String) {
         guard let userId = currentUserId else {
             errorMessage = APIError.notAuthenticated.localizedDescription
             return
@@ -157,6 +153,19 @@ final class SessionStore {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = roomId.replacingOccurrences(of: "/", with: "_")
         return dir.appendingPathComponent("\(safe).jpg")
+    }
+
+    /// Deletes a session, attempting to remove it from the remote host first if applicable.
+    func deleteSession(_ session: SavedSession) async {
+        let client = HostControlClient(relayWebSocketBase: AppRuntimeConfig.relayWebSocketBase)
+        do {
+            try await client.deleteSession(hostId: session.hostId, sessionId: session.roomId)
+        } catch {
+            // If remote delete fails, we log it but proceed to delete locally
+            // so the user isn't stuck with a zombie session in their UI.
+            print("Remote delete failed for \(session.roomId): \(error.localizedDescription)")
+        }
+        delete(roomId: session.roomId)
     }
 
     func delete(roomId: String) {
@@ -202,7 +211,15 @@ final class SessionStore {
             return
         }
         do {
-            sessions = try JSONDecoder().decode([SavedSession].self, from: data)
+            let persisted = try JSONDecoder().decode([PersistedSavedSession].self, from: data)
+            sessions = persisted.compactMap { session in
+                guard let hostId = session.hostId, !hostId.isEmpty else { return nil }
+                var saved = SavedSession(roomId: session.roomId, hostId: hostId)
+                saved.kind = session.kind
+                saved.lastRelayStatus = session.lastRelayStatus
+                saved.lastActiveAt = session.lastActiveAt
+                return saved
+            }
         } catch {
             sessions = []
             errorMessage = "Failed to read local session list."

@@ -61,14 +61,14 @@ struct HostInfo: Identifiable, Codable, Hashable {
 
 struct SavedSession: Identifiable, Codable, Hashable {
     var roomId: String
-    var hostId: String?          // which host this session belongs to (nil = uncategorized)
+    var hostId: String
     var kind: SessionKind?
     var lastRelayStatus: String?
     var lastActiveAt: Date?      // set when user leaves session
 
     var id: String { roomId }
 
-    init(roomId: String, hostId: String? = nil) {
+    init(roomId: String, hostId: String) {
         self.roomId = roomId
         self.hostId = hostId
     }
