@@ -33,21 +33,6 @@ final class SessionStore {
             errorMessage = error.localizedDescription
             return
         }
-
-        // Primary: relay presence (rooms with a Mac currently connected).
-        // When this succeeds, treat relay rooms as source of truth and prune stale
-        // locally persisted sessions that are no longer live.
-        // Falls back gracefully — if the relay endpoint fails, locally saved sessions
-        // are still shown and the error is surfaced to the user.
-        do {
-            let relayRooms = try await apiClient.fetchRelayRooms()
-            replaceWithLiveRooms(relayRooms.roomIds)
-            if let userId = currentUserId {
-                save(for: userId)
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
     }
 
     func add(roomId: String) {
@@ -64,6 +49,35 @@ final class SessionStore {
         save(for: userId)
     }
 
+    func update(roomId: String, kind: SessionKind) {
+        guard let index = sessions.firstIndex(where: { $0.roomId == roomId }) else { return }
+        sessions[index].kind = kind
+        guard let userId = currentUserId else { return }
+        save(for: userId)
+    }
+
+    func update(roomId: String, relayStatus: String) {
+        guard let index = sessions.firstIndex(where: { $0.roomId == roomId }) else { return }
+        sessions[index].lastRelayStatus = relayStatus
+        guard let userId = currentUserId else { return }
+        save(for: userId)
+    }
+
+    func update(roomId: String, lastActiveAt: Date) {
+        guard let index = sessions.firstIndex(where: { $0.roomId == roomId }) else { return }
+        sessions[index].lastActiveAt = lastActiveAt
+        guard let userId = currentUserId else { return }
+        save(for: userId)
+    }
+
+    static func thumbnailURL(for roomId: String) -> URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = caches.appendingPathComponent("govibe_thumbs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safe = roomId.replacingOccurrences(of: "/", with: "_")
+        return dir.appendingPathComponent("\(safe).jpg")
+    }
+
     func delete(at offsets: IndexSet) {
         guard let userId = currentUserId else {
             errorMessage = APIError.notAuthenticated.localizedDescription
@@ -71,19 +85,6 @@ final class SessionStore {
         }
         sessions.remove(atOffsets: offsets)
         save(for: userId)
-    }
-
-    private func replaceWithLiveRooms(_ roomIds: [String]) {
-        sessions = roomIds
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .reduce(into: [String]()) { unique, roomId in
-                if !unique.contains(roomId) {
-                    unique.append(roomId)
-                }
-            }
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            .map(SavedSession.init(roomId:))
     }
 
     private func storageKey(for userId: String) -> String {

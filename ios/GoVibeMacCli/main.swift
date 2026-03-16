@@ -1,6 +1,7 @@
 import AppKit
 import ArgumentParser
 import Foundation
+import GoVibeHostCore
 
 struct GoVibeMacCli: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -44,7 +45,7 @@ struct Terminal: ParsableCommand {
 
     mutating func run() throws {
         let (relay, deviceId) = try shared.validated()
-        let logger = Logger()
+        let logger = HostLogger(sessionId: deviceId, printToStdout: true) { _ in }
         logger.info("Starting GoVibeMacCli")
         logger.info("Device ID: \(deviceId)")
         logger.info("Relay: \(relay)")
@@ -53,15 +54,18 @@ struct Terminal: ParsableCommand {
         let resolvedSessionName = sessionName ?? deviceId
         logger.info("tmux session: \(resolvedSessionName)")
 
-        let pty = PtySession(shellPath: shell, tmuxSessionName: resolvedSessionName, logger: logger)
-        let coordinator = SessionCoordinator(
-            macDeviceId: deviceId,
-            pty: pty,
-            logger: logger,
-            relayBase: relay
+        let session = TerminalHostSession(
+            hostId: HostRuntimeDefaults.makeSettings().hostId,
+            config: TerminalSessionConfig(
+                sessionId: deviceId,
+                shellPath: shell,
+                tmuxSessionName: resolvedSessionName
+            ),
+            relayBase: relay,
+            logger: logger
         )
-        setupSignalHandlers(logger: logger, stop: coordinator.stop)
-        try coordinator.runForever()
+        setupSignalHandlers(logger: logger, stop: session.stop)
+        try session.runUntilStopped()
     }
 }
 
@@ -80,7 +84,7 @@ struct Simulator: ParsableCommand {
 
     mutating func run() throws {
         let (relay, deviceId) = try shared.validated()
-        let logger = Logger()
+        let logger = HostLogger(sessionId: deviceId, printToStdout: true) { _ in }
         logger.info("Starting GoVibeMacCli")
         logger.info("Device ID: \(deviceId)")
         logger.info("Relay: \(relay)")
@@ -89,25 +93,29 @@ struct Simulator: ParsableCommand {
 
         // NSApplication must be initialized on the main thread before any
         // ScreenCaptureKit work so the CGS (window server) connection is ready.
-        NSApplication.shared.setActivationPolicy(.prohibited)
+        _ = MainActor.assumeIsolated {
+            NSApplication.shared.setActivationPolicy(.prohibited)
+        }
         logger.info("NSApplication initialized (CGS ready)")
 
-        let coordinator = SimulatorSessionCoordinator(
-            macDeviceId: deviceId,
-            logger: logger,
+        let session = SimulatorHostSession(
+            hostId: HostRuntimeDefaults.makeSettings().hostId,
+            config: SimulatorSessionConfig(sessionId: deviceId, preferredUDID: udid),
             relayBase: relay,
-            preferredUDID: udid
+            logger: logger
         )
-        setupSignalHandlers(logger: logger, stop: coordinator.stop)
-        try coordinator.runForever()
+        setupSignalHandlers(logger: logger, stop: session.stop)
+        session.runUntilStopped()
     }
 }
 
 // MARK: - Helpers
 
-private var retainedSignalSources: [DispatchSourceSignal] = []
+private enum SignalSourceRetainer {
+    nonisolated(unsafe) static var retained: [DispatchSourceSignal] = []
+}
 
-private func setupSignalHandlers(logger: Logger, stop: @escaping () -> Void) {
+private func setupSignalHandlers(logger: HostLogger, stop: @escaping () -> Void) {
     signal(SIGINT, SIG_IGN)
     signal(SIGTERM, SIG_IGN)
     let queue = DispatchQueue(label: "dev.govibe.maccli.signals")
@@ -117,7 +125,7 @@ private func setupSignalHandlers(logger: Logger, stop: @escaping () -> Void) {
     sigterm.setEventHandler { logger.info("Received SIGTERM, stopping"); stop() }
     sigint.resume()
     sigterm.resume()
-    retainedSignalSources = [sigint, sigterm]
+    SignalSourceRetainer.retained = [sigint, sigterm]
 }
 
 GoVibeMacCli.main()

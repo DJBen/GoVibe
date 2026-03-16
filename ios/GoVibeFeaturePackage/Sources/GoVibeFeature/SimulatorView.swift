@@ -5,11 +5,19 @@ import UIKit
 
 // MARK: - UIScrollView-based representable
 
+enum DragPhase {
+    case began
+    case changed(dx: Double, dy: Double)
+    case ended
+}
+
 struct SimulatorScrollView: UIViewRepresentable {
     let simInfo: SimInfo
     var onDisplayLayer: (AVSampleBufferDisplayLayer) -> Void
     var onCursorMove: (CGPoint) -> Void   // dx/dy relative delta, normalized by view size
     var onTap: (Int) -> Void              // clickCount only; no position (trackpad model)
+    var onDrag: (DragPhase) -> Void
+    var onSnapshotCapture: ((@escaping () -> UIImage?) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -38,6 +46,13 @@ struct SimulatorScrollView: UIViewRepresentable {
         zoomView.addSubview(playerView)
         context.coordinator.playerView = playerView
         onDisplayLayer(playerView.displayLayer)
+        onSnapshotCapture?({ [weak playerView] in
+            guard let playerView, !playerView.bounds.isEmpty else { return nil }
+            let renderer = UIGraphicsImageRenderer(size: playerView.bounds.size)
+            return renderer.image { ctx in
+                playerView.layer.render(in: ctx.cgContext)
+            }
+        })
 
         // Add tap/pan recognizers to the scrollView itself (not zoomView) so that
         // UIScrollView's touch-interception machinery doesn't swallow them.
@@ -64,6 +79,15 @@ struct SimulatorScrollView: UIViewRepresentable {
         scrollView.addGestureRecognizer(pan)
         context.coordinator.panGesture = pan
 
+        // 2-finger pan → click-and-drag (mouseDown + mouseDragged + mouseUp)
+        let dragPan = UIPanGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleDragPan(_:)))
+        dragPan.minimumNumberOfTouches = 2
+        dragPan.maximumNumberOfTouches = 2
+        dragPan.delegate = context.coordinator
+        scrollView.addGestureRecognizer(dragPan)
+        context.coordinator.dragPanGesture = dragPan
+
         return scrollView
     }
 
@@ -75,6 +99,7 @@ struct SimulatorScrollView: UIViewRepresentable {
         }
         context.coordinator.layoutPlayerView()
     }
+
 
     // MARK: - AVSampleBufferDisplayLayer host
 
@@ -102,6 +127,7 @@ struct SimulatorScrollView: UIViewRepresentable {
         weak var playerView: PlayerView?
         weak var scrollView: UIScrollView?
         weak var panGesture: UIPanGestureRecognizer?
+        weak var dragPanGesture: UIPanGestureRecognizer?
 
         init(_ parent: SimulatorScrollView) { self.parent = parent }
 
@@ -171,6 +197,24 @@ struct SimulatorScrollView: UIViewRepresentable {
             parent.onCursorMove(CGPoint(x: translation.x / w, y: translation.y / h))
         }
 
+        @objc func handleDragPan(_ recognizer: UIPanGestureRecognizer) {
+            guard let sv = scrollView else { return }
+            switch recognizer.state {
+            case .began:
+                parent.onDrag(.began)
+            case .changed:
+                let t = recognizer.translation(in: sv)
+                recognizer.setTranslation(.zero, in: sv)
+                let w = sv.bounds.width, h = sv.bounds.height
+                guard w > 0, h > 0 else { return }
+                parent.onDrag(.changed(dx: t.x / w, dy: t.y / h))
+            case .ended, .cancelled, .failed:
+                parent.onDrag(.ended)
+            default:
+                break
+            }
+        }
+
         // MARK: UIGestureRecognizerDelegate
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -179,6 +223,15 @@ struct SimulatorScrollView: UIViewRepresentable {
                 return (scrollView?.zoomScale ?? 1.0) <= 1.0
             }
             return true
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            // Never allow 2-finger drag and pinch to fire at the same time
+            if gestureRecognizer === dragPanGesture || otherGestureRecognizer === dragPanGesture {
+                return false
+            }
+            return false
         }
     }
 }
@@ -194,7 +247,15 @@ struct SimulatorView: View {
                 simInfo: simInfo,
                 onDisplayLayer: { viewModel.connectDisplayLayer($0) },
                 onCursorMove:   { viewModel.sendSimCursorMoveAsync(dx: $0.x, dy: $0.y) },
-                onTap:          { viewModel.sendSimClickAsync(clickCount: $0) }
+                onTap:          { viewModel.sendSimClickAsync(clickCount: $0) },
+                onDrag: { phase in
+                    switch phase {
+                    case .began:                       viewModel.sendSimDragBeginAsync()
+                    case .changed(let dx, let dy):     viewModel.sendSimDragMoveAsync(dx: dx, dy: dy)
+                    case .ended:                       viewModel.sendSimDragEndAsync()
+                    }
+                },
+                onSnapshotCapture: { capturer in viewModel.captureSnapshot = capturer }
             )
             .ignoresSafeArea()
             .accessibilityIdentifier("simulator_view")

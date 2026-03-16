@@ -30,8 +30,30 @@ struct TerminalLine: Identifiable {
     let text: String
 }
 
+enum SessionKind: String, Codable {
+    case terminal
+    case simulator
+
+    var iconName: String {
+        switch self {
+        case .terminal:  return "terminal"
+        case .simulator: return "iphone"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .terminal:  return "Terminal"
+        case .simulator: return "Simulator"
+        }
+    }
+}
+
 struct SavedSession: Identifiable, Codable, Hashable {
     var roomId: String
+    var kind: SessionKind?
+    var lastRelayStatus: String?
+    var lastActiveAt: Date?      // set when user leaves session
 
     var id: String { roomId }
 
@@ -40,7 +62,7 @@ struct SavedSession: Identifiable, Codable, Hashable {
     }
 }
 
-struct SimInfo: Codable, Sendable {
+struct SimInfo: Codable, Sendable, Equatable {
     let deviceName: String
     let udid: String
     let screenWidth: Int

@@ -35,6 +35,8 @@ final class SessionViewModel {
     private(set) var simInfo: SimInfo?
     #if canImport(UIKit)
     var videoDecoder: SimulatorVideoDecoder?
+    var captureSnapshot: (() -> UIImage?)?   // registered by the active surface view
+    var pendingSnapshotImage: UIImage?       // captured eagerly during dismantleUIView
     #endif
 
     let iosDeviceId: String
@@ -64,6 +66,16 @@ final class SessionViewModel {
             } catch {
                 logs.append(TerminalLine(text: "Auth failed: \(error.localizedDescription)"))
             }
+        }
+
+        // Register whatever FCM token is already available, then stay subscribed to refreshes.
+        GoVibeAppDelegate.onFCMTokenRefresh = { [weak self] token in
+            Task { @MainActor [weak self] in
+                try? await self?.apiClient.registerFCMToken(token, deviceId: self?.iosDeviceId ?? "")
+            }
+        }
+        if let token = GoVibeAppDelegate.latestFCMToken {
+            try? await apiClient.registerFCMToken(token, deviceId: iosDeviceId)
         }
 
         connectRelayNow()
@@ -107,7 +119,10 @@ final class SessionViewModel {
             return
         }
 
-        components.queryItems = [URLQueryItem(name: "room", value: room)]
+        components.queryItems = [
+            URLQueryItem(name: "room", value: room),
+            URLQueryItem(name: "iosDeviceId", value: iosDeviceId)
+        ]
         guard let url = components.url else {
             attemptRelayConnection(candidateIndex: candidateIndex + 1, room: room)
             return
@@ -303,6 +318,11 @@ final class SessionViewModel {
         if type == "peer_retired" {
             let reason = (json["reason"] as? String).map { "Mac session ended (\($0))" } ?? "Mac session ended"
             markPeerRetired(reason: reason)
+            return
+        }
+
+        if type == "push_notify" {
+            recordPeerActivity()
             return
         }
 
@@ -524,6 +544,18 @@ final class SessionViewModel {
 
     func sendSimKeyframeRequestAsync() {
         Task { @MainActor in await sendSimKeyframeRequest() }
+    }
+
+    func sendSimDragBeginAsync() {
+        Task { await sendJSONEnvelope(["type": "sim_drag_begin"]) }
+    }
+
+    func sendSimDragMoveAsync(dx: Double, dy: Double) {
+        Task { await sendJSONEnvelope(["type": "sim_drag_move", "dx": dx, "dy": dy]) }
+    }
+
+    func sendSimDragEndAsync() {
+        Task { await sendJSONEnvelope(["type": "sim_drag_end"]) }
     }
 
     func disconnectRelay() {

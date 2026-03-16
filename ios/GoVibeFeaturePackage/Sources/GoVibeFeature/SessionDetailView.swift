@@ -9,17 +9,27 @@ struct SessionDetailView: View {
     let roomId: String
     let presentationMode: PresentationMode
     let onExit: (() -> Void)?
+    var onKindDiscovered: ((SessionKind) -> Void)? = nil
+    var onStatusChanged: ((String) -> Void)? = nil
+    #if canImport(UIKit)
+    var onSnapshot: ((UIImage, Date) -> Void)? = nil
+    #endif
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SessionViewModel
+    @State private var showNotificationOnboarding = false
 
     init(
         roomId: String,
         presentationMode: PresentationMode = .compact,
-        onExit: (() -> Void)? = nil
+        onExit: (() -> Void)? = nil,
+        onKindDiscovered: ((SessionKind) -> Void)? = nil,
+        onStatusChanged: ((String) -> Void)? = nil
     ) {
         self.roomId = roomId
         self.presentationMode = presentationMode
         self.onExit = onExit
+        self.onKindDiscovered = onKindDiscovered
+        self.onStatusChanged = onStatusChanged
         _viewModel = State(initialValue: SessionViewModel(macDeviceId: roomId))
     }
 
@@ -87,10 +97,42 @@ struct SessionDetailView: View {
 #endif
         .background(Color.black)
         .accessibilityIdentifier("govibe_root_view")
+#if canImport(UIKit)
+        .onChange(of: viewModel.paneProgram) { _, newProgram in
+            guard let program = newProgram,
+                  (program == "Claude" || program == "Codex"),
+                  viewModel.relayStatus == "Connected",
+                  !GoVibeBootstrap.hasSeenNotificationOnboarding,
+                  !showNotificationOnboarding else { return }
+            showNotificationOnboarding = true
+        }
+        .sheet(isPresented: $showNotificationOnboarding) {
+            NotificationOnboardingView {
+                showNotificationOnboarding = false
+            }
+            .presentationDetents([.medium])
+        }
+#endif
+        .onChange(of: viewModel.relayStatus) { _, newStatus in
+            onStatusChanged?(newStatus)
+        }
+        .onChange(of: viewModel.simInfo) { _, simInfo in
+            if simInfo != nil { onKindDiscovered?(.simulator) }
+        }
+        .onChange(of: viewModel.paneProgram) { _, program in
+            if program != nil { onKindDiscovered?(.terminal) }
+        }
         .task {
             await viewModel.bootstrapAuth()
         }
         .onDisappear {
+            #if canImport(UIKit)
+            let image = viewModel.captureSnapshot?() ?? viewModel.pendingSnapshotImage
+            if let image {
+                onSnapshot?(image, Date())
+            }
+            viewModel.pendingSnapshotImage = nil
+            #endif
             viewModel.disconnectRelay()
         }
     }
@@ -177,10 +219,6 @@ struct SessionDetailView: View {
                 SimulatorQuickActionsMenu { action in
                     viewModel.sendSimButtonAsync(action: action)
                 }
-            } else if let paneProgram = viewModel.paneProgram {
-                QuickActionsButton(paneProgram: paneProgram) { data in
-                    viewModel.sendInputDataAsync(data)
-                }
             }
             #endif
             #if !canImport(UIKit)
@@ -204,3 +242,13 @@ struct SessionDetailView: View {
         }
     }
 }
+
+#if canImport(UIKit)
+extension SessionDetailView {
+    func withSnapshot(_ handler: @escaping (UIImage, Date) -> Void) -> SessionDetailView {
+        var copy = self
+        copy.onSnapshot = handler
+        return copy
+    }
+}
+#endif

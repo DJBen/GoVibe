@@ -1,0 +1,9 @@
+#include "Shared.xcconfig"
+
+PRODUCT_NAME = GoVibeHost
+PRODUCT_DISPLAY_NAME = GoVibe Host
+PRODUCT_BUNDLE_IDENTIFIER = dev.govibe.host.debug
+INFOPLIST_FILE = Config/GoVibeHost-Info.plist
+GENERATE_INFOPLIST_FILE = NO
+MACOSX_DEPLOYMENT_TARGET = 15.0
+SDKROOT = macosx
