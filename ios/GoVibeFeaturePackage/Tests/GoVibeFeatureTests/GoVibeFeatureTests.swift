@@ -1,6 +1,31 @@
 import Testing
 @testable import GoVibeFeature
 
+@Test func simulatorGestureMathNormalizesTranslationsByBounds() async throws {
+    let delta = try #require(
+        SimulatorGestureMath.normalizedTranslation(
+            CGPoint(x: 45, y: -30),
+            in: CGRect(x: 0, y: 0, width: 180, height: 120)
+        )
+    )
+
+    #expect(delta.x == 0.25)
+    #expect(delta.y == -0.25)
+}
+
+@Test func simulatorGestureMathBuildsDeltaFromTwoPoints() async throws {
+    let delta = try #require(
+        SimulatorGestureMath.normalizedDelta(
+            from: CGPoint(x: 10, y: 50),
+            to: CGPoint(x: 70, y: 20),
+            in: CGRect(x: 0, y: 0, width: 120, height: 60)
+        )
+    )
+
+    #expect(delta.x == 0.5)
+    #expect(delta.y == -0.5)
+}
+
 @Test func swipeUpMapsToNegativeVisibleRows() async throws {
     let mapper = TerminalScrollGestureMapper()
     let lines = mapper.pageLines(for: .up, visibleRows: 24, previousDirection: nil)

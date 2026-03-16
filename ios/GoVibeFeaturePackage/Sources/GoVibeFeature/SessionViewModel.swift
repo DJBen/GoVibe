@@ -516,6 +516,11 @@ final class SessionViewModel {
         await sendJSONEnvelope(["type": "sim_button", "action": action])
     }
 
+    func sendSimScroll(dx: Double, dy: Double) async {
+        guard relayTask != nil else { return }
+        await sendJSONEnvelope(["type": "sim_scroll", "dx": dx, "dy": dy])
+    }
+
     private func sendSimKeyframeRequest() async {
         guard relayTask != nil else { return }
         await sendJSONEnvelope(["type": "sim_keyframe_request"])
@@ -541,6 +546,10 @@ final class SessionViewModel {
 
     func sendSimButtonAsync(action: String) {
         Task { @MainActor in await sendSimButton(action: action) }
+    }
+
+    func sendSimScrollAsync(dx: Double, dy: Double) {
+        Task { @MainActor in await sendSimScroll(dx: dx, dy: dy) }
     }
 
     func sendSimKeyframeRequestAsync() {

@@ -11,6 +11,58 @@ enum DragPhase {
     case ended
 }
 
+final class DoubleTapDragGestureRecognizer: UIGestureRecognizer {
+    private let movementThreshold: CGFloat = 6
+    private var trackingSecondTap = false
+    private(set) var initialLocation: CGPoint = .zero
+
+    override func reset() {
+        super.reset()
+        trackingSecondTap = false
+        initialLocation = .zero
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard state == .possible, let touch = touches.first, touches.count == 1 else {
+            state = .failed
+            return
+        }
+        guard touch.tapCount == 2, let view else { return }
+        trackingSecondTap = true
+        initialLocation = touch.location(in: view)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard trackingSecondTap, let touch = touches.first, let view else { return }
+        let location = touch.location(in: view)
+        if state == .possible {
+            let dx = location.x - initialLocation.x
+            let dy = location.y - initialLocation.y
+            if hypot(dx, dy) >= movementThreshold {
+                state = .began
+            }
+            return
+        }
+        state = .changed
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard trackingSecondTap else {
+            state = .failed
+            return
+        }
+        if state == .began || state == .changed {
+            state = .ended
+        } else {
+            state = .failed
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .cancelled
+    }
+}
+
 // UIScrollView subclass that fires a callback on every layoutSubviews pass.
 // This lets the coordinator size the zoom/player views immediately once UIKit
 // has given the scroll view real bounds — without waiting for the next SwiftUI
@@ -102,14 +154,13 @@ struct SimulatorScrollView: UIViewRepresentable {
         scrollView.addGestureRecognizer(pan)
         context.coordinator.panGesture = pan
 
-        // 2-finger pan → click-and-drag (mouseDown + mouseDragged + mouseUp)
-        let dragPan = UIPanGestureRecognizer(
-            target: context.coordinator, action: #selector(Coordinator.handleDragPan(_:)))
-        dragPan.minimumNumberOfTouches = 2
-        dragPan.maximumNumberOfTouches = 2
-        dragPan.delegate = context.coordinator
-        scrollView.addGestureRecognizer(dragPan)
-        context.coordinator.dragPanGesture = dragPan
+        // Double-tap-and-drag → click-and-drag (mouseDown + mouseDragged + mouseUp)
+        let doubleTapDrag = DoubleTapDragGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleDoubleTapDrag(_:)))
+        doubleTapDrag.delegate = context.coordinator
+        doubleTap.require(toFail: doubleTapDrag)
+        scrollView.addGestureRecognizer(doubleTapDrag)
+        context.coordinator.doubleTapDragGesture = doubleTapDrag
 
         return scrollView
     }
@@ -150,7 +201,8 @@ struct SimulatorScrollView: UIViewRepresentable {
         weak var playerView: PlayerView?
         weak var scrollView: UIScrollView?
         weak var panGesture: UIPanGestureRecognizer?
-        weak var dragPanGesture: UIPanGestureRecognizer?
+        weak var doubleTapDragGesture: DoubleTapDragGestureRecognizer?
+        private var lastDragLocation: CGPoint?
 
         init(_ parent: SimulatorScrollView) { self.parent = parent }
 
@@ -213,25 +265,36 @@ struct SimulatorScrollView: UIViewRepresentable {
             guard let sv = scrollView else { return }
             let translation = recognizer.translation(in: sv)
             recognizer.setTranslation(.zero, in: sv)
-            let w = sv.bounds.width
-            let h = sv.bounds.height
-            guard w > 0, h > 0 else { return }
+            guard let delta = SimulatorGestureMath.normalizedTranslation(translation, in: sv.bounds) else { return }
             // Send relative delta normalized by view size (trackpad model)
-            parent.onCursorMove(CGPoint(x: translation.x / w, y: translation.y / h))
+            parent.onCursorMove(delta)
         }
 
-        @objc func handleDragPan(_ recognizer: UIPanGestureRecognizer) {
+        @objc func handleDoubleTapDrag(_ recognizer: DoubleTapDragGestureRecognizer) {
             guard let sv = scrollView else { return }
+            let location = recognizer.location(in: sv)
             switch recognizer.state {
             case .began:
+                lastDragLocation = recognizer.initialLocation
                 parent.onDrag(.began)
+                if let delta = SimulatorGestureMath.normalizedDelta(
+                    from: recognizer.initialLocation,
+                    to: location,
+                    in: sv.bounds
+                ), delta != .zero {
+                    parent.onDrag(.changed(dx: delta.x, dy: delta.y))
+                    lastDragLocation = location
+                }
             case .changed:
-                let t = recognizer.translation(in: sv)
-                recognizer.setTranslation(.zero, in: sv)
-                let w = sv.bounds.width, h = sv.bounds.height
-                guard w > 0, h > 0 else { return }
-                parent.onDrag(.changed(dx: t.x / w, dy: t.y / h))
+                guard let lastDragLocation else {
+                    self.lastDragLocation = location
+                    return
+                }
+                guard let delta = SimulatorGestureMath.normalizedDelta(from: lastDragLocation, to: location, in: sv.bounds) else { return }
+                parent.onDrag(.changed(dx: delta.x, dy: delta.y))
+                self.lastDragLocation = location
             case .ended, .cancelled, .failed:
+                lastDragLocation = nil
                 parent.onDrag(.ended)
             default:
                 break
@@ -245,13 +308,15 @@ struct SimulatorScrollView: UIViewRepresentable {
             if gestureRecognizer === panGesture {
                 return (scrollView?.zoomScale ?? 1.0) <= 1.0
             }
+            if gestureRecognizer === doubleTapDragGesture {
+                return (scrollView?.zoomScale ?? 1.0) <= 1.0
+            }
             return true
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            // Never allow 2-finger drag and pinch to fire at the same time
-            if gestureRecognizer === dragPanGesture || otherGestureRecognizer === dragPanGesture {
+            if gestureRecognizer === doubleTapDragGesture || otherGestureRecognizer === doubleTapDragGesture {
                 return false
             }
             return false
