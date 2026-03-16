@@ -107,6 +107,74 @@ struct HostControlClient {
         // .created — success
     }
 
+    /// Connects to `<hostId>-ctl` and requests deletion of a session.
+    func deleteSession(hostId: String, sessionId: String) async throws {
+        let roomId = "\(hostId)-ctl"
+        guard var components = URLComponents(string: relayWebSocketBase) else {
+            throw HostControlError.connectionFailed("Invalid relay URL")
+        }
+        components.queryItems = [URLQueryItem(name: "room", value: roomId)]
+        guard let url = components.url else {
+            throw HostControlError.connectionFailed("Failed to compose relay URL")
+        }
+
+        let urlSession = URLSession(configuration: .default)
+        let task = urlSession.webSocketTask(with: url)
+        task.resume()
+        defer { task.cancel(with: .goingAway, reason: nil) }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: [
+            "type": "delete_session",
+            "sessionId": sessionId
+        ]), let json = String(data: data, encoding: .utf8) else {
+            throw HostControlError.connectionFailed("Failed to encode message")
+        }
+
+        try await task.send(.string(json))
+
+        enum ControlResponse: Sendable {
+            case deleted
+            case error(String)
+        }
+
+        let response: ControlResponse = try await withThrowingTaskGroup(of: ControlResponse.self) { group in
+            group.addTask {
+                while true {
+                    let message = try await task.receive()
+                    let text: String
+                    switch message {
+                    case .string(let s): text = s
+                    case .data(let d): text = String(data: d, encoding: .utf8) ?? ""
+                    @unknown default: continue
+                    }
+
+                    guard let responseData = text.data(using: .utf8),
+                          let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: String],
+                          let type = parsed["type"],
+                          parsed["sessionId"] == sessionId else { continue }
+
+                    if type == "session_deleted" {
+                        return .deleted
+                    } else if type == "session_error" {
+                        return .error(parsed["error"] ?? "Unknown error")
+                    }
+                }
+                throw HostControlError.connectionFailed("Connection closed without response")
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(10))
+                throw HostControlError.timeout
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+
+        if case .error(let msg) = response {
+            throw HostControlError.sessionError(msg)
+        }
+    }
+
     /// Connects to `<hostId>-ctl`, sends `list_sessions`, and returns the host's session list.
     func listSessions(hostId: String) async throws -> [HostSessionSummary] {
         let roomId = "\(hostId)-ctl"

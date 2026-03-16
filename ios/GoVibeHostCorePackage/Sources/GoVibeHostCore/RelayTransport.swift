@@ -21,7 +21,7 @@ public final class RelayTransport: @unchecked Sendable {
     public var onPeerLeft: (() -> Void)?
     public var onPeerHeartbeat: (() -> Void)?
     public var onSimCursorMove: ((Double, Double) -> Void)?
-    public var onSimClick: ((Int) -> Void)?
+    public var onSimClick: ((String, Int) -> Void)?
     public var onSimScroll: ((Double, Double) -> Void)?
     public var onSimButton: ((String) -> Void)?
     public var onSimKeyframeRequest: (() -> Void)?
@@ -299,8 +299,9 @@ public final class RelayTransport: @unchecked Sendable {
             }
         case "sim_click":
             if let clickCount = json["clickCount"] as? Int {
-                logger.info("sim_click clicks=\(clickCount)")
-                onSimClick?(clickCount)
+                let button = (json["button"] as? String) ?? "left"
+                logger.info("sim_click button=\(button) clicks=\(clickCount)")
+                onSimClick?(button, clickCount)
             }
         case "sim_scroll":
             if let dx = json["dx"] as? Double, let dy = json["dy"] as? Double {

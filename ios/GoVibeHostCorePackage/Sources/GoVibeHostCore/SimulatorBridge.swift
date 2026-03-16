@@ -281,28 +281,30 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         }
     }
 
-    public func injectClick(clickCount: Int) {
-        captureQueue.async { self._injectClick(clickCount: clickCount) }
+    public func injectClick(button: String = "left", clickCount: Int) {
+        captureQueue.async { self._injectClick(button: button, clickCount: clickCount) }
     }
 
-    private func _injectClick(clickCount: Int) {
+    private func _injectClick(button: String, clickCount: Int) {
         guard simPID > 0, !windowBounds.isEmpty else { return }
         let point = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
 
         activateSimulator()
         CGWarpMouseCursorPosition(point)
 
+        guard let eventSpec = mouseEventSpec(for: button) else { return }
+
         func sendClick() {
-            if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
-                                  mouseCursorPosition: point, mouseButton: .left) {
+            if let down = CGEvent(mouseEventSource: nil, mouseType: eventSpec.downType,
+                                  mouseCursorPosition: point, mouseButton: eventSpec.button) {
                 down.post(tap: .cghidEventTap)
             }
-            if let drag = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged,
-                                  mouseCursorPosition: point, mouseButton: .left) {
+            if let drag = CGEvent(mouseEventSource: nil, mouseType: eventSpec.dragType,
+                                  mouseCursorPosition: point, mouseButton: eventSpec.button) {
                 drag.post(tap: .cghidEventTap)
             }
-            if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
-                                mouseCursorPosition: point, mouseButton: .left) {
+            if let up = CGEvent(mouseEventSource: nil, mouseType: eventSpec.upType,
+                                mouseCursorPosition: point, mouseButton: eventSpec.button) {
                 up.post(tap: .cghidEventTap)
             }
         }
@@ -531,6 +533,19 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             return delta > 0 ? 1 : -1
         }
         return pixels
+    }
+
+    private func mouseEventSpec(for button: String) -> (downType: CGEventType, dragType: CGEventType, upType: CGEventType, button: CGMouseButton)? {
+        switch button.lowercased() {
+        case "left":
+            return (.leftMouseDown, .leftMouseDragged, .leftMouseUp, .left)
+        case "right":
+            return (.rightMouseDown, .rightMouseDragged, .rightMouseUp, .right)
+        case "middle":
+            return (.otherMouseDown, .otherMouseDragged, .otherMouseUp, .center)
+        default:
+            return nil
+        }
     }
 }
 

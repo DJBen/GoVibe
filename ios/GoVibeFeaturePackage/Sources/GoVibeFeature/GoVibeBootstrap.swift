@@ -23,6 +23,12 @@ public enum GoVibeBootstrap {
         set { UserDefaults.standard.set(newValue, forKey: "notificationOnboardingSeen") }
     }
 
+    /// True once the user dismisses the simulator interaction mode hint banner.
+    public static var hasSeenSimulatorInteractionModeHint: Bool {
+        get { UserDefaults.standard.bool(forKey: "simulatorInteractionModeHintSeen") }
+        set { UserDefaults.standard.set(newValue, forKey: "simulatorInteractionModeHintSeen") }
+    }
+
     /// Trigger the real iOS system permission dialog.
     /// Called only when the user taps "Allow" in the onboarding sheet.
     public static func requestNotificationPermission() {

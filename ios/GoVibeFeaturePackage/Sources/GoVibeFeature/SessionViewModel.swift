@@ -506,9 +506,9 @@ final class SessionViewModel {
         await sendJSONEnvelope(["type": "sim_cursor_move", "dx": dx, "dy": dy])
     }
 
-    func sendSimClick(clickCount: Int) async {
+    func sendSimClick(button: String = "left", clickCount: Int) async {
         guard relayTask != nil else { return }
-        await sendJSONEnvelope(["type": "sim_click", "clickCount": clickCount])
+        await sendJSONEnvelope(["type": "sim_click", "button": button, "clickCount": clickCount])
     }
 
     func sendSimButton(action: String) async {
@@ -540,8 +540,8 @@ final class SessionViewModel {
         Task { @MainActor in await sendSimCursorMove(dx: dx, dy: dy) }
     }
 
-    func sendSimClickAsync(clickCount: Int) {
-        Task { @MainActor in await sendSimClick(clickCount: clickCount) }
+    func sendSimClickAsync(button: String = "left", clickCount: Int) {
+        Task { @MainActor in await sendSimClick(button: button, clickCount: clickCount) }
     }
 
     func sendSimButtonAsync(action: String) {

@@ -150,6 +150,18 @@ public final class HostSessionManager {
                 channel.sendSessionsList(self.sessions.map { ($0.sessionId, $0.kind.rawValue) })
             }
         }
+        channel.onDeleteSession = { [weak self, weak channel] sessionId in
+            Task { @MainActor in
+                guard let self, let channel else { return }
+                let trimmed = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                if self.sessions.contains(where: { $0.sessionId == trimmed }) {
+                    self.removeSession(id: trimmed)
+                    channel.sendSessionDeleted(sessionId: trimmed)
+                } else {
+                    channel.sendSessionError(sessionId: trimmed, error: "Session not found")
+                }
+            }
+        }
         channel.start()
         controlChannel = channel
     }

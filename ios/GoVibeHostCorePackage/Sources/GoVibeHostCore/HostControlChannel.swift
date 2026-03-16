@@ -22,6 +22,10 @@ public final class HostControlChannel: @unchecked Sendable {
     /// Respond by calling `sendSessionsList(_:)`.
     public var onListSessions: (() -> Void)?
 
+    /// Called when an iOS peer requests to delete a session.
+    /// Parameter: sessionId.
+    public var onDeleteSession: ((String) -> Void)?
+
     public init(hostId: String, relayBase: String, logger: HostLogger) {
         self.hostId = hostId
         self.relayBase = relayBase
@@ -131,9 +135,20 @@ public final class HostControlChannel: @unchecked Sendable {
         case "list_sessions":
             logger.info("HostControl: list_sessions requested")
             onListSessions?()
+        case "delete_session":
+            guard let sessionId = json["sessionId"] as? String, !sessionId.isEmpty else {
+                logger.error("HostControl: delete_session missing sessionId")
+                return
+            }
+            logger.info("HostControl: delete_session '\(sessionId)' requested")
+            onDeleteSession?(sessionId)
         default:
             break
         }
+    }
+
+    public func sendSessionDeleted(sessionId: String) {
+        sendJSON(["type": "session_deleted", "sessionId": sessionId])
     }
 
     private func sendJSON(_ payload: [String: String]) {
