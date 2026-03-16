@@ -1,8 +1,10 @@
 #if canImport(UIKit)
 import AVFoundation
+import CoreImage
 import CoreMedia
 import Foundation
 import UIKit
+import VideoToolbox
 
 /// Decodes H.264 binary frames received from the Mac relay and renders via AVSampleBufferDisplayLayer.
 ///
@@ -17,6 +19,15 @@ final class SimulatorVideoDecoder {
     private var formatDescription: CMVideoFormatDescription?
     private var timebase: CMTimebase?
     private let onKeyframeRequest: @MainActor () -> Void
+
+    // MARK: - Thumbnail capture
+    // VTDecompressionSession decodes frames to CVPixelBuffer so we can produce a real
+    // UIImage snapshot — AVSampleBufferDisplayLayer renders via Metal and produces black
+    // images from any layer.render / drawHierarchy call.
+    private var thumbSession: VTDecompressionSession?
+    // Written from the VT callback (background thread); only read on main actor after
+    // VTDecompressionSessionWaitForAsynchronousFrames ensures the write has completed.
+    nonisolated(unsafe) private var _lastThumbBuffer: CVPixelBuffer?
 
     init(onKeyframeRequest: @escaping @MainActor () -> Void) {
         self.onKeyframeRequest = onKeyframeRequest
@@ -123,6 +134,7 @@ final class SimulatorVideoDecoder {
         }
         print("[SimVideoDecoder] handleParameterSet: new format set, flushing layer (layer=\(displayLayer != nil ? "non-nil" : "nil"))")
         formatDescription = newFormatDesc
+        rebuildThumbSession()
         displayLayer?.flush()
     }
 
@@ -197,12 +209,89 @@ final class SimulatorVideoDecoder {
         }
 
         displayLayer.enqueue(sampleBuffer)
+
+        // Feed every frame to thumbSession so _lastThumbBuffer always holds a recent
+        // decoded pixel buffer. No IDR filtering — that would risk missing all frames
+        // if the IDR detection were wrong.
+        if let thumbSession {
+            let decodeStatus = VTDecompressionSessionDecodeFrame(
+                thumbSession, sampleBuffer: sampleBuffer, flags: [],
+                frameRefcon: nil, infoFlagsOut: nil)
+            if decodeStatus != noErr {
+                print("[SimVideoDecoder] handleSlice: VTDecompressionSessionDecodeFrame status=\(decodeStatus)")
+            }
+        } else {
+            print("[SimVideoDecoder] handleSlice: thumbSession nil — no thumbnail decode")
+        }
+    }
+
+    // MARK: - Thumbnail
+
+    func captureLastFrame() -> UIImage? {
+        // Flush any pending async frames before reading the buffer.
+        if let s = thumbSession {
+            VTDecompressionSessionWaitForAsynchronousFrames(s)
+        } else {
+            print("[SimVideoDecoder] captureLastFrame: thumbSession is nil")
+        }
+        guard let pb = _lastThumbBuffer else {
+            print("[SimVideoDecoder] captureLastFrame: _lastThumbBuffer is nil — no frames decoded yet")
+            return nil
+        }
+        // Use CIImage → CIContext → CGImage to handle IOSurface-backed buffers and
+        // any pixel format VT decides to deliver (ignoring our BGRA request is rare but possible).
+        let ci = CIImage(cvPixelBuffer: pb)
+        print("[SimVideoDecoder] captureLastFrame: CIImage extent \(Int(ci.extent.width))×\(Int(ci.extent.height))")
+        let ctx = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cg = ctx.createCGImage(ci, from: ci.extent) else {
+            print("[SimVideoDecoder] captureLastFrame: CIContext.createCGImage failed")
+            return nil
+        }
+        print("[SimVideoDecoder] captureLastFrame: success \(cg.width)×\(cg.height)")
+        return UIImage(cgImage: cg)
+    }
+
+    private func rebuildThumbSession() {
+        if let s = thumbSession { VTDecompressionSessionInvalidate(s) }
+        thumbSession = nil
+        _lastThumbBuffer = nil
+        guard let fmt = formatDescription else { return }
+        // Do not force a pixel format — let VT deliver its native format (typically
+        // kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange on iOS hardware decoders).
+        // Forcing BGRA can cause a silent color-conversion failure that produces black frames.
+        // CIImage(cvPixelBuffer:) handles YUV natively.
+        let cb: VTDecompressionOutputCallback = { refCon, _, status, _, imageBuffer, _, _ in
+            guard status == noErr, let pb = imageBuffer, let ptr = refCon else {
+                if status != noErr { print("[SimVideoDecoder] thumbSession callback error status=\(status)") }
+                return
+            }
+            let fmt = CVPixelBufferGetPixelFormatType(pb)
+            let w = CVPixelBufferGetWidth(pb)
+            let h = CVPixelBufferGetHeight(pb)
+            let decoder = Unmanaged<SimulatorVideoDecoder>.fromOpaque(ptr).takeUnretainedValue()
+            let isFirst = decoder._lastThumbBuffer == nil
+            decoder._lastThumbBuffer = pb
+            if isFirst { print("[SimVideoDecoder] thumbSession: first frame decoded OK fmt=\(fmt) \(w)×\(h)") }
+        }
+        var record = VTDecompressionOutputCallbackRecord(
+            decompressionOutputCallback: cb,
+            decompressionOutputRefCon: Unmanaged.passUnretained(self).toOpaque())
+        var session: VTDecompressionSession?
+        VTDecompressionSessionCreate(
+            allocator: nil, formatDescription: fmt,
+            decoderSpecification: nil, imageBufferAttributes: nil,
+            outputCallback: &record, decompressionSessionOut: &session)
+        print("[SimVideoDecoder] rebuildThumbSession: \(session != nil ? "OK" : "FAILED")")
+        thumbSession = session
     }
 
     // MARK: - Reset
 
     func reset() {
         formatDescription = nil
+        if let s = thumbSession { VTDecompressionSessionInvalidate(s) }
+        thumbSession = nil
+        _lastThumbBuffer = nil
         displayLayer?.flush()
         onKeyframeRequest()
     }

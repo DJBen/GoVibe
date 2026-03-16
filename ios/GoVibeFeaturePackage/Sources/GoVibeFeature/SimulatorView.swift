@@ -122,8 +122,6 @@ struct SimulatorScrollView: UIViewRepresentable {
     var onDrag: (DragPhase) -> Void
     var onScroll: (CGPoint) -> Void
     var onZoomStateChange: (Bool) -> Void
-    var onSnapshotCapture: ((@escaping () -> UIImage?) -> Void)?
-    var onPendingSnapshot: ((UIImage?) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -162,15 +160,6 @@ struct SimulatorScrollView: UIViewRepresentable {
         zoomView.addSubview(playerView)
         context.coordinator.playerView = playerView
         onDisplayLayer(playerView.displayLayer)
-        onSnapshotCapture?({ [weak playerView] in
-            // drawHierarchy captures AVSampleBufferDisplayLayer GPU-composited content;
-            // layer.render(in:) always produces black for video layers.
-            guard let playerView, !playerView.bounds.isEmpty else { return nil }
-            let renderer = UIGraphicsImageRenderer(size: playerView.bounds.size)
-            return renderer.image { _ in
-                playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: false)
-            }
-        })
 
         // Add tap/pan recognizers to the scrollView itself (not zoomView) so that
         // UIScrollView's touch-interception machinery doesn't swallow them.
@@ -230,17 +219,6 @@ struct SimulatorScrollView: UIViewRepresentable {
         }
         context.coordinator.layoutPlayerView()
         context.coordinator.applyInteractionMode()
-    }
-
-    static func dismantleUIView(_ uiView: UIScrollView, coordinator: Coordinator) {
-        // Eagerly capture before the view is torn down so onDisappear can still use it
-        // even if dismantleUIView fires first (mirrors TerminalSurfaceView behavior).
-        // Use drawHierarchy — layer.render(in:) always returns black for AVSampleBufferDisplayLayer.
-        if let pv = coordinator.playerView, !pv.bounds.isEmpty {
-            let renderer = UIGraphicsImageRenderer(size: pv.bounds.size)
-            let image = renderer.image { _ in pv.drawHierarchy(in: pv.bounds, afterScreenUpdates: false) }
-            coordinator.parent.onPendingSnapshot?(image)
-        }
     }
 
     // MARK: - AVSampleBufferDisplayLayer host
@@ -464,10 +442,16 @@ struct SimulatorView: View {
                     } else if !zoomed {
                         interactionMode = .viewport
                     }
-                },
-                onSnapshotCapture: { capturer in viewModel.captureSnapshot = capturer },
-                onPendingSnapshot: { image in viewModel.pendingSnapshotImage = image }
+                }
             )
+            .onAppear {
+                // Wire captureSnapshot here (not in makeUIView) so it's set reliably
+                // after any view-swap ordering issues (e.g. terminal → simulator transition).
+                print("[SimulatorView] onAppear: wiring captureSnapshot to videoDecoder")
+                viewModel.captureSnapshot = { [weak viewModel] in
+                    viewModel?.videoDecoder?.captureLastFrame()
+                }
+            }
             .ignoresSafeArea()
             .overlay(alignment: .topLeading) {
                 if isZoomed {

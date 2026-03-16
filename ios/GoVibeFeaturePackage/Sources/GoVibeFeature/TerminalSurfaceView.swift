@@ -100,13 +100,27 @@ struct TerminalSurfaceView: UIViewRepresentable {
     static func dismantleUIView(_ uiView: TerminalView, coordinator: Coordinator) {
         // Eagerly capture before the view is torn down so onDisappear can still use it
         // even if dismantleUIView fires first.
-        if !uiView.bounds.isEmpty {
+        // Only capture if pendingSnapshotImage is not already set — a simulator session
+        // captures its own image in exitSession() before disconnectRelay() triggers this
+        // dismantleUIView. Overwriting it here would replace the good simulator screenshot
+        // with a blank terminal frame.
+        // Skip capture when transitioning terminal→simulator (simInfo becomes non-nil):
+        // dismantleUIView fires after onAppear/onChange, so a nil-guard on pendingSnapshotImage
+        // is not sufficient — we need to check simInfo to know whether this is a real exit.
+        let isSimulatorTakingOver = coordinator.viewModel?.simInfo != nil
+        let existingPending = coordinator.viewModel?.pendingSnapshotImage
+        if !isSimulatorTakingOver, existingPending == nil, !uiView.bounds.isEmpty {
             let renderer = UIGraphicsImageRenderer(size: uiView.bounds.size)
             coordinator.viewModel?.pendingSnapshotImage = renderer.image { ctx in
                 uiView.layer.render(in: ctx.cgContext)
             }
         }
-        coordinator.viewModel?.captureSnapshot = nil
+        // Do NOT clear captureSnapshot here: when transitioning terminal → simulator,
+        // SimulatorScrollView.makeUIView has already set captureSnapshot to the video
+        // decoder closure before this dismantleUIView fires. Clearing it would leave
+        // captureSnapshot nil and break simulator thumbnail capture.
+        // The terminal closure already uses [weak terminal], so it returns nil safely
+        // once the TerminalView is deallocated — no stale reference risk.
         coordinator.viewModel?.clearTerminalOutputSink()
         coordinator.viewModel?.clearTerminalResetSink()
     }

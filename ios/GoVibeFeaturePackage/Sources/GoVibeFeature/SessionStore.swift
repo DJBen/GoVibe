@@ -141,7 +141,11 @@ final class SessionStore {
     }
 
     func update(roomId: String, lastActiveAt: Date) {
-        guard let index = sessions.firstIndex(where: { $0.roomId == roomId }) else { return }
+        guard let index = sessions.firstIndex(where: { $0.roomId == roomId }) else {
+            print("[SessionStore] update: roomId '\(roomId)' NOT FOUND in \(sessions.map(\.roomId))")
+            return
+        }
+        print("[SessionStore] update: set lastActiveAt for '\(roomId)' at index \(index)")
         sessions[index].lastActiveAt = lastActiveAt
         guard let userId = currentUserId else { return }
         save(for: userId)
