@@ -27,7 +27,8 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
     private var stopSignalSent = false
     private let stopSemaphore = DispatchSemaphore(value: 0)
 
-    private var logWatcher: ClaudeLogWatcher?
+    private var claudeLogWatcher: ClaudeLogWatcher?
+    private var codexLogWatcher: CodexLogWatcher?
 
     public init(
         hostId: String,
@@ -86,7 +87,10 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.signalStopIfNeeded()
         }
 
-        logWatcher = ClaudeLogWatcher(cwd: NSHomeDirectory(), logger: logger) { [weak self] event in
+        claudeLogWatcher = ClaudeLogWatcher(cwd: NSHomeDirectory(), logger: logger) { [weak self] event in
+            self?.bridge.sendPushNotify(event: event.rawValue)
+        }
+        codexLogWatcher = CodexLogWatcher(cwd: NSHomeDirectory(), logger: logger) { [weak self] event in
             self?.bridge.sendPushNotify(event: event.rawValue)
         }
         bridge.start(room: macDeviceId, relayBase: relayBase)
@@ -222,19 +226,29 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             bridge.sendPaneProgram(name)
             logger.info("Pane program changed: \(name)")
             if name != "Claude" {
-                logWatcher?.reset()
-            } else {
-                // Claude just became active — update the watcher's cwd from the tmux pane.
+                claudeLogWatcher?.reset()
+            }
+            if name != "Codex" {
+                codexLogWatcher?.reset()
+            }
+            if name == "Claude" || name == "Codex" {
+                // Claude/Codex just became active — update the watcher's cwd from the tmux pane.
                 if let paneCwd = runProcessCaptureOutput(
                     executable: tmuxPath,
                     arguments: ["display-message", "-p", "-t", sessionName, "#{pane_current_path}"]
                 ) {
-                    logWatcher?.updateCwd(paneCwd)
+                    if name == "Claude" {
+                        claudeLogWatcher?.updateCwd(paneCwd)
+                    } else {
+                        codexLogWatcher?.updateCwd(paneCwd)
+                    }
                 }
             }
         }
         if lastPaneProgram == "Claude" {
-            logWatcher?.poll()
+            claudeLogWatcher?.poll()
+        } else if lastPaneProgram == "Codex" {
+            codexLogWatcher?.poll()
         }
     }
 
@@ -345,6 +359,10 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
 
         if allValues.contains(where: { $0.contains("codex") || $0.contains("@openai/codex") || $0.contains("openai codex") }) {
             return "Codex"
+        }
+
+        if allValues.contains(where: { $0.contains("gemini") || $0.contains("@google/gemini-cli") || $0.contains("gemini-cli") || $0.contains("google gemini") }) {
+            return "Gemini"
         }
 
         if allValues.contains(where: { $0.contains("claude") || $0.contains("anthropic") || $0.contains("claude-code") }) {
