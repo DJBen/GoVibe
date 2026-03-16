@@ -30,19 +30,32 @@ final class DoubleTapDragGestureRecognizer: UIGestureRecognizer {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard state == .possible, let touch = touches.first, touches.count == 1 else {
+        guard let touch = touches.first, touches.count == 1 else {
             state = .failed
             return
         }
-        guard touch.tapCount == 2, let view else { return }
-        trackingSecondTap = true
-        initialLocation = touch.location(in: view)
+        
+        // If it's tapCount 1, we stay in .possible (but don't fail).
+        // If it's tapCount 2, we stay in .possible (waiting for drag or release).
+        if touch.tapCount > 2 {
+            state = .failed
+        }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard trackingSecondTap, let touch = touches.first, let view else { return }
+        guard let touch = touches.first, let view else { return }
         let location = touch.location(in: view)
+        
+        // We only care about drags that start on the second tap.
+        guard touch.tapCount == 2 else { return }
+        
         if state == .possible {
+            if !trackingSecondTap {
+                trackingSecondTap = true
+                initialLocation = location
+                return
+            }
+            
             let dx = location.x - initialLocation.x
             let dy = location.y - initialLocation.y
             if hypot(dx, dy) >= movementThreshold {
@@ -51,17 +64,32 @@ final class DoubleTapDragGestureRecognizer: UIGestureRecognizer {
             }
             return
         }
+        
         didDrag = true
         state = .changed
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard trackingSecondTap else {
+        guard let touch = touches.first else {
             state = .failed
             return
         }
-        if state == .began || state == .changed || state == .possible {
-            state = .ended
+        
+        if touch.tapCount == 2 {
+            if state == .possible || state == .began || state == .changed {
+                state = .ended
+            } else {
+                state = .failed
+            }
+        } else if touch.tapCount == 1 {
+            // After the first tap ends, we'll wait a very short duration. 
+            // If another tap hasn't started by then, we'll fail to let singleTap fire.
+            // Standard double-tap timeout is usually 0.3s.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                if self.state == .possible && !self.trackingSecondTap {
+                    self.state = .failed
+                }
+            }
         } else {
             state = .failed
         }
@@ -95,6 +123,7 @@ struct SimulatorScrollView: UIViewRepresentable {
     var onScroll: (CGPoint) -> Void
     var onZoomStateChange: (Bool) -> Void
     var onSnapshotCapture: ((@escaping () -> UIImage?) -> Void)?
+    var onPendingSnapshot: ((UIImage?) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -134,10 +163,12 @@ struct SimulatorScrollView: UIViewRepresentable {
         context.coordinator.playerView = playerView
         onDisplayLayer(playerView.displayLayer)
         onSnapshotCapture?({ [weak playerView] in
+            // drawHierarchy captures AVSampleBufferDisplayLayer GPU-composited content;
+            // layer.render(in:) always produces black for video layers.
             guard let playerView, !playerView.bounds.isEmpty else { return nil }
             let renderer = UIGraphicsImageRenderer(size: playerView.bounds.size)
-            return renderer.image { ctx in
-                playerView.layer.render(in: ctx.cgContext)
+            return renderer.image { _ in
+                playerView.drawHierarchy(in: playerView.bounds, afterScreenUpdates: false)
             }
         })
 
@@ -201,6 +232,16 @@ struct SimulatorScrollView: UIViewRepresentable {
         context.coordinator.applyInteractionMode()
     }
 
+    static func dismantleUIView(_ uiView: UIScrollView, coordinator: Coordinator) {
+        // Eagerly capture before the view is torn down so onDisappear can still use it
+        // even if dismantleUIView fires first (mirrors TerminalSurfaceView behavior).
+        // Use drawHierarchy — layer.render(in:) always returns black for AVSampleBufferDisplayLayer.
+        if let pv = coordinator.playerView, !pv.bounds.isEmpty {
+            let renderer = UIGraphicsImageRenderer(size: pv.bounds.size)
+            let image = renderer.image { _ in pv.drawHierarchy(in: pv.bounds, afterScreenUpdates: false) }
+            coordinator.parent.onPendingSnapshot?(image)
+        }
+    }
 
     // MARK: - AVSampleBufferDisplayLayer host
 
@@ -317,6 +358,8 @@ struct SimulatorScrollView: UIViewRepresentable {
             switch recognizer.state {
             case .began:
                 lastDragLocation = recognizer.initialLocation
+                // ONLY send .began if we have actually moved enough to be a drag.
+                // The recognizer already does the movementThreshold check before moving to .began.
                 parent.onDrag(.began)
                 if let delta = SimulatorGestureMath.normalizedDelta(
                     from: recognizer.initialLocation,
@@ -336,15 +379,19 @@ struct SimulatorScrollView: UIViewRepresentable {
                 self.lastDragLocation = location
             case .ended:
                 if !recognizer.didDrag {
+                    // This was just a second tap without drag — it's a double-click.
                     parent.onTap("left", 2)
                     lastDragLocation = nil
                     return
                 }
+                // Drag ended
                 lastDragLocation = nil
                 parent.onDrag(.ended)
             case .cancelled, .failed:
                 lastDragLocation = nil
-                parent.onDrag(.ended)
+                if recognizer.didDrag {
+                    parent.onDrag(.ended)
+                }
             default:
                 break
             }
@@ -374,8 +421,11 @@ struct SimulatorScrollView: UIViewRepresentable {
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            if gestureRecognizer === doubleTapDragGesture || otherGestureRecognizer === doubleTapDragGesture {
-                return false
+            if gestureRecognizer === doubleTapDragGesture && otherGestureRecognizer === panGesture {
+                return true
+            }
+            if gestureRecognizer === panGesture && otherGestureRecognizer === doubleTapDragGesture {
+                return true
             }
             return false
         }
@@ -415,7 +465,8 @@ struct SimulatorView: View {
                         interactionMode = .viewport
                     }
                 },
-                onSnapshotCapture: { capturer in viewModel.captureSnapshot = capturer }
+                onSnapshotCapture: { capturer in viewModel.captureSnapshot = capturer },
+                onPendingSnapshot: { image in viewModel.pendingSnapshotImage = image }
             )
             .ignoresSafeArea()
             .overlay(alignment: .topLeading) {

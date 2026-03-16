@@ -294,24 +294,15 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
         guard let eventSpec = mouseEventSpec(for: button) else { return }
 
-        func sendClick() {
-            if let down = CGEvent(mouseEventSource: nil, mouseType: eventSpec.downType,
-                                  mouseCursorPosition: point, mouseButton: eventSpec.button) {
-                down.post(tap: .cghidEventTap)
-            }
-            if let drag = CGEvent(mouseEventSource: nil, mouseType: eventSpec.dragType,
-                                  mouseCursorPosition: point, mouseButton: eventSpec.button) {
-                drag.post(tap: .cghidEventTap)
-            }
-            if let up = CGEvent(mouseEventSource: nil, mouseType: eventSpec.upType,
-                                mouseCursorPosition: point, mouseButton: eventSpec.button) {
-                up.post(tap: .cghidEventTap)
-            }
+        if let down = CGEvent(mouseEventSource: nil, mouseType: eventSpec.downType,
+                              mouseCursorPosition: point, mouseButton: eventSpec.button) {
+            down.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
+            down.post(tap: .cghidEventTap)
         }
-
-        sendClick()
-        if clickCount == 2 {
-            sendClick()
+        if let up = CGEvent(mouseEventSource: nil, mouseType: eventSpec.upType,
+                            mouseCursorPosition: point, mouseButton: eventSpec.button) {
+            up.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
+            up.post(tap: .cghidEventTap)
         }
     }
 

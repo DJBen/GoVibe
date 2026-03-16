@@ -234,6 +234,13 @@ struct SessionDetailView: View {
     }
 
     private func exitSession() {
+        #if canImport(UIKit)
+        // Capture snapshot before disconnectRelay() clears simInfo, which would
+        // remove SimulatorScrollView from the body and dismantle it before onDisappear.
+        if viewModel.pendingSnapshotImage == nil, let image = viewModel.captureSnapshot?() {
+            viewModel.pendingSnapshotImage = image
+        }
+        #endif
         viewModel.disconnectRelay()
         if let onExit {
             onExit()
