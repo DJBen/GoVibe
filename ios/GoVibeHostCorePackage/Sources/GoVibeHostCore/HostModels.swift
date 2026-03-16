@@ -12,6 +12,16 @@ public enum HostedSessionState: String, Codable, CaseIterable, Sendable {
     case waitingForPeer
     case stale
     case error
+
+    public var displayLabel: String {
+        rawValue
+            .replacingOccurrences(
+                of: "([a-z0-9])([A-Z])",
+                with: "$1 $2",
+                options: .regularExpression
+            )
+            .localizedCapitalized
+    }
 }
 
 public struct TerminalSessionConfig: Codable, Hashable, Sendable {

@@ -55,10 +55,10 @@ struct NotificationOnboardingView: View {
 
     private var mockNotificationBanner: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "app.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(Color.accentColor)
+            Image("AppNotificationIcon")
+                .resizable()
                 .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {

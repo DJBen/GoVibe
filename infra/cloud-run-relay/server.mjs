@@ -145,28 +145,32 @@ async function sendFCMForRoom(room, event) {
   await getMessaging().send({
     token: fcmToken,
     notification: { title, body },
-    data: { event },
+    data: { event, room, roomId: room, sessionId: room },
     apns: { payload: { aps: { sound: "default" } } },
   });
   console.log(`[fcm] sent successfully to device=${iosDeviceId}`);
 }
 
 function notificationCopyForEvent(event) {
+  const assistant = event?.startsWith("codex_") ? "Codex" : "Claude";
+
   switch (event) {
     case "claude_approval_required":
+    case "codex_approval_required":
       return {
-        title: "Claude needs approval",
-        body: "A tool call is waiting for your input.",
+        title: `Unblock ${assistant} now`,
+        body: `${assistant} requires your decision before proceeding`,
       };
     case "claude_turn_complete":
+    case "codex_turn_complete":
       return {
-        title: "Claude finished",
-        body: "Claude is waiting for your next prompt.",
+        title: `${assistant} finished`,
+        body: `${assistant} is waiting for your next prompt.`,
       };
     default:
       return {
-        title: "Claude update",
-        body: "Claude is waiting for your input.",
+        title: `${assistant} update`,
+        body: `${assistant} is waiting for your input.`,
       };
   }
 }

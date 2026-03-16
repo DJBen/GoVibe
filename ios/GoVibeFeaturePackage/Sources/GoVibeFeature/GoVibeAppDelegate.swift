@@ -44,12 +44,13 @@ public final class GoVibeAppDelegate: NSObject, UIApplicationDelegate, @MainActo
         }
     }
 
-    // Show notification banners even while the app is foregrounded.
+    // Suppress system UI while foregrounded and let the active screen react in-app.
     public func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        ForegroundNotificationCoordinator.shared.handleForegroundNotification(notification)
+        completionHandler([])
     }
 }

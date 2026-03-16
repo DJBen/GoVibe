@@ -41,6 +41,11 @@ struct HostMenuBarView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
+                Button("Show Host ID") {
+                    presentHostIDWindow()
+                }
+                .buttonStyle(.plain)
+
                 Button("Open GoVibe Host") {
                     presentMainWindow()
                 }
@@ -54,6 +59,19 @@ struct HostMenuBarView: View {
         }
         .padding(12)
         .frame(width: 300)
+    }
+
+    private func presentHostIDWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "host-id")
+
+        DispatchQueue.main.async {
+            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "host-id" || $0.title == "Host ID" }) else { return }
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     private func presentMainWindow() {
@@ -79,7 +97,7 @@ struct HostMenuBarView: View {
             }
             return "Last active a while ago"
         default:
-            return session.state.rawValue.capitalized
+            return session.state.displayLabel
         }
     }
 

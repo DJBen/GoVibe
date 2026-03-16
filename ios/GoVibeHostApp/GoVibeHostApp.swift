@@ -14,6 +14,12 @@ struct GoVibeHostApp: App {
         }
         .windowResizability(.contentSize)
 
+        Window("Host ID", id: "host-id") {
+            HostIDView(hostId: manager.settings.hostId)
+                .frame(minWidth: 360, minHeight: 160)
+        }
+        .windowResizability(.contentSize)
+
         MenuBarExtra("GoVibe Host", systemImage: "desktopcomputer.and.macbook") {
             HostMenuBarView(manager: manager)
         }

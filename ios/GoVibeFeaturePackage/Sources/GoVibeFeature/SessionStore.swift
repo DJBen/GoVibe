@@ -5,10 +5,12 @@ import Observation
 @MainActor
 @Observable
 final class SessionStore {
-    private let baseKey = "saved_sessions"
+    private let sessionsBaseKey = "saved_sessions"
+    private let hostsBaseKey = "saved_hosts"
     private let apiClient: GoVibeAPIClient
 
     var sessions: [SavedSession] = []
+    var hosts: [HostInfo] = []
     var isLoading = false
     var errorMessage: String?
     var currentUserId: String?
@@ -19,6 +21,18 @@ final class SessionStore {
         self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
     }
 
+    // MARK: - Computed
+
+    var sessionsWithoutHost: [SavedSession] {
+        sessions.filter { $0.hostId == nil }
+    }
+
+    func sessions(for hostId: String) -> [SavedSession] {
+        sessions.filter { $0.hostId == hostId }
+    }
+
+    // MARK: - Lifecycle
+
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
@@ -28,24 +42,91 @@ final class SessionStore {
             let user = try await ensureAuthenticated()
             currentUserId = user.uid
             load(for: user.uid)
+            loadHosts(for: user.uid)
         } catch {
             sessions = []
+            hosts = []
             errorMessage = error.localizedDescription
             return
         }
+
+        // Pull the latest session list from each known host.
+        let hostsSnapshot = hosts
+        for host in hostsSnapshot {
+            await syncSessions(for: host)
+        }
     }
 
-    func add(roomId: String) {
+    /// Queries `<hostId>-ctl` for the host's current sessions and merges any
+    /// unknown sessions into the local store. Silently no-ops if the host is offline.
+    func syncSessions(for host: HostInfo) async {
+        let client = HostControlClient(relayWebSocketBase: AppRuntimeConfig.relayWebSocketBase)
+        do {
+            let remote = try await client.listSessions(hostId: host.id)
+            var changed = false
+            for summary in remote {
+                if let index = sessions.firstIndex(where: { $0.roomId == summary.sessionId }) {
+                    // Update kind if we didn't know it before
+                    if sessions[index].kind == nil, let kind = summary.kind {
+                        sessions[index].kind = kind
+                        changed = true
+                    }
+                } else {
+                    var s = SavedSession(roomId: summary.sessionId, hostId: host.id)
+                    s.kind = summary.kind
+                    sessions.append(s)
+                    changed = true
+                }
+            }
+            if changed, let userId = currentUserId {
+                save(for: userId)
+            }
+        } catch {
+            // Host is offline or unreachable — silently skip.
+        }
+    }
+
+    // MARK: - Host Management
+
+    func addHost(id: String, name: String) {
         guard let userId = currentUserId else {
             errorMessage = APIError.notAuthenticated.localizedDescription
             return
         }
+        let trimmedId = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedId.isEmpty, !trimmedName.isEmpty else { return }
+        guard !hosts.contains(where: { $0.id == trimmedId }) else { return }
+        let isFirstHost = hosts.isEmpty
+        hosts.append(HostInfo(id: trimmedId, name: trimmedName))
+        if isFirstHost {
+            for i in sessions.indices where sessions[i].hostId == nil {
+                sessions[i].hostId = trimmedId
+            }
+        }
+        saveHosts(for: userId)
+        save(for: userId)
+    }
 
+    func removeHost(id: String) {
+        guard let userId = currentUserId else { return }
+        hosts.removeAll { $0.id == id }
+        sessions.removeAll { $0.hostId == id }
+        saveHosts(for: userId)
+        save(for: userId)
+    }
+
+    // MARK: - Session Management
+
+    func add(roomId: String, hostId: String? = nil) {
+        guard let userId = currentUserId else {
+            errorMessage = APIError.notAuthenticated.localizedDescription
+            return
+        }
         let trimmedRoomId = roomId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRoomId.isEmpty else { return }
-
         if sessions.contains(where: { $0.roomId == trimmedRoomId }) { return }
-        sessions.append(SavedSession(roomId: trimmedRoomId))
+        sessions.append(SavedSession(roomId: trimmedRoomId, hostId: hostId))
         save(for: userId)
     }
 
@@ -78,6 +159,15 @@ final class SessionStore {
         return dir.appendingPathComponent("\(safe).jpg")
     }
 
+    func delete(roomId: String) {
+        guard let userId = currentUserId else {
+            errorMessage = APIError.notAuthenticated.localizedDescription
+            return
+        }
+        sessions.removeAll { $0.roomId == roomId }
+        save(for: userId)
+    }
+
     func delete(at offsets: IndexSet) {
         guard let userId = currentUserId else {
             errorMessage = APIError.notAuthenticated.localizedDescription
@@ -87,8 +177,14 @@ final class SessionStore {
         save(for: userId)
     }
 
+    // MARK: - Persistence
+
     private func storageKey(for userId: String) -> String {
-        "\(baseKey)_\(userId)"
+        "\(sessionsBaseKey)_\(userId)"
+    }
+
+    private func hostsStorageKey(for userId: String) -> String {
+        "\(hostsBaseKey)_\(userId)"
     }
 
     private func save(for userId: String) {
@@ -105,7 +201,6 @@ final class SessionStore {
             sessions = []
             return
         }
-
         do {
             sessions = try JSONDecoder().decode([SavedSession].self, from: data)
         } catch {
@@ -113,6 +208,29 @@ final class SessionStore {
             errorMessage = "Failed to read local session list."
         }
     }
+
+    private func saveHosts(for userId: String) {
+        do {
+            let data = try JSONEncoder().encode(hosts)
+            UserDefaults.standard.set(data, forKey: hostsStorageKey(for: userId))
+        } catch {
+            errorMessage = "Failed to persist host list."
+        }
+    }
+
+    private func loadHosts(for userId: String) {
+        guard let data = UserDefaults.standard.data(forKey: hostsStorageKey(for: userId)) else {
+            hosts = []
+            return
+        }
+        do {
+            hosts = try JSONDecoder().decode([HostInfo].self, from: data)
+        } catch {
+            hosts = []
+        }
+    }
+
+    // MARK: - Auth
 
     private func ensureAuthenticated() async throws -> User {
         if let user = Auth.auth().currentUser {
