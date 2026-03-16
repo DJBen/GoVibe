@@ -1,11 +1,9 @@
-import SwiftUI
 import GoVibeFeature
+import SwiftUI
 
 @main
 struct GoVibeApp: App {
-    init() {
-        GoVibeBootstrap.configureFirebaseIfNeeded()
-    }
+    @UIApplicationDelegateAdaptor(GoVibeAppDelegate.self) var appDelegate
 
     var body: some Scene {
         WindowGroup {

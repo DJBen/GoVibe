@@ -78,6 +78,18 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
             self?.recordPeerActivity()
             self?.simulatorBridge.forceKeyframe()
         }
+        bridge.onSimDragBegin = { [weak self] in
+            self?.recordPeerActivity()
+            self?.simulatorBridge.injectDragBegin()
+        }
+        bridge.onSimDragMove = { [weak self] dx, dy in
+            self?.recordPeerActivity()
+            self?.simulatorBridge.injectDragMove(dx: dx, dy: dy)
+        }
+        bridge.onSimDragEnd = { [weak self] in
+            self?.recordPeerActivity()
+            self?.simulatorBridge.injectDragEnd()
+        }
         bridge.onPeerHeartbeat = { [weak self] in
             self?.recordPeerActivity()
         }

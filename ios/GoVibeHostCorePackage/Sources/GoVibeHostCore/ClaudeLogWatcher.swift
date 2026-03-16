@@ -1,5 +1,10 @@
 import Foundation
 
+enum ClaudePushEvent: String {
+    case awaitingApproval = "claude_approval_required"
+    case turnComplete = "claude_turn_complete"
+}
+
 /// Watches Claude's JSONL conversation log and fires `onTurnComplete` whenever
 /// Claude is waiting for user input — either after `end_turn` or after a `tool_use`
 /// that goes unanswered for `toolUseIdleThreshold` seconds (i.e. awaiting approval).
@@ -20,9 +25,9 @@ final class ClaudeLogWatcher {
     private var pendingToolUseSince: Date?
     private static let toolUseIdleThreshold: TimeInterval = 8
 
-    let onTurnComplete: () -> Void
+    let onTurnComplete: (ClaudePushEvent) -> Void
 
-    init(cwd: String, logger: HostLogger, onTurnComplete: @escaping () -> Void) {
+    init(cwd: String, logger: HostLogger, onTurnComplete: @escaping (ClaudePushEvent) -> Void) {
         self.cwd = cwd
         self.logger = logger
         self.projectsRoot = FileManager.default.homeDirectoryForCurrentUser
@@ -53,7 +58,7 @@ final class ClaudeLogWatcher {
                 logger.info("ClaudeLogWatcher: tool_use idle for \(Int(Self.toolUseIdleThreshold))s, awaiting approval — firing push")
                 pendingToolUseSince = nil
                 awaitingNextTurn = true
-                onTurnComplete()
+                onTurnComplete(.awaitingApproval)
             }
             return
         }
@@ -100,7 +105,7 @@ final class ClaudeLogWatcher {
                 pendingToolUseSince = nil
                 lastNotifiedUUID = uuid
                 awaitingNextTurn = true
-                onTurnComplete()
+                onTurnComplete(.turnComplete)
             }
         }
     }
