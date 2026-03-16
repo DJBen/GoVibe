@@ -1,7 +1,8 @@
 import Foundation
 
 /// Watches Claude's JSONL conversation log and fires `onTurnComplete` whenever
-/// Claude finishes a turn (`stop_reason == "end_turn"`).
+/// Claude is waiting for user input — either after `end_turn` or after a `tool_use`
+/// that goes unanswered for `toolUseIdleThreshold` seconds (i.e. awaiting approval).
 ///
 /// Polling is driven externally — call `poll()` every second from the host session.
 final class ClaudeLogWatcher {
@@ -12,6 +13,12 @@ final class ClaudeLogWatcher {
     private var readOffset: UInt64 = 0
     private var lastNotifiedUUID: String?
     private var awaitingNextTurn = false
+
+    /// Set when a tool_use is seen; cleared when any new JSONL line appears.
+    /// If the date is more than `toolUseIdleThreshold` seconds old on the next
+    /// poll with no new lines, we fire a push (Claude is likely awaiting approval).
+    private var pendingToolUseSince: Date?
+    private static let toolUseIdleThreshold: TimeInterval = 8
 
     let onTurnComplete: () -> Void
 
@@ -37,6 +44,23 @@ final class ClaudeLogWatcher {
         refreshFileIfNeeded()
         guard let url = fileURL else { return }
         let newLines = readNewLines(from: url)
+
+        if newLines.isEmpty {
+            // No new lines — check if a pending tool_use has gone idle long enough.
+            if let since = pendingToolUseSince,
+               !awaitingNextTurn,
+               Date().timeIntervalSince(since) >= Self.toolUseIdleThreshold {
+                logger.info("ClaudeLogWatcher: tool_use idle for \(Int(Self.toolUseIdleThreshold))s, awaiting approval — firing push")
+                pendingToolUseSince = nil
+                awaitingNextTurn = true
+                onTurnComplete()
+            }
+            return
+        }
+
+        // New lines arrived — cancel any pending tool_use timer.
+        pendingToolUseSince = nil
+
         for line in newLines {
             guard
                 let data = line.data(using: .utf8),
@@ -49,15 +73,22 @@ final class ClaudeLogWatcher {
             let stopReason = message?["stop_reason"] as? String
 
             if type == "user" {
-                // User replied — allow the next end_turn to fire a notification.
+                // User replied (or tool result arrived) — ready for next notification.
                 if awaitingNextTurn {
                     logger.info("ClaudeLogWatcher: user turn detected, ready for next end_turn")
                 }
                 awaitingNextTurn = false
+                pendingToolUseSince = nil
             }
 
             if type == "assistant", let stopReason {
                 logger.info("ClaudeLogWatcher: assistant stop_reason=\(stopReason) uuid=\(uuid ?? "nil") awaitingNextTurn=\(awaitingNextTurn)")
+            }
+
+            if type == "assistant", stopReason == "tool_use", !awaitingNextTurn {
+                // Start the idle timer — if no new lines arrive within the threshold,
+                // Claude is likely waiting for the user to approve this tool call.
+                pendingToolUseSince = Date()
             }
 
             if type == "assistant",
@@ -66,6 +97,7 @@ final class ClaudeLogWatcher {
                uuid != lastNotifiedUUID,
                !awaitingNextTurn {
                 logger.info("ClaudeLogWatcher: end_turn detected, firing push notification")
+                pendingToolUseSince = nil
                 lastNotifiedUUID = uuid
                 awaitingNextTurn = true
                 onTurnComplete()
@@ -80,6 +112,7 @@ final class ClaudeLogWatcher {
         readOffset = 0
         lastNotifiedUUID = nil
         awaitingNextTurn = false
+        pendingToolUseSince = nil
     }
 
     // MARK: - Private
@@ -130,6 +163,7 @@ final class ClaudeLogWatcher {
             logger.info("ClaudeLogWatcher: watching \(newest.lastPathComponent) at offset \(endOffset)")
             fileURL = newest
             readOffset = endOffset
+            pendingToolUseSince = nil
         }
     }
 
