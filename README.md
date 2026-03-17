@@ -8,7 +8,7 @@ GoVibe is an open-source remote terminal app that lets you control a Mac termina
 ## Features
 
 
-| Claude, Codex and Gemini on the go | View and control simulators |
+| Claude, Codex and Gemini on the go | View and control Simulator on the go |
 | --- | --- |
 | <img width="630" height="1368" alt="Screenshot 2026-03-16 at 4 39 13 PM" src="https://github.com/user-attachments/assets/95955b91-2427-4bbf-b4cf-a5d6053e2347" /> | <img width="630" height="1368" alt="Screenshot 2026-03-16 at 4 41 23 PM" src="https://github.com/user-attachments/assets/a8893684-9cf9-4539-b9a2-d54d316a402a" /> |
 
