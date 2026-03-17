@@ -10,6 +10,7 @@ struct SessionListView: View {
     @State private var selectedSession: SavedSession?
     @State private var navigationPath: [SavedSession] = []
     @State private var showingAddHost = false
+    @State private var showingSettings = false
     @State private var createSessionForHost: HostInfo?
 
     var body: some View {
@@ -58,6 +59,13 @@ struct SessionListView: View {
         }
         .sheet(isPresented: $showingAddHost) {
             AddHostView(store: store)
+        }
+        .sheet(isPresented: $showingSettings, onDismiss: {
+            store.reset()
+            store.updateConfig()
+            Task { await store.refresh() }
+        }) {
+            AppConfigSetupView()
         }
         .sheet(item: $createSessionForHost) { host in
             SessionCreateView(host: host, store: store)
@@ -340,6 +348,15 @@ struct SessionListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                showingSettings = true
+            } label: {
+                Image(systemName: "gear")
+            }
+            .accessibilityIdentifier("settings_button")
+        }
+
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 if !store.hosts.isEmpty {

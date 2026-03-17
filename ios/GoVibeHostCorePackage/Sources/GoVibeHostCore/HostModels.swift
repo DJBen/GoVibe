@@ -1,8 +1,10 @@
 import Foundation
+import CoreGraphics
 
 public enum HostedSessionKind: String, Codable, CaseIterable, Sendable {
     case terminal
     case simulator
+    case appWindow
 }
 
 public enum HostedSessionState: String, Codable, CaseIterable, Sendable {
@@ -46,14 +48,42 @@ public struct SimulatorSessionConfig: Codable, Hashable, Sendable {
     }
 }
 
+public struct AppWindowSessionConfig: Codable, Hashable, Sendable {
+    public var sessionId: String
+    public var windowTitle: String
+    public var bundleIdentifier: String?
+
+    public init(sessionId: String, windowTitle: String, bundleIdentifier: String?) {
+        self.sessionId = sessionId
+        self.windowTitle = windowTitle
+        self.bundleIdentifier = bundleIdentifier
+    }
+}
+
+public struct AvailableWindow: Identifiable, Sendable {
+    public var id: CGWindowID
+    public var title: String
+    public var appName: String
+    public var bundleIdentifier: String?
+
+    public init(id: CGWindowID, title: String, appName: String, bundleIdentifier: String?) {
+        self.id = id
+        self.title = title
+        self.appName = appName
+        self.bundleIdentifier = bundleIdentifier
+    }
+}
+
 public enum HostedSessionConfiguration: Codable, Hashable, Sendable {
     case terminal(TerminalSessionConfig)
     case simulator(SimulatorSessionConfig)
+    case appWindow(AppWindowSessionConfig)
 
     private enum CodingKeys: String, CodingKey {
         case type
         case terminal
         case simulator
+        case appWindow
     }
 
     public init(from decoder: any Decoder) throws {
@@ -64,6 +94,8 @@ public enum HostedSessionConfiguration: Codable, Hashable, Sendable {
             self = .terminal(try container.decode(TerminalSessionConfig.self, forKey: .terminal))
         case .simulator:
             self = .simulator(try container.decode(SimulatorSessionConfig.self, forKey: .simulator))
+        case .appWindow:
+            self = .appWindow(try container.decode(AppWindowSessionConfig.self, forKey: .appWindow))
         }
     }
 
@@ -76,6 +108,9 @@ public enum HostedSessionConfiguration: Codable, Hashable, Sendable {
         case .simulator(let config):
             try container.encode(HostedSessionKind.simulator, forKey: .type)
             try container.encode(config, forKey: .simulator)
+        case .appWindow(let config):
+            try container.encode(HostedSessionKind.appWindow, forKey: .type)
+            try container.encode(config, forKey: .appWindow)
         }
     }
 }

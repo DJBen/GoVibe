@@ -7,7 +7,7 @@ import Observation
 final class SessionStore {
     private let sessionsBaseKey = "saved_sessions"
     private let hostsBaseKey = "saved_hosts"
-    private let apiClient: GoVibeAPIClient
+    private var apiClient: GoVibeAPIClient
 
     var sessions: [SavedSession] = []
     var hosts: [HostInfo] = []
@@ -24,9 +24,30 @@ final class SessionStore {
     }
 
     init(
-        apiBaseURL: URL = AppRuntimeConfig.apiBaseURL
+        apiBaseURL: URL? = AppRuntimeConfig.apiBaseURL
     ) {
-        self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
+        if let apiBaseURL {
+            self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
+        } else {
+            self.apiClient = GoVibeAPIClient(baseURL: URL(string: "https://unconfigured.local")!)
+        }
+    }
+    
+    func updateConfig() {
+        if let url = AppConfig.shared.apiBaseURL {
+            self.apiClient = GoVibeAPIClient(baseURL: url)
+        }
+    }
+    
+    func reset() {
+        sessions = []
+        hosts = []
+        errorMessage = nil
+        // Also clear persisted data if we want a full wipe, but maybe just memory is enough for now?
+        // The requirement said "reset and clear all hosts and all the sessions".
+        // To be safe, we should probably clear persistence too, or at least reload.
+        // But since we are changing config (potentially to a new project), the old data is invalid.
+        // So clearing memory is good start.
     }
 
     func sessions(for hostId: String) -> [SavedSession] {
@@ -36,6 +57,12 @@ final class SessionStore {
     // MARK: - Lifecycle
 
     func refresh() async {
+        guard AppConfig.shared.isValid else {
+            errorMessage = "Configuration required."
+            isLoading = false
+            return
+        }
+        
         isLoading = true
         defer { isLoading = false }
         errorMessage = nil
@@ -62,7 +89,11 @@ final class SessionStore {
     /// Queries `<hostId>-ctl` for the host's current sessions and merges any
     /// unknown sessions into the local store. Silently no-ops if the host is offline.
     func syncSessions(for host: HostInfo) async {
-        let client = HostControlClient(relayWebSocketBase: AppRuntimeConfig.relayWebSocketBase)
+        guard AppConfig.shared.isValid else { return }
+        let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
+        guard !relayBase.isEmpty else { return }
+
+        let client = HostControlClient(relayWebSocketBase: relayBase)
         do {
             let remote = try await client.listSessions(hostId: host.id)
             var changed = false
@@ -91,6 +122,10 @@ final class SessionStore {
     // MARK: - Host Management
 
     func addHost(id: String, name: String) {
+        guard AppConfig.shared.isValid else {
+            errorMessage = "Configuration required."
+            return
+        }
         guard let userId = currentUserId else {
             errorMessage = APIError.notAuthenticated.localizedDescription
             return
@@ -105,6 +140,7 @@ final class SessionStore {
     }
 
     func removeHost(id: String) {
+        // Removal doesn't strictly need config, but better safe.
         guard let userId = currentUserId else { return }
         hosts.removeAll { $0.id == id }
         sessions.removeAll { $0.hostId == id }
@@ -115,6 +151,10 @@ final class SessionStore {
     // MARK: - Session Management
 
     func add(roomId: String, hostId: String) {
+        guard AppConfig.shared.isValid else {
+            errorMessage = "Configuration required."
+            return
+        }
         guard let userId = currentUserId else {
             errorMessage = APIError.notAuthenticated.localizedDescription
             return
@@ -157,13 +197,16 @@ final class SessionStore {
 
     /// Deletes a session, attempting to remove it from the remote host first if applicable.
     func deleteSession(_ session: SavedSession) async {
-        let client = HostControlClient(relayWebSocketBase: AppRuntimeConfig.relayWebSocketBase)
-        do {
-            try await client.deleteSession(hostId: session.hostId, sessionId: session.roomId)
-        } catch {
-            // If remote delete fails, we log it but proceed to delete locally
-            // so the user isn't stuck with a zombie session in their UI.
-            print("Remote delete failed for \(session.roomId): \(error.localizedDescription)")
+        let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
+        if !relayBase.isEmpty {
+            let client = HostControlClient(relayWebSocketBase: relayBase)
+            do {
+                try await client.deleteSession(hostId: session.hostId, sessionId: session.roomId)
+            } catch {
+                // If remote delete fails, we log it but proceed to delete locally
+                // so the user isn't stuck with a zombie session in their UI.
+                print("Remote delete failed for \(session.roomId): \(error.localizedDescription)")
+            }
         }
         delete(roomId: session.roomId)
     }

@@ -27,13 +27,6 @@ struct HostMenuBarView: View {
             sessionSummary
                 .frame(maxWidth: .infinity)
 
-            Divider()
-
-            Button("Quit app") {
-                NSApp.terminate(nil)
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
         .frame(width: 320)

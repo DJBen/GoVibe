@@ -45,11 +45,20 @@ final class SessionViewModel {
 
     init(
         macDeviceId: String,
-        apiBaseURL: URL = AppRuntimeConfig.apiBaseURL,
+        apiBaseURL: URL? = AppRuntimeConfig.apiBaseURL,
         relayBase: String = AppRuntimeConfig.relayWebSocketBase
     ) {
-        self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
-        self.relayCandidates = [relayBase]
+        if let apiBaseURL {
+            self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
+        } else {
+            self.apiClient = GoVibeAPIClient(baseURL: URL(string: "https://unconfigured.local")!)
+        }
+        
+        if !relayBase.isEmpty {
+            self.relayCandidates = [relayBase]
+        } else {
+            self.relayCandidates = []
+        }
 
         #if canImport(UIKit)
         self.iosDeviceId = UIDevice.current.identifierForVendor?.uuidString ?? "ios-demo-01"

@@ -1,18 +1,38 @@
 import SwiftUI
 import GoVibeHostCore
 import AppKit
+import Observation
 
 @main
 struct GoVibeHostApp: App {
     @NSApplicationDelegateAdaptor(HostAppDelegate.self) private var appDelegate
     @State private var manager = HostSessionManager()
+    private var config = HostConfig.shared
 
     var body: some Scene {
         Window("GoVibe Host", id: "main") {
-            HostAppRootView(manager: manager)
-                .frame(minWidth: 980, minHeight: 680)
+            Group {
+                if config.isValid {
+                    HostAppRootView(manager: manager)
+                        .frame(minWidth: 980, minHeight: 680)
+                        .onAppear {
+                            manager.updateFromConfig()
+                        }
+                } else {
+                    HostConfigSetupView()
+                        .frame(minWidth: 400, minHeight: 300)
+                }
+            }
+            .onChange(of: config.relayHost) { _, _ in
+                manager.updateFromConfig()
+            }
         }
         .windowResizability(.contentSize)
+        
+        Settings {
+            HostConfigSetupView()
+                .frame(minWidth: 400, minHeight: 300)
+        }
 
         Window("Host ID", id: "host-id") {
             HostIDView(hostId: manager.settings.hostId)
@@ -22,6 +42,12 @@ struct GoVibeHostApp: App {
 
         MenuBarExtra("GoVibe Host", systemImage: "desktopcomputer.and.macbook") {
             HostMenuBarView(manager: manager)
+            Divider()
+            SettingsLink { Text("Configure Relay...") }
+            Divider()
+            Button("Quit GoVibe Host") {
+                NSApp.terminate(nil)
+            }
         }
     }
 }

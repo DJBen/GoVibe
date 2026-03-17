@@ -64,6 +64,15 @@ public final class HostSessionManager {
         }
     }
 
+    public func updateFromConfig() {
+        let newRelay = HostConfig.shared.relayWebSocketBase ?? ""
+        if settings.relayBase != newRelay {
+            settings.relayBase = newRelay
+            persistSettings()
+            startControlChannel()
+        }
+    }
+
     public func refreshEnvironment() {
         refreshPermissions()
         bootedSimulators = SimulatorBridge.bootedSimulators()
@@ -243,6 +252,13 @@ public final class HostSessionManager {
                     self?.handleRuntimeEvent(event, sessionID: id)
                 }
             }
+        case .appWindow(_):
+            updateSession(id: id) { descriptor in
+                descriptor.state = .error
+                descriptor.lastError = "App window sessions are not yet supported."
+            }
+            logger.error("App window sessions are not yet supported.")
+            return
         }
 
         runtimes[id] = runtime

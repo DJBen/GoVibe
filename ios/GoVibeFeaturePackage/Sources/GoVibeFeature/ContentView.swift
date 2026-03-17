@@ -1,8 +1,17 @@
 import SwiftUI
+import Observation
 
 public struct ContentView: View {
+    private var config = AppConfig.shared
+
     public var body: some View {
-        SessionListView()
+        Group {
+            if config.isValid {
+                SessionListView()
+            } else {
+                AppConfigSetupView()
+            }
+        }
     }
 
     public init() {}
