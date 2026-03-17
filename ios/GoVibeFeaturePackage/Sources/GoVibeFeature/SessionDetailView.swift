@@ -18,6 +18,7 @@ struct SessionDetailView: View {
     @State private var viewModel: SessionViewModel
     @State private var showNotificationOnboarding = false
     @State private var showPlanSheet = false
+    @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
 
     init(
         roomId: String,
@@ -125,6 +126,10 @@ struct SessionDetailView: View {
             }
         }
 #endif
+        .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, newRoomId in
+            guard let newRoomId, newRoomId != roomId else { return }
+            exitSession()
+        }
         .onChange(of: viewModel.relayStatus) { _, newStatus in
             onStatusChanged?(newStatus)
         }

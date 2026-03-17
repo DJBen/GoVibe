@@ -77,6 +77,10 @@ struct SessionListView: View {
             syncActiveRoomSelection()
         }
         .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, _ in
+            // Only navigate directly when no detail view is pushed.
+            // When a detail view is active, SessionDetailView.onChange handles the exit
+            // and onChange(of: navigationPath) handles the subsequent navigation.
+            guard navigationPath.isEmpty else { return }
             consumePendingDeepLink()
         }
         .onChange(of: store.sessions) { _, sessions in
@@ -88,7 +92,14 @@ struct SessionListView: View {
         .onChange(of: selectedSession) { _, _ in
             syncActiveRoomSelection()
         }
-        .onChange(of: navigationPath) { _, _ in
+        .onChange(of: navigationPath) { oldPath, newPath in
+            // After a pop, wait for the animation to finish before pushing the deep-link destination.
+            if newPath.count < oldPath.count, foregroundNotifications.pendingDeepLinkRoomId != nil {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    consumePendingDeepLink()
+                }
+            }
             syncActiveRoomSelection()
         }
     }
