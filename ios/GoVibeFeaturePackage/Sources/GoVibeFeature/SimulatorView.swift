@@ -418,8 +418,17 @@ struct SimulatorView: View {
     @State private var isZoomed = false
     @State private var showInteractionModeHint = !GoVibeBootstrap.hasSeenSimulatorInteractionModeHint
 
+    private var resolvedSimInfo: SimInfo? {
+        if let info = viewModel.simInfo { return info }
+        if let w = viewModel.appWindowInfo {
+            return SimInfo(deviceName: w.appName, udid: "", screenWidth: w.screenWidth,
+                           screenHeight: w.screenHeight, scale: w.scale, fps: w.fps)
+        }
+        return nil
+    }
+
     var body: some View {
-        if let simInfo = viewModel.simInfo {
+        if let simInfo = resolvedSimInfo {
             SimulatorScrollView(
                 simInfo: simInfo,
                 interactionMode: interactionMode,
