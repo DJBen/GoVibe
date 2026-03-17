@@ -70,18 +70,6 @@ struct SessionListView: View {
         .sheet(item: $createSessionForHost) { host in
             SessionCreateView(host: host, store: store)
         }
-        .overlay(alignment: .top) {
-            if let banner = foregroundNotifications.banner {
-                InAppNotificationBannerView(
-                    banner: banner,
-                    onTap: { openSession(for: banner) },
-                    onDismiss: { foregroundNotifications.dismissBanner() }
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
         .accessibilityIdentifier("session_list_view")
         .task {
             await store.refresh()
@@ -103,7 +91,6 @@ struct SessionListView: View {
         .onChange(of: navigationPath) { _, _ in
             syncActiveRoomSelection()
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: foregroundNotifications.banner)
     }
 
     private var usesSplitView: Bool {
@@ -150,18 +137,6 @@ struct SessionListView: View {
         guard let roomId = foregroundNotifications.pendingDeepLinkRoomId,
               let session = store.sessions.first(where: { $0.roomId == roomId }) else { return }
         foregroundNotifications.pendingDeepLinkRoomId = nil
-        if usesSplitView {
-            selectedSession = session
-        } else {
-            navigationPath = [session]
-        }
-    }
-
-    private func openSession(for banner: InAppNotificationBanner) {
-        foregroundNotifications.dismissBanner()
-        guard let roomId = banner.roomId,
-              let session = store.sessions.first(where: { $0.roomId == roomId }) else { return }
-
         if usesSplitView {
             selectedSession = session
         } else {
