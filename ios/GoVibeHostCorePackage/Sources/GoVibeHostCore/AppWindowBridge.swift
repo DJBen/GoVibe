@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import CoreMedia
 import Foundation
+import IOKit.pwr_mgt
 import ScreenCaptureKit
 import VideoToolbox
 
@@ -42,6 +43,7 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
     private let windowTitle: String
     private let bundleIdentifier: String?
+    private var displaySleepAssertionID: IOPMAssertionID = 0
 
     public var onAppWindowInfo: ((AppWindowInfoPayload) -> Void)?
     public var onBinaryFrame: ((Data) -> Void)?
@@ -145,6 +147,12 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
         stream = newStream
         isCapturing = true
+        IOPMAssertionCreateWithName(
+            kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            "GoVibe app window relay active" as CFString,
+            &displaySleepAssertionID
+        )
         logger.info("App window capture started: \(screenWidth)x\(screenHeight)")
 
         let appName = targetWindow.owningApplication?.applicationName ?? "Unknown"
@@ -165,6 +173,10 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     }
 
     public func stopCapture() {
+        if displaySleepAssertionID != 0 {
+            IOPMAssertionRelease(displaySleepAssertionID)
+            displaySleepAssertionID = 0
+        }
         stream?.stopCapture(completionHandler: nil)
         stream = nil
         isCapturing = false

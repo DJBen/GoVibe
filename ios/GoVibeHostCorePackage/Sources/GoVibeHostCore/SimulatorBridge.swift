@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import CoreMedia
 import Foundation
+import IOKit.pwr_mgt
 import ScreenCaptureKit
 import VideoToolbox
 
@@ -42,6 +43,7 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     private var simUDID: String = ""
     private var simName: String = ""
     private var needsWindowDisambiguation = true
+    private var displaySleepAssertionID: IOPMAssertionID = 0
 
     public var onSimInfo: ((SimInfoPayload) -> Void)?
     public var onBinaryFrame: ((Data) -> Void)?
@@ -168,6 +170,12 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
         stream = newStream
         isCapturing = true
+        IOPMAssertionCreateWithName(
+            kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            "GoVibe simulator relay active" as CFString,
+            &displaySleepAssertionID
+        )
         logger.info("Simulator capture started: \(screenWidth)x\(screenHeight)")
 
         onSimInfo?(SimInfoPayload(
@@ -181,6 +189,10 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     }
 
     public func stopCapture() {
+        if displaySleepAssertionID != 0 {
+            IOPMAssertionRelease(displaySleepAssertionID)
+            displaySleepAssertionID = 0
+        }
         stream?.stopCapture(completionHandler: nil)
         stream = nil
         isCapturing = false
