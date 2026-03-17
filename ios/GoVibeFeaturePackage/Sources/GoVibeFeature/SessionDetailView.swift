@@ -39,7 +39,7 @@ struct SessionDetailView: View {
             statusBar
 
             #if canImport(UIKit)
-            if viewModel.simInfo != nil {
+            if viewModel.simInfo != nil || viewModel.appWindowInfo != nil {
                 SimulatorView(viewModel: viewModel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
@@ -75,7 +75,7 @@ struct SessionDetailView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if viewModel.simInfo == nil, let paneProgram = viewModel.paneProgram {
+            if viewModel.simInfo == nil, viewModel.appWindowInfo == nil, let paneProgram = viewModel.paneProgram {
                 QuickActionsButton(paneProgram: paneProgram) { data in
                     viewModel.sendInputDataAsync(data)
                 }
@@ -136,6 +136,9 @@ struct SessionDetailView: View {
         .onChange(of: viewModel.simInfo) { _, simInfo in
             if simInfo != nil { onKindDiscovered?(.simulator) }
         }
+        .onChange(of: viewModel.appWindowInfo) { _, appWindowInfo in
+            if appWindowInfo != nil { onKindDiscovered?(.appWindow) }
+        }
         .onChange(of: viewModel.paneProgram) { _, program in
             if program != nil { onKindDiscovered?(.terminal) }
         }
@@ -180,6 +183,12 @@ struct SessionDetailView: View {
                         .clipShape(Capsule())
                 }
                 .accessibilityIdentifier("exit_scroll_button")
+            } else if let appWindowInfo = viewModel.appWindowInfo {
+                Text("\(appWindowInfo.appName) \u{2013} \(appWindowInfo.windowTitle)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.green)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("app_window_name_text")
             } else if let simInfo = viewModel.simInfo {
                 Text(simInfo.deviceName)
                     .font(.system(.caption, design: .monospaced))
@@ -257,6 +266,7 @@ struct SessionDetailView: View {
 
     private var shouldShowPlanButton: Bool {
         viewModel.simInfo == nil &&
+        viewModel.appWindowInfo == nil &&
         !viewModel.isInTmuxScrollMode &&
         viewModel.planState != nil &&
         (viewModel.paneProgram == "Claude" || viewModel.paneProgram == "Codex")

@@ -33,11 +33,13 @@ struct TerminalLine: Identifiable {
 enum SessionKind: String, Codable {
     case terminal
     case simulator
+    case appWindow
 
     var iconName: String {
         switch self {
         case .terminal:  return "terminal"
         case .simulator: return "iphone"
+        case .appWindow: return "macwindow"
         }
     }
 
@@ -45,6 +47,7 @@ enum SessionKind: String, Codable {
         switch self {
         case .terminal:  return "Terminal"
         case .simulator: return "Simulator"
+        case .appWindow: return "App Window"
         }
     }
 }
@@ -77,6 +80,16 @@ struct SavedSession: Identifiable, Codable, Hashable {
 struct SimInfo: Codable, Sendable, Equatable {
     let deviceName: String
     let udid: String
+    let screenWidth: Int
+    let screenHeight: Int
+    let scale: Double
+    let fps: Int
+}
+
+
+struct AppWindowInfo: Codable, Sendable, Equatable {
+    let windowTitle: String
+    let appName: String
     let screenWidth: Int
     let screenHeight: Int
     let scale: Double

@@ -34,6 +34,7 @@ final class SessionViewModel {
 
     // Simulator mirror
     private(set) var simInfo: SimInfo?
+    private(set) var appWindowInfo: AppWindowInfo?
     #if canImport(UIKit)
     var videoDecoder: SimulatorVideoDecoder?
     var captureSnapshot: (() -> UIImage?)?   // registered by the active surface view
@@ -255,6 +256,7 @@ final class SessionViewModel {
         paneProgram = nil
         planState = nil
         simInfo = nil
+        appWindowInfo = nil
         #if canImport(UIKit)
         videoDecoder?.reset()
         videoDecoder = nil
@@ -269,6 +271,7 @@ final class SessionViewModel {
         paneProgram = nil
         planState = nil
         simInfo = nil
+        appWindowInfo = nil
         #if canImport(UIKit)
         videoDecoder = nil
         #endif
@@ -300,6 +303,29 @@ final class SessionViewModel {
                                    screenWidth: screenWidth, screenHeight: screenHeight,
                                    scale: scale, fps: fps)
                 simInfo = info
+                #if canImport(UIKit)
+                if videoDecoder == nil {
+                    videoDecoder = SimulatorVideoDecoder { [weak self] in
+                        self?.sendSimKeyframeRequestAsync()
+                    }
+                }
+                #endif
+            }
+            return
+        }
+
+        if type == "app_window_info" {
+            recordPeerActivity()
+            if let windowTitle = json["windowTitle"] as? String,
+               let appName = json["appName"] as? String,
+               let screenWidth = (json["screenWidth"] as? NSNumber)?.intValue,
+               let screenHeight = (json["screenHeight"] as? NSNumber)?.intValue,
+               let scale = (json["scale"] as? NSNumber)?.doubleValue,
+               let fps = (json["fps"] as? NSNumber)?.intValue {
+                let info = AppWindowInfo(windowTitle: windowTitle, appName: appName,
+                                        screenWidth: screenWidth, screenHeight: screenHeight,
+                                        scale: scale, fps: fps)
+                appWindowInfo = info
                 #if canImport(UIKit)
                 if videoDecoder == nil {
                     videoDecoder = SimulatorVideoDecoder { [weak self] in

@@ -218,6 +218,26 @@ public final class HostSessionManager {
         controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
     }
 
+
+    public func createAppWindowSession(config: AppWindowSessionConfig) {
+        let sessionID = config.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionID.isEmpty else { return }
+        guard !sessions.contains(where: { $0.sessionId == sessionID }) else { return }
+        let descriptor = HostedSessionDescriptor(
+            hostId: settings.hostId,
+            sessionId: sessionID,
+            kind: .appWindow,
+            displayName: config.windowTitle,
+            state: .stopped,
+            configuration: .appWindow(config)
+        )
+        sessions.append(descriptor)
+        selectedSessionID = descriptor.sessionId
+        persistSessions()
+        startSession(id: descriptor.sessionId)
+        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
+    }
+
     public func startSession(id: String) {
         guard runtimes[id] == nil,
               let descriptor = sessions.first(where: { $0.sessionId == id }) else { return }
@@ -252,13 +272,17 @@ public final class HostSessionManager {
                     self?.handleRuntimeEvent(event, sessionID: id)
                 }
             }
-        case .appWindow(_):
-            updateSession(id: id) { descriptor in
-                descriptor.state = .error
-                descriptor.lastError = "App window sessions are not yet supported."
+        case .appWindow(let config):
+            runtime = AppWindowHostSession(
+                hostId: settings.hostId,
+                config: config,
+                relayBase: settings.relayBase,
+                logger: logger
+            ) { [weak self] event in
+                Task { @MainActor in
+                    self?.handleRuntimeEvent(event, sessionID: id)
+                }
             }
-            logger.error("App window sessions are not yet supported.")
-            return
         }
 
         runtimes[id] = runtime
