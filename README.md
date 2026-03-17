@@ -1,17 +1,17 @@
 # GoVibe
 
-GoVibe is an open-source remote terminal app that lets you control a Mac terminal session from an iPhone or iPad in real time.
+GoVibe is an open-source remote control system that lets you connect from an iPhone or iPad to live terminal and iOS Simulator sessions running on a Mac host app.
 
 ![GoVibe demo](https://raw.githubusercontent.com/DJBen/GoVibe/codex/media-assets/assets/govibe-demo.gif)
 
 ```
-iOS App ──WebSocket──▶ Cloud Run Relay ◀──WebSocket── Mac CLI (GoVibeMacCli)
+iOS App ──WebSocket──▶ Cloud Run Relay ◀──WebSocket── macOS Host App (GoVibeHost)
                               │
                     Firebase Auth + Functions
                           (control plane)
 ```
 
-The iOS app connects to a WebSocket relay hosted on Google Cloud Run. The Mac CLI connects to the same relay room. Firebase provides anonymous auth and a lightweight session-management API. No credentials are stored in the repo.
+The iOS app connects to a WebSocket relay hosted on Google Cloud Run. The macOS host app connects to the same relay service and exposes hosted terminal and simulator sessions. Firebase provides anonymous auth and a lightweight session-management API. No credentials are stored in the repo.
 
 ---
 
@@ -23,6 +23,8 @@ GoVibe/
 │   ├── GoVibe.xcworkspace         # Open this in Xcode
 │   ├── GoVibe/                    # iOS app target (thin wrapper)
 │   ├── GoVibeFeaturePackage/      # All shared Swift feature code
+│   ├── GoVibeHostApp/             # macOS host app target
+│   ├── GoVibeHostCorePackage/     # Shared host/runtime code
 │   ├── GoVibeMacCli/              # macOS CLI target (Swift executable)
 │   └── Config/
 │       ├── GoogleService-Info.plist.template   # Fill in & rename (gitignored)
@@ -77,30 +79,31 @@ node index.js
 # Relay listens on ws://localhost:8080 by default; check index.js for the PORT env var
 ```
 
-### 3. Run the Mac CLI
+### 3. Run the macOS Host App
 
-```bash
-cd ios/GoVibeMacCli
-export GOVIBE_API_BASE="http://127.0.0.1:5001/<your-project-id>/us-central1/api"
-export GOVIBE_RELAY_WS_BASE="ws://localhost:8080/relay"
-export GOVIBE_MAC_DEVICE_ID="my-mac"
-swift run GoVibeMacCli
-```
+1. Copy the Firebase config plist:
+   ```bash
+   cp ios/Config/GoogleService-Info.plist.template ios/Config/GoogleService-Info.plist
+   ```
+2. Open `ios/GoVibe.xcodeproj` or `ios/GoVibe.xcworkspace` in Xcode.
+3. Build and run the `GoVibeHost` macOS target.
+4. In the host onboarding flow:
+   - confirm the generated Host ID
+   - set the relay WebSocket URL to `ws://localhost:8080/relay`
+   - grant Accessibility and Screen Recording
+   - keep the default shell path unless you need a custom shell
+5. After onboarding, create or start the terminal/simulator sessions you want to expose from the host dashboard.
 
 ### 4. Run the iOS App
 
-1. Copy the Firebase emulator config plist:
-   ```bash
-   cp ios/Config/GoogleService-Info.plist.template ios/Config/GoogleService-Info.plist
-   # Edit the file and fill in your values (see "Self-Hosting" below)
-   # Or point it at the local emulator — the emulator bypasses API key validation
-   ```
-2. Open `ios/GoVibe.xcworkspace` in Xcode.
-3. Edit `ios/Config/Shared.xcconfig` and set:
+1. Open `ios/GoVibe.xcworkspace` in Xcode.
+2. Edit `ios/Config/Shared.xcconfig` and set:
    - `GOVIBE_GCP_REGION = us-central1`
    - `GOVIBE_GCP_PROJECT_ID = <project-id>`
    - `GOVIBE_GCP_RELAY_HOST = localhost:8080`
-4. Run on Simulator. Available Mac sessions are discovered automatically from the relay.
+3. Run the iOS app.
+4. Add your Mac host in the app using the Host ID shown by `GoVibeHost`.
+5. Refresh sessions if needed. Available sessions are discovered automatically from the host control channel.
 
 ---
 
@@ -151,15 +154,16 @@ gcloud run deploy govibe-relay \
 
 Note the service URL printed at the end, then copy only its host into `GOVIBE_GCP_RELAY_HOST` (for example, from `https://abc-uw.a.run.app`, use `abc-uw.a.run.app`).
 
-### Step 6: Run the Mac CLI
+### Step 6: Run the macOS Host App
 
-```bash
-export GOVIBE_API_BASE="https://<region>-<project>.cloudfunctions.net/api"
-export GOVIBE_RELAY_WS_BASE="wss://<service>.<region>.run.app/relay"
-export GOVIBE_MAC_DEVICE_ID="my-mac"      # unique ID for this Mac
-export GOVIBE_SHELL="/bin/zsh"            # optional; defaults to $SHELL
-swift run --package-path ios/GoVibeMacCli GoVibeMacCli
-```
+1. Open `ios/GoVibe.xcodeproj` or `ios/GoVibe.xcworkspace` in Xcode.
+2. Build and run the `GoVibeHost` macOS target.
+3. In the onboarding flow:
+   - keep the generated Host ID or copy it for later pairing
+   - set Relay to `wss://<your-cloud-run-host>/relay`
+   - grant Accessibility and Screen Recording
+   - optionally change the default shell path
+4. Create the hosted terminal and/or simulator sessions you want this Mac to serve.
 
 ### Step 7: Run the iOS App
 
@@ -172,7 +176,7 @@ The app assembles:
 - API base: `https://<region>-<project>.cloudfunctions.net/api`
 - Relay WS base: `wss://<relay-host>/relay`
 
-The app discovers available Mac sessions automatically — no device ID needed.
+After signing in, add your Mac host using the Host ID shown in the macOS host app, then the app discovers and syncs available sessions automatically.
 
 ---
 
@@ -183,12 +187,11 @@ The app discovers available Mac sessions automatically — no device ID needed.
 | `GOVIBE_GCP_REGION` | iOS app | GCP region used to assemble Functions URL, e.g. `us-west1`. |
 | `GOVIBE_GCP_PROJECT_ID` | iOS app | Firebase/GCP project ID used to assemble Functions URL. |
 | `GOVIBE_GCP_RELAY_HOST` | iOS app | Cloud Run host only (no scheme/path), e.g. `govibe-relay-xxxxx-uw.a.run.app`. |
-| `GOVIBE_MAC_DEVICE_ID` | Mac CLI only | Unique identifier for this Mac (used as the relay room name). iOS discovers available rooms automatically via the API. |
-| `GOVIBE_SHELL` | Mac CLI only | Shell to launch inside the PTY (default: `$SHELL`) |
-| `GOVIBE_API_BASE` | Mac CLI | Full API URL, e.g. `https://us-west1-<project>.cloudfunctions.net/api`. |
-| `GOVIBE_RELAY_WS_BASE` | Mac CLI | Full Relay WS URL, e.g. `wss://<service>.<region>.run.app/relay`. |
+| Host ID | macOS Host app | Generated locally by `GoVibeHost`; used by the iOS app to pair with a specific Mac. |
+| Relay URL | macOS Host app | Full relay WebSocket URL, e.g. `wss://<service>.<region>.run.app/relay`, configured in host onboarding. |
+| Shell Path | macOS Host app | Default shell launched for new terminal sessions on the host. |
 
-For iOS, config comes from `ios/Config/Shared.xcconfig` and is embedded into the app Info.plist at build time. For Mac CLI, variables are shell environment variables.
+For iOS, config comes from `ios/Config/Shared.xcconfig` and is embedded into the app Info.plist at build time. For the macOS host app, relay URL and default shell are configured in-app and stored locally on that Mac.
 
 The iOS app intentionally crashes at startup with a descriptive error if any required `GOVIBE_GCP_*` value is empty or still set to a `DUMMY_*` placeholder.
 
