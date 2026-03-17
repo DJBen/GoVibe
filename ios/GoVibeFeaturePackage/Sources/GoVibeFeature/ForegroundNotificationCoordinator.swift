@@ -9,6 +9,9 @@ final class ForegroundNotificationCoordinator {
 
     var activeRoomId: String?
     var banner: InAppNotificationBanner?
+    /// Set when the user taps a system notification while the app is backgrounded or killed.
+    /// `SessionListView` consumes this once to perform deep-link navigation.
+    var pendingDeepLinkRoomId: String?
 
     private var dismissTask: Task<Void, Never>?
 
@@ -18,6 +21,12 @@ final class ForegroundNotificationCoordinator {
         activeRoomId = roomId
         guard banner?.roomId == roomId else { return }
         dismissBanner()
+    }
+
+    func handleNotificationTap(userInfo: [AnyHashable: Any]) {
+        let payload = ForegroundNotificationPayload(userInfo: userInfo, title: nil, body: nil)
+        guard let roomId = payload.roomId else { return }
+        pendingDeepLinkRoomId = roomId
     }
 
     func handleForegroundNotification(_ notification: UNNotification) {

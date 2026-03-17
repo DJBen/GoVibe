@@ -85,7 +85,11 @@ struct SessionListView: View {
         .accessibilityIdentifier("session_list_view")
         .task {
             await store.refresh()
+            consumePendingDeepLink()
             syncActiveRoomSelection()
+        }
+        .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, _ in
+            consumePendingDeepLink()
         }
         .onChange(of: store.sessions) { _, sessions in
             if let selectedSession, !sessions.contains(selectedSession) {
@@ -140,6 +144,17 @@ struct SessionListView: View {
 
     private func syncActiveRoomSelection() {
         foregroundNotifications.setActiveRoomId(activeRoomId)
+    }
+
+    private func consumePendingDeepLink() {
+        guard let roomId = foregroundNotifications.pendingDeepLinkRoomId,
+              let session = store.sessions.first(where: { $0.roomId == roomId }) else { return }
+        foregroundNotifications.pendingDeepLinkRoomId = nil
+        if usesSplitView {
+            selectedSession = session
+        } else {
+            navigationPath = [session]
+        }
     }
 
     private func openSession(for banner: InAppNotificationBanner) {
