@@ -10,18 +10,35 @@ struct QuickActionsButton: View {
         QuickAction.actions(for: paneProgram)
     }
 
+    @ViewBuilder
+    private var buttonIconView: some View {
+        if paneProgram == "Codex" {
+            Image("OpenAISymbol")
+                .resizable()
+                .renderingMode(.template)
+                .foregroundStyle(.black)
+                .padding(10)
+        } else {
+            Image("ClaudeSymbol")
+                .resizable()
+                .renderingMode(.template)
+                .foregroundStyle(.white)
+                .padding(10)
+        }
+    }
+
+    private var buttonBackground: Color {
+        paneProgram == "Codex" ? .white : Color("ClaudeColor")
+    }
+
     var body: some View {
         if !actions.isEmpty {
             Button {
                 showingActions = true
             } label: {
-                Image("ClaudeSymbol")
-                    .resizable()
-                    .renderingMode(.template)
-                    .foregroundStyle(.white)
-                    .padding(10)
+                buttonIconView
                     .frame(width: 40, height: 40)
-                    .background(Color("ClaudeColor"))
+                    .background(buttonBackground)
                     .clipShape(Circle())
                     .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
             }

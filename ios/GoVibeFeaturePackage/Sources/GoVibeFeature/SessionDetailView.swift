@@ -17,6 +17,7 @@ struct SessionDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SessionViewModel
     @State private var showNotificationOnboarding = false
+    @State private var showPlanSheet = false
 
     init(
         roomId: String,
@@ -82,6 +83,12 @@ struct SessionDetailView: View {
                 .padding(.bottom, 16)
             }
         }
+        .overlay(alignment: .bottom) {
+            if shouldShowPlanButton {
+                viewPlanButton
+                    .padding(.bottom, 16)
+            }
+        }
         .navigationTitle(roomId)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -112,9 +119,19 @@ struct SessionDetailView: View {
             }
             .presentationDetents([.medium])
         }
+        .fullScreenCover(isPresented: $showPlanSheet) {
+            if let planState = viewModel.planState {
+                PlanMarkdownSheet(plan: planState)
+            }
+        }
 #endif
         .onChange(of: viewModel.relayStatus) { _, newStatus in
             onStatusChanged?(newStatus)
+        }
+        .onChange(of: viewModel.planState) { _, newValue in
+            if newValue == nil {
+                showPlanSheet = false
+            }
         }
         .onChange(of: viewModel.simInfo) { _, simInfo in
             if simInfo != nil { onKindDiscovered?(.simulator) }
@@ -127,7 +144,12 @@ struct SessionDetailView: View {
         }
         .onDisappear {
             #if canImport(UIKit)
-            let image = viewModel.captureSnapshot?() ?? viewModel.pendingSnapshotImage
+            // Prefer pendingSnapshotImage (captured eagerly in exitSession before
+            // disconnectRelay clears simInfo and causes TerminalSurfaceView.makeUIView
+            // to overwrite captureSnapshot with a blank terminal capture).
+            // Fall back to captureSnapshot for the swipe-back case where exitSession
+            // was never called and pendingSnapshotImage is nil.
+            let image = viewModel.pendingSnapshotImage ?? viewModel.captureSnapshot?()
             if let image {
                 onSnapshot?(image, Date())
             }
@@ -233,7 +255,40 @@ struct SessionDetailView: View {
         .padding(.trailing, 12)
     }
 
+    private var shouldShowPlanButton: Bool {
+        viewModel.simInfo == nil &&
+        !viewModel.isInTmuxScrollMode &&
+        viewModel.planState != nil &&
+        (viewModel.paneProgram == "Claude" || viewModel.paneProgram == "Codex")
+    }
+
+    private var viewPlanButton: some View {
+        Button {
+            showPlanSheet = true
+        } label: {
+            Label("View Plan", systemImage: "doc.text")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .background(.black.opacity(0.78))
+                .overlay {
+                    Capsule()
+                        .strokeBorder(.white.opacity(0.16))
+                }
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("view_plan_button")
+    }
+
     private func exitSession() {
+        #if canImport(UIKit)
+        if viewModel.pendingSnapshotImage == nil, let captured = viewModel.captureSnapshot?() {
+            viewModel.pendingSnapshotImage = captured
+        }
+        #endif
         viewModel.disconnectRelay()
         if let onExit {
             onExit()

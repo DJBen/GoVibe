@@ -7,11 +7,6 @@ struct SimulatorQuickActionsMenu: View {
     var body: some View {
         Menu {
             Button {
-                onAction("unlock")
-            } label: {
-                Label("Unlock", systemImage: "lock.open")
-            }
-            Button {
                 onAction("home")
             } label: {
                 Label("Home", systemImage: "house")
@@ -20,11 +15,6 @@ struct SimulatorQuickActionsMenu: View {
                 onAction("shake")
             } label: {
                 Label("Shake", systemImage: "iphone.radiowaves.left.and.right")
-            }
-            Button {
-                onAction("lock")
-            } label: {
-                Label("Lock", systemImage: "lock")
             }
             Button {
                 onAction("rotateLeft")

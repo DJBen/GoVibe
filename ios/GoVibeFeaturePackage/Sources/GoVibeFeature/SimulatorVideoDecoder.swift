@@ -1,8 +1,10 @@
 #if canImport(UIKit)
 import AVFoundation
+import CoreImage
 import CoreMedia
 import Foundation
 import UIKit
+import VideoToolbox
 
 /// Decodes H.264 binary frames received from the Mac relay and renders via AVSampleBufferDisplayLayer.
 ///
@@ -18,12 +20,28 @@ final class SimulatorVideoDecoder {
     private var timebase: CMTimebase?
     private let onKeyframeRequest: @MainActor () -> Void
 
+    // MARK: - Thumbnail capture
+    // VTDecompressionSession decodes frames to CVPixelBuffer so we can produce a real
+    // UIImage snapshot — AVSampleBufferDisplayLayer renders via Metal and produces black
+    // images from any layer.render / drawHierarchy call.
+    private var thumbSession: VTDecompressionSession?
+    // Written from the VT callback (background thread); only read on main actor after
+    // VTDecompressionSessionWaitForAsynchronousFrames ensures the write has completed.
+    nonisolated(unsafe) private var _lastThumbBuffer: CVPixelBuffer?
+
     init(onKeyframeRequest: @escaping @MainActor () -> Void) {
         self.onKeyframeRequest = onKeyframeRequest
     }
 
     func setDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
         displayLayer = layer
+        // Discard any format description cached before the display layer was
+        // connected.  Non-IDR frames that arrive while waiting for the
+        // keyframe response would otherwise pass the `guard let formatDescription`
+        // check in handleSlice and get enqueued without a prior IDR, pushing the
+        // layer into a .failed state and causing every subsequent IDR to be
+        // dropped (flush → request → non-IDR frames → fail → drop IDR → loop).
+        formatDescription = nil
         setupTimebase(for: layer)
         // Ask Mac for an IDR frame immediately so the first frame appears
         // without waiting for the next natural keyframe interval.
@@ -111,6 +129,7 @@ final class SimulatorVideoDecoder {
             return
         }
         formatDescription = newFormatDesc
+        rebuildThumbSession()
         displayLayer?.flush()
     }
 
@@ -121,8 +140,11 @@ final class SimulatorVideoDecoder {
 
         if displayLayer.status == .failed {
             displayLayer.flush()
+            // Don't return — attempt to enqueue the current frame (which may be
+            // the IDR we were waiting for).  If it's a non-IDR the layer will
+            // discard it; if it's the IDR it will display.  A fresh keyframe
+            // request is sent so we recover even if this frame can't decode.
             onKeyframeRequest()
-            return
         }
 
         // Create a CMBlockBuffer that owns its memory.
@@ -173,12 +195,62 @@ final class SimulatorVideoDecoder {
         guard sbStatus == noErr, let sampleBuffer else { return }
 
         displayLayer.enqueue(sampleBuffer)
+
+        // Feed every frame to thumbSession so _lastThumbBuffer always holds a recent
+        // decoded pixel buffer. No IDR filtering — that would risk missing all frames
+        // if the IDR detection were wrong.
+        if let thumbSession {
+            VTDecompressionSessionDecodeFrame(
+                thumbSession, sampleBuffer: sampleBuffer, flags: [],
+                frameRefcon: nil, infoFlagsOut: nil)
+        }
+    }
+
+    // MARK: - Thumbnail
+
+    func captureLastFrame() -> UIImage? {
+        // Flush any pending async frames before reading the buffer.
+        if let s = thumbSession { VTDecompressionSessionWaitForAsynchronousFrames(s) }
+        guard let pb = _lastThumbBuffer else { return nil }
+        // Use CIImage → CIContext → CGImage to handle IOSurface-backed buffers and
+        // any pixel format VT decides to deliver (ignoring our BGRA request is rare but possible).
+        let ci = CIImage(cvPixelBuffer: pb)
+        let ctx = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cg = ctx.createCGImage(ci, from: ci.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    private func rebuildThumbSession() {
+        if let s = thumbSession { VTDecompressionSessionInvalidate(s) }
+        thumbSession = nil
+        _lastThumbBuffer = nil
+        guard let fmt = formatDescription else { return }
+        // Do not force a pixel format — let VT deliver its native format (typically
+        // kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange on iOS hardware decoders).
+        // Forcing BGRA can cause a silent color-conversion failure that produces black frames.
+        // CIImage(cvPixelBuffer:) handles YUV natively.
+        let cb: VTDecompressionOutputCallback = { refCon, _, status, _, imageBuffer, _, _ in
+            guard status == noErr, let pb = imageBuffer, let ptr = refCon else { return }
+            Unmanaged<SimulatorVideoDecoder>.fromOpaque(ptr).takeUnretainedValue()._lastThumbBuffer = pb
+        }
+        var record = VTDecompressionOutputCallbackRecord(
+            decompressionOutputCallback: cb,
+            decompressionOutputRefCon: Unmanaged.passUnretained(self).toOpaque())
+        var session: VTDecompressionSession?
+        VTDecompressionSessionCreate(
+            allocator: nil, formatDescription: fmt,
+            decoderSpecification: nil, imageBufferAttributes: nil,
+            outputCallback: &record, decompressionSessionOut: &session)
+        thumbSession = session
     }
 
     // MARK: - Reset
 
     func reset() {
         formatDescription = nil
+        if let s = thumbSession { VTDecompressionSessionInvalidate(s) }
+        thumbSession = nil
+        _lastThumbBuffer = nil
         displayLayer?.flush()
         onKeyframeRequest()
     }

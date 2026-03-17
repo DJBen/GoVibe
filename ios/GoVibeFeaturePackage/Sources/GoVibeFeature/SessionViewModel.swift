@@ -26,6 +26,7 @@ final class SessionViewModel {
     private var intentionalDisconnect = false
     private(set) var isInTmuxScrollMode = false
     var paneProgram: String?
+    private(set) var planState: TerminalPlanState?
     private var peerWatchdogTask: Task<Void, Never>?
     private var outboundHeartbeatTask: Task<Void, Never>?
     private var lastPeerActivityAt: Date?
@@ -243,6 +244,7 @@ final class SessionViewModel {
         lastPeerActivityAt = nil
         relayStatus = "Peer disconnected"
         paneProgram = nil
+        planState = nil
         simInfo = nil
         #if canImport(UIKit)
         videoDecoder?.reset()
@@ -256,6 +258,7 @@ final class SessionViewModel {
         hasLivePeer = false
         lastPeerActivityAt = nil
         paneProgram = nil
+        planState = nil
         simInfo = nil
         #if canImport(UIKit)
         videoDecoder = nil
@@ -323,6 +326,27 @@ final class SessionViewModel {
 
         if type == "push_notify" {
             recordPeerActivity()
+            return
+        }
+
+        if type == "plan_state" {
+            recordPeerActivity()
+            let available = (json["available"] as? Bool) ?? false
+            if available,
+               let assistant = json["assistant"] as? String,
+               let turnId = json["turnId"] as? String,
+               let markdown = json["markdown"] as? String,
+               let blockCount = json["blockCount"] as? Int {
+                planState = TerminalPlanState(
+                    assistant: assistant,
+                    turnId: turnId,
+                    title: json["title"] as? String,
+                    markdown: markdown,
+                    blockCount: blockCount
+                )
+            } else {
+                planState = nil
+            }
             return
         }
 
@@ -496,6 +520,7 @@ final class SessionViewModel {
 
     #if canImport(UIKit)
     func connectDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
+        print("[SessionViewModel] connectDisplayLayer called, decoder=\(videoDecoder != nil ? "ready" : "nil")")
         videoDecoder?.setDisplayLayer(layer)
     }
     #endif
@@ -505,14 +530,19 @@ final class SessionViewModel {
         await sendJSONEnvelope(["type": "sim_cursor_move", "dx": dx, "dy": dy])
     }
 
-    func sendSimClick(clickCount: Int) async {
+    func sendSimClick(button: String = "left", clickCount: Int) async {
         guard relayTask != nil else { return }
-        await sendJSONEnvelope(["type": "sim_click", "clickCount": clickCount])
+        await sendJSONEnvelope(["type": "sim_click", "button": button, "clickCount": clickCount])
     }
 
     func sendSimButton(action: String) async {
         guard relayTask != nil else { return }
         await sendJSONEnvelope(["type": "sim_button", "action": action])
+    }
+
+    func sendSimScroll(dx: Double, dy: Double) async {
+        guard relayTask != nil else { return }
+        await sendJSONEnvelope(["type": "sim_scroll", "dx": dx, "dy": dy])
     }
 
     private func sendSimKeyframeRequest() async {
@@ -534,12 +564,16 @@ final class SessionViewModel {
         Task { @MainActor in await sendSimCursorMove(dx: dx, dy: dy) }
     }
 
-    func sendSimClickAsync(clickCount: Int) {
-        Task { @MainActor in await sendSimClick(clickCount: clickCount) }
+    func sendSimClickAsync(button: String = "left", clickCount: Int) {
+        Task { @MainActor in await sendSimClick(button: button, clickCount: clickCount) }
     }
 
     func sendSimButtonAsync(action: String) {
         Task { @MainActor in await sendSimButton(action: action) }
+    }
+
+    func sendSimScrollAsync(dx: Double, dy: Double) {
+        Task { @MainActor in await sendSimScroll(dx: dx, dy: dy) }
     }
 
     func sendSimKeyframeRequestAsync() {

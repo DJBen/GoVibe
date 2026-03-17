@@ -66,9 +66,13 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
             self?.recordPeerActivity()
             self?.simulatorBridge.injectCursorMove(dx: dx, dy: dy)
         }
-        bridge.onSimClick = { [weak self] clickCount in
+        bridge.onSimClick = { [weak self] button, clickCount in
             self?.recordPeerActivity()
-            self?.simulatorBridge.injectClick(clickCount: clickCount)
+            self?.simulatorBridge.injectClick(button: button, clickCount: clickCount)
+        }
+        bridge.onSimScroll = { [weak self] dx, dy in
+            self?.recordPeerActivity()
+            self?.simulatorBridge.injectScroll(dx: dx, dy: dy)
         }
         bridge.onSimButton = { [weak self] action in
             self?.recordPeerActivity()

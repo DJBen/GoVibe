@@ -49,16 +49,28 @@ enum SessionKind: String, Codable {
     }
 }
 
+struct HostInfo: Identifiable, Codable, Hashable {
+    var id: String       // hostId UUID string from the macOS GoVibe Host app
+    var name: String     // user-given display label
+
+    init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 struct SavedSession: Identifiable, Codable, Hashable {
     var roomId: String
+    var hostId: String
     var kind: SessionKind?
     var lastRelayStatus: String?
     var lastActiveAt: Date?      // set when user leaves session
 
     var id: String { roomId }
 
-    init(roomId: String) {
+    init(roomId: String, hostId: String) {
         self.roomId = roomId
+        self.hostId = hostId
     }
 }
 
@@ -69,4 +81,12 @@ struct SimInfo: Codable, Sendable, Equatable {
     let screenHeight: Int
     let scale: Double
     let fps: Int
+}
+
+struct TerminalPlanState: Equatable, Sendable {
+    let assistant: String
+    let turnId: String
+    let title: String?
+    let markdown: String
+    let blockCount: Int
 }

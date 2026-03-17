@@ -21,7 +21,8 @@ public final class RelayTransport: @unchecked Sendable {
     public var onPeerLeft: (() -> Void)?
     public var onPeerHeartbeat: (() -> Void)?
     public var onSimCursorMove: ((Double, Double) -> Void)?
-    public var onSimClick: ((Int) -> Void)?
+    public var onSimClick: ((String, Int) -> Void)?
+    public var onSimScroll: ((Double, Double) -> Void)?
     public var onSimButton: ((String) -> Void)?
     public var onSimKeyframeRequest: (() -> Void)?
     public var onSimDragBegin: (() -> Void)?
@@ -88,6 +89,32 @@ public final class RelayTransport: @unchecked Sendable {
 
     public func sendPushNotify(event: String) {
         enqueueJSON(["type": "push_notify", "event": event])
+    }
+
+    func sendPlanState(_ artifact: TerminalPlanArtifact?) {
+        var payload: [String: Any] = [
+            "type": "plan_state",
+            "available": artifact != nil
+        ]
+        if let artifact {
+            payload["assistant"] = artifact.assistant
+            payload["turnId"] = artifact.turnId
+            payload["markdown"] = artifact.markdown
+            payload["blockCount"] = artifact.blockCount
+            if let title = artifact.title {
+                payload["title"] = title
+            }
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        queue.async {
+            if self.outboundQueue.count >= self.maxQueuedMessages {
+                self.outboundQueue.removeFirst(self.outboundQueue.count - self.maxQueuedMessages + 1)
+            }
+            self.outboundQueue.append(json)
+            self.flushOutboundQueueLocked()
+        }
     }
 
     public func sendSnapshot(_ data: Data) {
@@ -298,8 +325,13 @@ public final class RelayTransport: @unchecked Sendable {
             }
         case "sim_click":
             if let clickCount = json["clickCount"] as? Int {
-                logger.info("sim_click clicks=\(clickCount)")
-                onSimClick?(clickCount)
+                let button = (json["button"] as? String) ?? "left"
+                logger.info("sim_click button=\(button) clicks=\(clickCount)")
+                onSimClick?(button, clickCount)
+            }
+        case "sim_scroll":
+            if let dx = json["dx"] as? Double, let dy = json["dy"] as? Double {
+                onSimScroll?(dx, dy)
             }
         case "sim_button":
             if let action = json["action"] as? String {

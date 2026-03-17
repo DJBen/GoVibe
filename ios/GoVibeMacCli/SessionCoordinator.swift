@@ -259,6 +259,10 @@ final class SessionCoordinator {
             return "Codex"
         }
 
+        if allValues.contains(where: { $0.contains("gemini") || $0.contains("@google/gemini-cli") || $0.contains("gemini-cli") || $0.contains("google gemini") }) {
+            return "Gemini"
+        }
+
         if allValues.contains(where: { $0.contains("claude") || $0.contains("anthropic") || $0.contains("claude-code") }) {
             return "Claude"
         }

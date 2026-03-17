@@ -275,53 +275,57 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     public func injectCursorMove(dx: Double, dy: Double) {
         captureQueue.async {
             guard self.simPID > 0, !self.windowBounds.isEmpty else { return }
-            let current = self.currentCursorPoint ?? CGPoint(
-                x: self.windowBounds.midX,
-                y: self.windowBounds.midY
-            )
-            let speed = 1.5
-            let newX = max(
-                self.windowBounds.minX,
-                min(self.windowBounds.maxX, current.x + dx * self.windowBounds.width * speed)
-            )
-            let newY = max(
-                self.windowBounds.minY,
-                min(self.windowBounds.maxY, current.y + dy * self.windowBounds.height * speed)
-            )
-            let newPoint = CGPoint(x: newX, y: newY)
+            let newPoint = self.nextCursorPoint(dx: dx, dy: dy)
             self.currentCursorPoint = newPoint
             CGWarpMouseCursorPosition(newPoint)
         }
     }
 
-    public func injectClick(clickCount: Int) {
-        captureQueue.async { self._injectClick(clickCount: clickCount) }
+    public func injectClick(button: String = "left", clickCount: Int) {
+        captureQueue.async { self._injectClick(button: button, clickCount: clickCount) }
     }
 
-    private func _injectClick(clickCount: Int) {
+    private func _injectClick(button: String, clickCount: Int) {
         guard simPID > 0, !windowBounds.isEmpty else { return }
         let point = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
 
-        focusCapturedSimulatorWindow()
+        activateSimulator()
+        CGWarpMouseCursorPosition(point)
 
-        func sendClick() {
-            if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
-                                  mouseCursorPosition: point, mouseButton: .left) {
-                down.post(tap: .cghidEventTap)
-            }
-            if let drag = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged,
-                                  mouseCursorPosition: point, mouseButton: .left) {
-                drag.post(tap: .cghidEventTap)
-            }
-            if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
-                                mouseCursorPosition: point, mouseButton: .left) {
-                up.post(tap: .cghidEventTap)
-            }
+        guard let eventSpec = mouseEventSpec(for: button) else { return }
+
+        if let down = CGEvent(mouseEventSource: nil, mouseType: eventSpec.downType,
+                              mouseCursorPosition: point, mouseButton: eventSpec.button) {
+            down.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
+            down.post(tap: .cghidEventTap)
         }
+        if let up = CGEvent(mouseEventSource: nil, mouseType: eventSpec.upType,
+                            mouseCursorPosition: point, mouseButton: eventSpec.button) {
+            up.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
+            up.post(tap: .cghidEventTap)
+        }
+    }
 
-        sendClick()
-        if clickCount == 2 {
-            sendClick()
+    public func injectScroll(dx: Double, dy: Double) {
+        captureQueue.async {
+            guard self.simPID > 0, !self.windowBounds.isEmpty else { return }
+            let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
+            self.activateSimulator()
+            self.currentCursorPoint = point
+            CGWarpMouseCursorPosition(point)
+
+            let horizontalPixels = self.scrollPixels(for: dx, dimension: self.windowBounds.width)
+            let verticalPixels = self.scrollPixels(for: -dy, dimension: self.windowBounds.height)
+            guard horizontalPixels != 0 || verticalPixels != 0 else { return }
+
+            CGEvent(
+                scrollWheelEvent2Source: nil,
+                units: .pixel,
+                wheelCount: 2,
+                wheel1: Int32(verticalPixels),
+                wheel2: Int32(horizontalPixels),
+                wheel3: 0
+            )?.post(tap: .cghidEventTap)
         }
     }
 
@@ -331,6 +335,8 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
             self.activateSimulator()
             self.isDragging = true
+            self.currentCursorPoint = point
+            CGWarpMouseCursorPosition(point)
             CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
                     mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
         }
@@ -339,13 +345,7 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     public func injectDragMove(dx: Double, dy: Double) {
         captureQueue.async {
             guard self.isDragging, self.simPID > 0, !self.windowBounds.isEmpty else { return }
-            let current = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
-            let speed = 1.5
-            let newX = max(self.windowBounds.minX,
-                           min(self.windowBounds.maxX, current.x + dx * self.windowBounds.width * speed))
-            let newY = max(self.windowBounds.minY,
-                           min(self.windowBounds.maxY, current.y + dy * self.windowBounds.height * speed))
-            let newPoint = CGPoint(x: newX, y: newY)
+            let newPoint = self.nextCursorPoint(dx: dx, dy: dy)
             self.currentCursorPoint = newPoint
             CGWarpMouseCursorPosition(newPoint)
             CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged,
@@ -368,10 +368,33 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             injectUnlock()
             return
         }
-        guard let keyCode = buttonActionToKeyCode(action) else { return }
         captureQueue.async {
+            guard self.simPID > 0, !self.windowBounds.isEmpty else {
+                self.logger.error("injectButton(\(action)) skipped — simulator target not ready (capture not started?)")
+                return
+            }
+            self.logger.info("injectButton: \(action) → simPID \(self.simPID)")
+
+            let keyEvents: (keyCode: CGKeyCode, flags: CGEventFlags)?
+            switch action {
+            case "home":        keyEvents = (4,   [.maskCommand, .maskShift])
+            case "shake":       keyEvents = (6,   [.maskCommand, .maskControl])
+            case "lock":        keyEvents = (37,  .maskCommand)
+            case "rotateLeft":  keyEvents = (123, .maskCommand)
+            case "rotateRight": keyEvents = (124, .maskCommand)
+            default:            keyEvents = nil
+            }
+
+            guard let (keyCode, flags) = keyEvents else { return }
             self.focusCapturedSimulatorWindow()
-            sendKeyPress(keyCode: keyCode)
+            if let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) {
+                down.flags = flags
+                down.post(tap: .cghidEventTap)
+            }
+            if let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) {
+                up.flags = flags
+                up.post(tap: .cghidEventTap)
+            }
         }
     }
 
@@ -500,6 +523,44 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
         usleep(50_000)
     }
+
+    private func nextCursorPoint(dx: Double, dy: Double) -> CGPoint {
+        let current = currentCursorPoint ?? CGPoint(
+            x: windowBounds.midX,
+            y: windowBounds.midY
+        )
+        let speed = 1.5
+        let newX = max(
+            windowBounds.minX,
+            min(windowBounds.maxX, current.x + dx * windowBounds.width * speed)
+        )
+        let newY = max(
+            windowBounds.minY,
+            min(windowBounds.maxY, current.y + dy * windowBounds.height * speed)
+        )
+        return CGPoint(x: newX, y: newY)
+    }
+
+    private func scrollPixels(for delta: Double, dimension: CGFloat) -> Int {
+        let pixels = Int((delta * dimension * 0.75).rounded())
+        if pixels == 0, delta != 0 {
+            return delta > 0 ? 1 : -1
+        }
+        return pixels
+    }
+
+    private func mouseEventSpec(for button: String) -> (downType: CGEventType, dragType: CGEventType, upType: CGEventType, button: CGMouseButton)? {
+        switch button.lowercased() {
+        case "left":
+            return (.leftMouseDown, .leftMouseDragged, .leftMouseUp, .left)
+        case "right":
+            return (.rightMouseDown, .rightMouseDragged, .rightMouseUp, .right)
+        case "middle":
+            return (.otherMouseDown, .otherMouseDragged, .otherMouseUp, .center)
+        default:
+            return nil
+        }
+    }
 }
 
 private func runProcess(_ executable: String, args: [String]) -> String? {
@@ -557,24 +618,4 @@ private func sendMouseClick(at point: CGPoint, clickCount: Int) {
     let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)
     mouseUp?.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
     mouseUp?.post(tap: .cghidEventTap)
-}
-
-private func buttonActionToKeyCode(_ action: String) -> CGKeyCode? {
-    switch action {
-    case "home":
-        return 115
-    case "lock":
-        return 145
-    case "siri":
-        return 160
-    default:
-        return nil
-    }
-}
-
-private func sendKeyPress(keyCode: CGKeyCode) {
-    let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)
-    let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
-    down?.post(tap: .cghidEventTap)
-    up?.post(tap: .cghidEventTap)
 }

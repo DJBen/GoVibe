@@ -4,6 +4,7 @@ import GoVibeHostCore
 struct HostDashboardView: View {
     @State var manager: HostSessionManager
     @State private var showingWizard = false
+    @State private var showingHostIDPopover = false
     private let relativeDateFormatter = RelativeDateTimeFormatter()
     private static let logTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -32,6 +33,16 @@ struct HostDashboardView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingHostIDPopover = true
+                } label: {
+                    Label("Show Host ID", systemImage: "number")
+                }
+                .popover(isPresented: $showingHostIDPopover, arrowEdge: .top) {
+                    HostIDView(hostId: manager.settings.hostId)
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button { showingWizard = true } label: {
                     Label("Add Session", systemImage: "plus")
                 }
@@ -42,6 +53,7 @@ struct HostDashboardView: View {
         }
         .onAppear {
             manager.refreshPermissions()
+            manager.startControlChannel()
         }
     }
 
@@ -88,7 +100,11 @@ struct HostDashboardView: View {
                     .foregroundStyle(.secondary)
                 Button("Add Session") { showingWizard = true }
                     .buttonStyle(.borderedProminent)
+
+                Divider()
+                    .padding(.vertical, 8)
             }
+            .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -123,7 +139,7 @@ struct HostDashboardView: View {
             return "Last active a while ago"
         }
 
-        return session.state.rawValue.capitalized
+        return session.state.displayLabel
     }
 }
 

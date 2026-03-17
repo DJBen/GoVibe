@@ -11,18 +11,122 @@ enum DragPhase {
     case ended
 }
 
+enum SimulatorInteractionMode {
+    case viewport
+    case mouse
+}
+
+final class DoubleTapDragGestureRecognizer: UIGestureRecognizer {
+    private let movementThreshold: CGFloat = 6
+    private var trackingSecondTap = false
+    private(set) var initialLocation: CGPoint = .zero
+    private(set) var didDrag = false
+
+    override func reset() {
+        super.reset()
+        trackingSecondTap = false
+        initialLocation = .zero
+        didDrag = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first, touches.count == 1 else {
+            state = .failed
+            return
+        }
+        
+        // If it's tapCount 1, we stay in .possible (but don't fail).
+        // If it's tapCount 2, we stay in .possible (waiting for drag or release).
+        if touch.tapCount > 2 {
+            state = .failed
+        }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first, let view else { return }
+        let location = touch.location(in: view)
+        
+        // We only care about drags that start on the second tap.
+        guard touch.tapCount == 2 else { return }
+        
+        if state == .possible {
+            if !trackingSecondTap {
+                trackingSecondTap = true
+                initialLocation = location
+                return
+            }
+            
+            let dx = location.x - initialLocation.x
+            let dy = location.y - initialLocation.y
+            if hypot(dx, dy) >= movementThreshold {
+                didDrag = true
+                state = .began
+            }
+            return
+        }
+        
+        didDrag = true
+        state = .changed
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first else {
+            state = .failed
+            return
+        }
+        
+        if touch.tapCount == 2 {
+            if state == .possible || state == .began || state == .changed {
+                state = .ended
+            } else {
+                state = .failed
+            }
+        } else if touch.tapCount == 1 {
+            // After the first tap ends, we'll wait a very short duration. 
+            // If another tap hasn't started by then, we'll fail to let singleTap fire.
+            // Standard double-tap timeout is usually 0.3s.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                if self.state == .possible && !self.trackingSecondTap {
+                    self.state = .failed
+                }
+            }
+        } else {
+            state = .failed
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .cancelled
+    }
+}
+
+// UIScrollView subclass that fires a callback on every layoutSubviews pass.
+// This lets the coordinator size the zoom/player views immediately once UIKit
+// has given the scroll view real bounds — without waiting for the next SwiftUI
+// state change (which would otherwise be the heartbeat, up to 3 s away).
+private final class SimScrollView: UIScrollView {
+    var onLayoutSubviews: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayoutSubviews?()
+    }
+}
+
 struct SimulatorScrollView: UIViewRepresentable {
     let simInfo: SimInfo
+    var interactionMode: SimulatorInteractionMode
     var onDisplayLayer: (AVSampleBufferDisplayLayer) -> Void
     var onCursorMove: (CGPoint) -> Void   // dx/dy relative delta, normalized by view size
-    var onTap: (Int) -> Void              // clickCount only; no position (trackpad model)
+    var onTap: (String, Int) -> Void      // button, clickCount; no position (trackpad model)
     var onDrag: (DragPhase) -> Void
-    var onSnapshotCapture: ((@escaping () -> UIImage?) -> Void)?
+    var onScroll: (CGPoint) -> Void
+    var onZoomStateChange: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIView(context: Context) -> UIScrollView {
-        let scrollView = UIScrollView()
+        let scrollView = SimScrollView()
         scrollView.backgroundColor = .black
         scrollView.delegate = context.coordinator
         scrollView.minimumZoomScale = 1.0
@@ -36,6 +140,16 @@ struct SimulatorScrollView: UIViewRepresentable {
         // custom pan gesture. scrollViewDidZoom re-enables it when zoomed in.
         scrollView.panGestureRecognizer.isEnabled = false
 
+        // Wire the layoutSubviews callback so the player frame is updated as soon as
+        // UIKit sizes the scroll view — not only when SwiftUI state next changes.
+        let coordinator = context.coordinator
+        (scrollView as? SimScrollView)?.onLayoutSubviews = { [weak coordinator, weak scrollView] in
+            guard let coordinator, let scrollView, scrollView.zoomScale == 1.0 else { return }
+            coordinator.zoomView?.frame = scrollView.bounds
+            scrollView.contentSize = scrollView.bounds.size
+            coordinator.layoutPlayerView()
+        }
+
         let zoomView = UIView()
         zoomView.backgroundColor = .black
         scrollView.addSubview(zoomView)
@@ -46,28 +160,15 @@ struct SimulatorScrollView: UIViewRepresentable {
         zoomView.addSubview(playerView)
         context.coordinator.playerView = playerView
         onDisplayLayer(playerView.displayLayer)
-        onSnapshotCapture?({ [weak playerView] in
-            guard let playerView, !playerView.bounds.isEmpty else { return nil }
-            let renderer = UIGraphicsImageRenderer(size: playerView.bounds.size)
-            return renderer.image { ctx in
-                playerView.layer.render(in: ctx.cgContext)
-            }
-        })
 
         // Add tap/pan recognizers to the scrollView itself (not zoomView) so that
         // UIScrollView's touch-interception machinery doesn't swallow them.
 
-        // Double-tap → double-click
-        let doubleTap = UITapGestureRecognizer(
-            target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        scrollView.addGestureRecognizer(doubleTap)
-
-        // Single-tap → single-click (requires double-tap to fail first)
+        // Single-tap → single-click (requires the double-tap/drag recognizer to fail first)
         let singleTap = UITapGestureRecognizer(
             target: context.coordinator, action: #selector(Coordinator.handleSingleTap(_:)))
         singleTap.numberOfTapsRequired = 1
-        singleTap.require(toFail: doubleTap)
+        singleTap.delegate = context.coordinator
         scrollView.addGestureRecognizer(singleTap)
 
         // 1-finger pan → cursor move (suppressed when zoomed so UIScrollView pans instead)
@@ -79,14 +180,33 @@ struct SimulatorScrollView: UIViewRepresentable {
         scrollView.addGestureRecognizer(pan)
         context.coordinator.panGesture = pan
 
-        // 2-finger pan → click-and-drag (mouseDown + mouseDragged + mouseUp)
-        let dragPan = UIPanGestureRecognizer(
-            target: context.coordinator, action: #selector(Coordinator.handleDragPan(_:)))
-        dragPan.minimumNumberOfTouches = 2
-        dragPan.maximumNumberOfTouches = 2
-        dragPan.delegate = context.coordinator
-        scrollView.addGestureRecognizer(dragPan)
-        context.coordinator.dragPanGesture = dragPan
+        let rightTap = UITapGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleRightTap(_:)))
+        rightTap.numberOfTouchesRequired = 2
+        rightTap.delegate = context.coordinator
+        scrollView.addGestureRecognizer(rightTap)
+
+        let middleTap = UITapGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleMiddleTap(_:)))
+        middleTap.numberOfTouchesRequired = 3
+        middleTap.delegate = context.coordinator
+        scrollView.addGestureRecognizer(middleTap)
+
+        let scrollPan = UIPanGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleScrollPan(_:)))
+        scrollPan.minimumNumberOfTouches = 2
+        scrollPan.maximumNumberOfTouches = 2
+        scrollPan.delegate = context.coordinator
+        scrollView.addGestureRecognizer(scrollPan)
+        context.coordinator.scrollPanGesture = scrollPan
+
+        // Double-tap-and-drag → click-and-drag (mouseDown + mouseDragged + mouseUp)
+        let doubleTapDrag = DoubleTapDragGestureRecognizer(
+            target: context.coordinator, action: #selector(Coordinator.handleDoubleTapDrag(_:)))
+        doubleTapDrag.delegate = context.coordinator
+        singleTap.require(toFail: doubleTapDrag)
+        scrollView.addGestureRecognizer(doubleTapDrag)
+        context.coordinator.doubleTapDragGesture = doubleTapDrag
 
         return scrollView
     }
@@ -98,8 +218,8 @@ struct SimulatorScrollView: UIViewRepresentable {
             scrollView.contentSize = scrollView.bounds.size
         }
         context.coordinator.layoutPlayerView()
+        context.coordinator.applyInteractionMode()
     }
-
 
     // MARK: - AVSampleBufferDisplayLayer host
 
@@ -127,9 +247,15 @@ struct SimulatorScrollView: UIViewRepresentable {
         weak var playerView: PlayerView?
         weak var scrollView: UIScrollView?
         weak var panGesture: UIPanGestureRecognizer?
-        weak var dragPanGesture: UIPanGestureRecognizer?
+        weak var scrollPanGesture: UIPanGestureRecognizer?
+        weak var doubleTapDragGesture: DoubleTapDragGestureRecognizer?
+        private var lastDragLocation: CGPoint?
 
         init(_ parent: SimulatorScrollView) { self.parent = parent }
+
+        private var isZoomed: Bool { (scrollView?.zoomScale ?? 1.0) > 1.0 }
+        private var isMouseInteractionEnabled: Bool { !isZoomed || parent.interactionMode == .mouse }
+        private var isViewportPanningEnabled: Bool { isZoomed && parent.interactionMode == .viewport }
 
         // MARK: UIScrollViewDelegate
 
@@ -143,12 +269,8 @@ struct SimulatorScrollView: UIViewRepresentable {
                 x: scrollView.contentSize.width  / 2 + offsetX,
                 y: scrollView.contentSize.height / 2 + offsetY
             )
-            let isZoomed = scrollView.zoomScale > 1.0
-            // At 1×: our custom pan handles cursor moves; UIScrollView's pan is off.
-            // Zoomed: UIScrollView's pan scrolls the content; our custom pan is off.
-            scrollView.isScrollEnabled = isZoomed
-            scrollView.panGestureRecognizer.isEnabled = isZoomed
-            panGesture?.isEnabled = !isZoomed
+            applyInteractionMode()
+            parent.onZoomStateChange(isZoomed)
         }
 
         func layoutPlayerView() {
@@ -176,11 +298,15 @@ struct SimulatorScrollView: UIViewRepresentable {
         // MARK: Gesture handlers
 
         @objc func handleSingleTap(_ recognizer: UITapGestureRecognizer) {
-            parent.onTap(1)
+            parent.onTap("left", 1)
         }
 
-        @objc func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
-            parent.onTap(2)
+        @objc func handleRightTap(_ recognizer: UITapGestureRecognizer) {
+            parent.onTap("right", 1)
+        }
+
+        @objc func handleMiddleTap(_ recognizer: UITapGestureRecognizer) {
+            parent.onTap("middle", 1)
         }
 
         @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
@@ -190,46 +316,94 @@ struct SimulatorScrollView: UIViewRepresentable {
             guard let sv = scrollView else { return }
             let translation = recognizer.translation(in: sv)
             recognizer.setTranslation(.zero, in: sv)
-            let w = sv.bounds.width
-            let h = sv.bounds.height
-            guard w > 0, h > 0 else { return }
+            guard let delta = SimulatorGestureMath.normalizedTranslation(translation, in: sv.bounds) else { return }
             // Send relative delta normalized by view size (trackpad model)
-            parent.onCursorMove(CGPoint(x: translation.x / w, y: translation.y / h))
+            parent.onCursorMove(delta)
         }
 
-        @objc func handleDragPan(_ recognizer: UIPanGestureRecognizer) {
+        @objc func handleScrollPan(_ recognizer: UIPanGestureRecognizer) {
+            guard recognizer.state == .changed else { return }
             guard let sv = scrollView else { return }
+            let translation = recognizer.translation(in: sv)
+            recognizer.setTranslation(.zero, in: sv)
+            guard let delta = SimulatorGestureMath.normalizedTranslation(translation, in: sv.bounds) else { return }
+            parent.onScroll(delta)
+        }
+
+        @objc func handleDoubleTapDrag(_ recognizer: DoubleTapDragGestureRecognizer) {
+            guard let sv = scrollView else { return }
+            let location = recognizer.location(in: sv)
             switch recognizer.state {
             case .began:
+                lastDragLocation = recognizer.initialLocation
+                // ONLY send .began if we have actually moved enough to be a drag.
+                // The recognizer already does the movementThreshold check before moving to .began.
                 parent.onDrag(.began)
+                if let delta = SimulatorGestureMath.normalizedDelta(
+                    from: recognizer.initialLocation,
+                    to: location,
+                    in: sv.bounds
+                ), delta != .zero {
+                    parent.onDrag(.changed(dx: delta.x, dy: delta.y))
+                    lastDragLocation = location
+                }
             case .changed:
-                let t = recognizer.translation(in: sv)
-                recognizer.setTranslation(.zero, in: sv)
-                let w = sv.bounds.width, h = sv.bounds.height
-                guard w > 0, h > 0 else { return }
-                parent.onDrag(.changed(dx: t.x / w, dy: t.y / h))
-            case .ended, .cancelled, .failed:
+                guard let lastDragLocation else {
+                    self.lastDragLocation = location
+                    return
+                }
+                guard let delta = SimulatorGestureMath.normalizedDelta(from: lastDragLocation, to: location, in: sv.bounds) else { return }
+                parent.onDrag(.changed(dx: delta.x, dy: delta.y))
+                self.lastDragLocation = location
+            case .ended:
+                if !recognizer.didDrag {
+                    // This was just a second tap without drag — it's a double-click.
+                    parent.onTap("left", 2)
+                    lastDragLocation = nil
+                    return
+                }
+                // Drag ended
+                lastDragLocation = nil
                 parent.onDrag(.ended)
+            case .cancelled, .failed:
+                lastDragLocation = nil
+                if recognizer.didDrag {
+                    parent.onDrag(.ended)
+                }
             default:
                 break
             }
         }
 
+        func applyInteractionMode() {
+            guard let scrollView else { return }
+            scrollView.isScrollEnabled = isViewportPanningEnabled
+            scrollView.panGestureRecognizer.isEnabled = isViewportPanningEnabled
+            panGesture?.isEnabled = isMouseInteractionEnabled
+            scrollPanGesture?.isEnabled = isMouseInteractionEnabled
+            parent.onZoomStateChange(isZoomed)
+        }
+
         // MARK: UIGestureRecognizerDelegate
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            // Suppress cursor-pan when zoomed — UIScrollView's pan takes over
-            if gestureRecognizer === panGesture {
-                return (scrollView?.zoomScale ?? 1.0) <= 1.0
+            if gestureRecognizer === panGesture || gestureRecognizer === scrollPanGesture ||
+                gestureRecognizer === doubleTapDragGesture {
+                return isMouseInteractionEnabled
+            }
+            if gestureRecognizer is UITapGestureRecognizer {
+                return isMouseInteractionEnabled
             }
             return true
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            // Never allow 2-finger drag and pinch to fire at the same time
-            if gestureRecognizer === dragPanGesture || otherGestureRecognizer === dragPanGesture {
-                return false
+            if gestureRecognizer === doubleTapDragGesture && otherGestureRecognizer === panGesture {
+                return true
+            }
+            if gestureRecognizer === panGesture && otherGestureRecognizer === doubleTapDragGesture {
+                return true
             }
             return false
         }
@@ -240,14 +414,18 @@ struct SimulatorScrollView: UIViewRepresentable {
 
 struct SimulatorView: View {
     @Bindable var viewModel: SessionViewModel
+    @State private var interactionMode: SimulatorInteractionMode = .viewport
+    @State private var isZoomed = false
+    @State private var showInteractionModeHint = !GoVibeBootstrap.hasSeenSimulatorInteractionModeHint
 
     var body: some View {
         if let simInfo = viewModel.simInfo {
             SimulatorScrollView(
                 simInfo: simInfo,
+                interactionMode: interactionMode,
                 onDisplayLayer: { viewModel.connectDisplayLayer($0) },
                 onCursorMove:   { viewModel.sendSimCursorMoveAsync(dx: $0.x, dy: $0.y) },
-                onTap:          { viewModel.sendSimClickAsync(clickCount: $0) },
+                onTap:          { viewModel.sendSimClickAsync(button: $0, clickCount: $1) },
                 onDrag: { phase in
                     switch phase {
                     case .began:                       viewModel.sendSimDragBeginAsync()
@@ -255,9 +433,74 @@ struct SimulatorView: View {
                     case .ended:                       viewModel.sendSimDragEndAsync()
                     }
                 },
-                onSnapshotCapture: { capturer in viewModel.captureSnapshot = capturer }
+                onScroll:       { viewModel.sendSimScrollAsync(dx: $0.x, dy: $0.y) },
+                onZoomStateChange: { zoomed in
+                    let wasZoomed = isZoomed
+                    isZoomed = zoomed
+                    if zoomed && !wasZoomed {
+                        interactionMode = .viewport
+                    } else if !zoomed {
+                        interactionMode = .viewport
+                    }
+                }
             )
+            .onAppear {
+                // Wire captureSnapshot here (not in makeUIView) so it's set reliably
+                // after any view-swap ordering issues (e.g. terminal → simulator transition).
+                viewModel.captureSnapshot = { [weak viewModel] in
+                    viewModel?.videoDecoder?.captureLastFrame()
+                }
+            }
             .ignoresSafeArea()
+            .overlay(alignment: .topLeading) {
+                if isZoomed {
+                    HStack(alignment: .center, spacing: 12) {
+                        Button {
+                            interactionMode = interactionMode == .viewport ? .mouse : .viewport
+                        } label: {
+                            Image(systemName: interactionMode == .viewport
+                                  ? "arrow.up.and.down.and.arrow.left.and.right"
+                                  : "cursorarrow")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .accessibilityIdentifier("simulator_interaction_mode_toggle")
+
+                        if showInteractionModeHint {
+                            HStack(alignment: .center, spacing: 12) {
+                                Text("Toggle between viewport control and mouse control.")
+                                    .font(.footnote.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                Button("OK") {
+                                    GoVibeBootstrap.hasSeenSimulatorInteractionModeHint = true
+                                    showInteractionModeHint = false
+                                }
+                                .font(.footnote.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.accentColor, in: Capsule())
+                                .foregroundStyle(.white)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(Color.primary.opacity(0.08))
+                            }
+                            .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
+                            .accessibilityIdentifier("simulator_interaction_mode_hint")
+                        }
+                    }
+                    .padding(.leading, 16)
+                    .padding(.trailing, 48) // Avoid overlap with top-right floating controls
+                    .padding(.top, 20)
+                }
+            }
             .accessibilityIdentifier("simulator_view")
         } else {
             Color.black

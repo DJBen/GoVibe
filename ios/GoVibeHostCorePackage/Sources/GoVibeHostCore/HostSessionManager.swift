@@ -24,6 +24,7 @@ public final class HostSessionManager {
     private let defaults: UserDefaults
     private var logsBySessionID: [String: [HostLogEntry]] = [:]
     private var runtimes: [String: ManagedHostRuntime] = [:]
+    private var controlChannel: HostControlChannel?
 
     public init(defaults: UserDefaults = .standard, bundle: Bundle = .main) {
         self.defaults = defaults
@@ -103,6 +104,73 @@ public final class HostSessionManager {
         sessions
     }
 
+    // MARK: - Control Channel
+
+    /// Starts the host control channel so iOS peers can create sessions remotely.
+    /// Safe to call multiple times — restarts if already running.
+    public func startControlChannel() {
+        guard settings.onboardingCompleted, !settings.relayBase.isEmpty else { return }
+        controlChannel?.stop()
+
+        let logger = HostLogger(sessionId: "control") { [weak self] entry in
+            Task { @MainActor in
+                self?.logsBySessionID["control", default: []].append(entry)
+            }
+        }
+        let channel = HostControlChannel(
+            hostId: settings.hostId,
+            relayBase: settings.relayBase,
+            logger: logger
+        )
+        channel.onCreateSession = { [weak self, weak channel] sessionId, tmuxSession in
+            Task { @MainActor in
+                guard let self, let channel else { return }
+                let trimmed = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    channel.sendSessionError(sessionId: sessionId, error: "Invalid session ID")
+                    return
+                }
+                if self.sessions.contains(where: { $0.sessionId == trimmed }) {
+                    channel.sendSessionError(sessionId: trimmed, error: "Session '\(trimmed)' already exists")
+                    return
+                }
+                let effectiveTmux = (tmuxSession ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let config = TerminalSessionConfig(
+                    sessionId: trimmed,
+                    shellPath: self.settings.defaultShellPath,
+                    tmuxSessionName: effectiveTmux.isEmpty ? trimmed : effectiveTmux
+                )
+                self.createTerminalSession(config: config)
+                channel.sendSessionCreated(sessionId: trimmed)
+            }
+        }
+        channel.onListSessions = { [weak self, weak channel] in
+            Task { @MainActor in
+                guard let self, let channel else { return }
+                channel.sendSessionsList(self.sessions.map { ($0.sessionId, $0.kind.rawValue) })
+            }
+        }
+        channel.onDeleteSession = { [weak self, weak channel] sessionId in
+            Task { @MainActor in
+                guard let self, let channel else { return }
+                let trimmed = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                if self.sessions.contains(where: { $0.sessionId == trimmed }) {
+                    self.removeSession(id: trimmed)
+                    channel.sendSessionDeleted(sessionId: trimmed)
+                } else {
+                    channel.sendSessionError(sessionId: trimmed, error: "Session not found")
+                }
+            }
+        }
+        channel.start()
+        controlChannel = channel
+    }
+
+    public func stopControlChannel() {
+        controlChannel?.stop()
+        controlChannel = nil
+    }
+
     public func createTerminalSession(config: TerminalSessionConfig) {
         let sessionID = config.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sessionID.isEmpty else { return }
@@ -119,6 +187,7 @@ public final class HostSessionManager {
         selectedSessionID = descriptor.sessionId
         persistSessions()
         startSession(id: descriptor.sessionId)
+        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
     }
 
     public func createSimulatorSession(config: SimulatorSessionConfig) {
@@ -137,6 +206,7 @@ public final class HostSessionManager {
         selectedSessionID = descriptor.sessionId
         persistSessions()
         startSession(id: descriptor.sessionId)
+        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
     }
 
     public func startSession(id: String) {
