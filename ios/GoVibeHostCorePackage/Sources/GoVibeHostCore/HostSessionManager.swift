@@ -25,6 +25,7 @@ public final class HostSessionManager {
     private var logsBySessionID: [String: [HostLogEntry]] = [:]
     private var runtimes: [String: ManagedHostRuntime] = [:]
     private var controlChannel: HostControlChannel?
+    private var didAutoStartPersistedSessions = false
 
     public init(defaults: UserDefaults = .standard, bundle: Bundle = .main) {
         self.defaults = defaults
@@ -71,6 +72,7 @@ public final class HostSessionManager {
             persistSettings()
             startControlChannel()
         }
+        autoStartPersistedSessionsIfNeeded()
     }
 
     public func refreshEnvironment() {
@@ -107,6 +109,7 @@ public final class HostSessionManager {
         settings.onboardingCompleted = !settings.relayBase.isEmpty
         persistSettings()
         refreshPermissions()
+        autoStartPersistedSessionsIfNeeded()
     }
 
     public func listSessions() -> [HostedSessionDescriptor] {
@@ -324,6 +327,19 @@ public final class HostSessionManager {
 
     public func sessionLogs(id: String) -> [HostLogEntry] {
         logsBySessionID[id] ?? []
+    }
+
+    private func autoStartPersistedSessionsIfNeeded() {
+        guard !didAutoStartPersistedSessions,
+              settings.onboardingCompleted,
+              !settings.relayBase.isEmpty else { return }
+
+        didAutoStartPersistedSessions = true
+        startControlChannel()
+
+        for session in sessions where runtimes[session.sessionId] == nil {
+            startSession(id: session.sessionId)
+        }
     }
 
     private func handleRuntimeEvent(_ event: HostSessionRuntimeEvent, sessionID: String) {
