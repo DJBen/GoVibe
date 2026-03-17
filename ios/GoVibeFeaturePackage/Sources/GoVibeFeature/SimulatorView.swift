@@ -418,6 +418,36 @@ struct SimulatorView: View {
     @State private var isZoomed = false
     @State private var showInteractionModeHint = !GoVibeBootstrap.hasSeenSimulatorInteractionModeHint
 
+    private var interactionHintContext: SimulatorInteractionHintContext {
+        if !isZoomed { return .unzoomed }
+        return interactionMode == .viewport ? .zoomedViewport : .zoomedMouse
+    }
+
+    private var interactionHintItems: [SimulatorInteractionHintItem] {
+        switch interactionHintContext {
+        case .unzoomed:
+            [
+                .init(iconName: "Tap", gesture: "Single tap", meaning: "Click"),
+                .init(iconName: "Tap", gesture: "Single tap-move", meaning: "Move the cursor"),
+                .init(iconName: "Zoom", gesture: "Pinch", meaning: "Zoom"),
+                .init(iconName: "Press-and-Drag-1", gesture: "Double-tap and drag", meaning: "Press and drag for selection and dragging"),
+                .init(iconName: "Scroll-Vertical", gesture: "Swipe with two fingers", meaning: "Mouse scroll")
+            ]
+        case .zoomedViewport:
+            [
+                .init(iconName: "Tap", gesture: "Single tap-move", meaning: "Move the cursor"),
+                .init(iconName: "Zoom", gesture: "Pinch", meaning: "Zoom")
+            ]
+        case .zoomedMouse:
+            [
+                .init(iconName: "Tap", gesture: "Single tap", meaning: "Click"),
+                .init(iconName: "Zoom", gesture: "Pinch", meaning: "Zoom"),
+                .init(iconName: "Press-and-Drag-1", gesture: "Double-tap and drag", meaning: "Press and drag for selection and dragging"),
+                .init(iconName: "Scroll-Vertical", gesture: "Swipe with two fingers", meaning: "Mouse scroll")
+            ]
+        }
+    }
+
     private var resolvedSimInfo: SimInfo? {
         if let info = viewModel.simInfo { return info }
         if let w = viewModel.appWindowInfo {
@@ -466,40 +496,92 @@ struct SimulatorView: View {
                 }
             }
             .ignoresSafeArea()
-            .overlay(alignment: .bottomLeading) {
-                if isZoomed {
-                    HStack(alignment: .center, spacing: 12) {
+            .overlay(alignment: .bottom) {
+                HStack(alignment: .bottom, spacing: 12) {
+                    if isZoomed {
                         simulatorInteractionModeToggle
-                        .accessibilityIdentifier("simulator_interaction_mode_toggle")
-
-                        if showInteractionModeHint {
-                            HStack(alignment: .center, spacing: 12) {
-                                Text("Toggle between viewport control and mouse control.")
-                                    .font(.footnote.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                    .fixedSize(horizontal: false, vertical: true)
-
-                                simulatorInteractionHintDismissButton
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .modifier(SimulatorLiquidGlassBannerStyle())
-                            .accessibilityIdentifier("simulator_interaction_mode_hint")
-                        }
+                            .accessibilityIdentifier("simulator_interaction_mode_toggle")
                     }
-                    .padding(.leading, 16)
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 20)
-                    .allowsHitTesting(true)
-                    .zIndex(1)
+
+                    Spacer(minLength: 12)
+
+                    VStack(alignment: .trailing, spacing: 12) {
+                        if showInteractionModeHint {
+                            simulatorInteractionHintTooltip
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .accessibilityIdentifier("simulator_interaction_mode_hint")
+                        }
+
+                        simulatorInteractionHintToggle
+                    }
                 }
+                .padding(.leading, 16)
+                .padding(.trailing, 16)
+                .padding(.bottom, 20)
+                .allowsHitTesting(true)
+                .zIndex(1)
             }
             .accessibilityIdentifier("simulator_view")
         } else {
             Color.black
                 .ignoresSafeArea()
+                .overlay(alignment: .bottomTrailing) {
+                    simulatorInteractionHintToggle
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 20)
+                }
                 .accessibilityIdentifier("simulator_view")
         }
+    }
+
+    private var simulatorInteractionHintTooltip: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let title = interactionHintContext.title {
+                HStack(alignment: .center, spacing: 8) {
+                    Image(systemName: title.iconName)
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.primary)
+
+                    Text(title.text)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(interactionHintItems) { item in
+                    HStack(alignment: .center, spacing: 12) {
+                        Image(item.iconName)
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .foregroundStyle(.primary)
+                            .frame(width: 28, height: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.gesture)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+
+                            Text(item.meaning)
+                                .font(.footnote)
+                                .foregroundStyle(.primary.opacity(0.82))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    if item.id != interactionHintItems.last?.id {
+                        Divider()
+                            .overlay(.white.opacity(0.12))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: min(UIScreen.main.bounds.width - 32, 360), alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .modifier(SimulatorLiquidGlassBannerStyle())
     }
 
     private var simulatorInteractionModeToggle: some View {
@@ -525,21 +607,57 @@ struct SimulatorView: View {
             .accessibilityAddTraits(.isButton)
     }
 
-    private var simulatorInteractionHintDismissButton: some View {
-        let shape = Capsule(style: .continuous)
+    private var simulatorInteractionHintToggle: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
 
-        return Text("OK")
-            .font(.footnote.weight(.semibold))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .modifier(SimulatorLiquidGlassCapsuleStyle())
+        return Text("?")
+            .font(.system(size: 20, weight: .bold, design: .rounded))
+            .foregroundStyle(.black.opacity(0.92))
+            .frame(width: 50, height: 50)
+            .background {
+                Circle()
+                    .fill(.black.opacity(0.16))
+                    .blur(radius: 8)
+            }
+            .modifier(SimulatorLiquidGlassButtonStyle(isActive: showInteractionModeHint))
             .contentShape(shape)
             .onTapGesture {
-                GoVibeBootstrap.hasSeenSimulatorInteractionModeHint = true
-                showInteractionModeHint = false
+                let isShowing = showInteractionModeHint
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    showInteractionModeHint.toggle()
+                }
+                if isShowing {
+                    GoVibeBootstrap.hasSeenSimulatorInteractionModeHint = true
+                }
             }
             .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("simulator_interaction_mode_hint_toggle")
     }
+}
+
+private enum SimulatorInteractionHintContext {
+    case unzoomed
+    case zoomedViewport
+    case zoomedMouse
+
+    var title: (iconName: String, text: String)? {
+        switch self {
+        case .unzoomed:
+            nil
+        case .zoomedViewport:
+            ("arrow.up.and.down.and.arrow.left.and.right", "Viewport Mode")
+        case .zoomedMouse:
+            ("cursorarrow", "Mouse Mode")
+        }
+    }
+}
+
+private struct SimulatorInteractionHintItem: Identifiable, Equatable {
+    let iconName: String
+    let gesture: String
+    let meaning: String
+
+    var id: String { "\(iconName)|\(gesture)|\(meaning)" }
 }
 
 private struct SimulatorLiquidGlassButtonStyle: ViewModifier {
@@ -608,30 +726,6 @@ private struct SimulatorLiquidGlassBannerStyle: ViewModifier {
                         .strokeBorder(.white.opacity(0.1), lineWidth: 1)
                 }
                 .shadow(color: .black.opacity(0.28), radius: 20, y: 12)
-        }
-    }
-}
-
-private struct SimulatorLiquidGlassCapsuleStyle: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content
-                .foregroundStyle(.black)
-                .background {
-                    Capsule(style: .continuous)
-                        .fill(.clear)
-                        .glassEffect(.regular.tint(.white.opacity(0.92)),
-                                     in: Capsule(style: .continuous))
-                }
-        } else {
-            content
-                .foregroundStyle(.black)
-                .background(.thickMaterial, in: Capsule(style: .continuous))
-                .overlay {
-                    Capsule(style: .continuous)
-                        .fill(.white.opacity(0.68))
-                }
         }
     }
 }
