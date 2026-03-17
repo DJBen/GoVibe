@@ -26,6 +26,7 @@ final class SessionViewModel {
     private var intentionalDisconnect = false
     private(set) var isInTmuxScrollMode = false
     var paneProgram: String?
+    private(set) var planState: TerminalPlanState?
     private var peerWatchdogTask: Task<Void, Never>?
     private var outboundHeartbeatTask: Task<Void, Never>?
     private var lastPeerActivityAt: Date?
@@ -243,6 +244,7 @@ final class SessionViewModel {
         lastPeerActivityAt = nil
         relayStatus = "Peer disconnected"
         paneProgram = nil
+        planState = nil
         simInfo = nil
         #if canImport(UIKit)
         videoDecoder?.reset()
@@ -256,6 +258,7 @@ final class SessionViewModel {
         hasLivePeer = false
         lastPeerActivityAt = nil
         paneProgram = nil
+        planState = nil
         simInfo = nil
         #if canImport(UIKit)
         videoDecoder = nil
@@ -323,6 +326,27 @@ final class SessionViewModel {
 
         if type == "push_notify" {
             recordPeerActivity()
+            return
+        }
+
+        if type == "plan_state" {
+            recordPeerActivity()
+            let available = (json["available"] as? Bool) ?? false
+            if available,
+               let assistant = json["assistant"] as? String,
+               let turnId = json["turnId"] as? String,
+               let markdown = json["markdown"] as? String,
+               let blockCount = json["blockCount"] as? Int {
+                planState = TerminalPlanState(
+                    assistant: assistant,
+                    turnId: turnId,
+                    title: json["title"] as? String,
+                    markdown: markdown,
+                    blockCount: blockCount
+                )
+            } else {
+                planState = nil
+            }
             return
         }
 

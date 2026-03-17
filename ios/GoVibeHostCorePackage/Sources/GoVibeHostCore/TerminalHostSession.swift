@@ -29,6 +29,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
 
     private var claudeLogWatcher: ClaudeLogWatcher?
     private var codexLogWatcher: CodexLogWatcher?
+    private var currentPlanArtifact: TerminalPlanArtifact?
 
     public init(
         hostId: String,
@@ -74,6 +75,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         bridge.onPeerJoined = { [weak self] in
             self?.recordPeerActivity()
             self?.scheduleSnapshotReplay()
+            self?.sendCurrentPlanState()
         }
         bridge.onPeerLeft = { [weak self] in
             self?.eventHandler(.stateChanged(.waitingForPeer, self?.lastPeerActivityAt, nil))
@@ -87,12 +89,26 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.signalStopIfNeeded()
         }
 
-        claudeLogWatcher = ClaudeLogWatcher(cwd: NSHomeDirectory(), logger: logger) { [weak self] event in
-            self?.bridge.sendPushNotify(event: event.rawValue)
-        }
-        codexLogWatcher = CodexLogWatcher(cwd: NSHomeDirectory(), logger: logger) { [weak self] event in
-            self?.bridge.sendPushNotify(event: event.rawValue)
-        }
+        claudeLogWatcher = ClaudeLogWatcher(
+            cwd: NSHomeDirectory(),
+            logger: logger,
+            onTurnComplete: { [weak self] event in
+                self?.bridge.sendPushNotify(event: event.rawValue)
+            },
+            onPlanStateChanged: { [weak self] artifact in
+                self?.setPlanArtifact(artifact)
+            }
+        )
+        codexLogWatcher = CodexLogWatcher(
+            cwd: NSHomeDirectory(),
+            logger: logger,
+            onTurnComplete: { [weak self] event in
+                self?.bridge.sendPushNotify(event: event.rawValue)
+            },
+            onPlanStateChanged: { [weak self] artifact in
+                self?.setPlanArtifact(artifact)
+            }
+        )
         bridge.start(room: macDeviceId, relayBase: relayBase)
         try pty.start()
         startProgramPolling()
@@ -116,6 +132,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         sendPeerRetiredIfNeeded(reason: "stopped")
         programTimer?.cancel()
         heartbeatTimer?.cancel()
+        setPlanArtifact(nil)
         bridge.stop()
         pty.stop()
         eventHandler(.stateChanged(.stopped, lastPeerActivityAt, nil))
@@ -174,6 +191,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             if !lastPaneProgram.isEmpty {
                 bridge.sendPaneProgram(lastPaneProgram)
             }
+            sendCurrentPlanState()
         } catch {
             logger.error("tmux capture-pane failed: \(error.localizedDescription)")
         }
@@ -222,6 +240,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
               let tmuxPath = PtySession.resolveTmux() else { return }
         let name = currentPaneProgramName(sessionName: sessionName, tmuxPath: tmuxPath)
         if !name.isEmpty, name != lastPaneProgram {
+            setPlanArtifact(nil)
             lastPaneProgram = name
             bridge.sendPaneProgram(name)
             logger.info("Pane program changed: \(name)")
@@ -250,6 +269,16 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         } else if lastPaneProgram == "Codex" {
             codexLogWatcher?.poll()
         }
+    }
+
+    private func setPlanArtifact(_ artifact: TerminalPlanArtifact?) {
+        guard artifact != currentPlanArtifact else { return }
+        currentPlanArtifact = artifact
+        bridge.sendPlanState(artifact)
+    }
+
+    private func sendCurrentPlanState() {
+        bridge.sendPlanState(currentPlanArtifact)
     }
 
     private func currentPaneProgramName(sessionName: String, tmuxPath: String) -> String {

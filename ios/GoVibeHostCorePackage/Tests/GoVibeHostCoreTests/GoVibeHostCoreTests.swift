@@ -28,4 +28,52 @@ final class GoVibeHostCoreTests: XCTestCase {
 
         manager.stopSession(id: "session-1")
     }
+
+    func testPlanParserExtractsSingleBlock() {
+        let text = """
+        before
+        <proposed_plan>
+        # Ship It
+
+        Do the thing.
+        </proposed_plan>
+        after
+        """
+
+        let artifact = TerminalPlanParser.parseArtifact(assistant: "Claude", turnId: "turn-1", text: text)
+
+        XCTAssertEqual(artifact?.title, "Ship It")
+        XCTAssertEqual(artifact?.blockCount, 1)
+        XCTAssertEqual(artifact?.markdown, "# Ship It\n\nDo the thing.")
+    }
+
+    func testPlanParserConcatenatesMultipleBlocksInOrder() {
+        let text = """
+        <proposed_plan>
+        # First
+        Alpha
+        </proposed_plan>
+        noise
+        <proposed_plan>
+        ## Second
+        Beta
+        </proposed_plan>
+        """
+
+        let artifact = TerminalPlanParser.parseArtifact(assistant: "Codex", turnId: "turn-2", text: text)
+
+        XCTAssertEqual(artifact?.blockCount, 2)
+        XCTAssertEqual(artifact?.title, "First")
+        XCTAssertEqual(artifact?.markdown, "# First\nAlpha\n\n---\n\n## Second\nBeta")
+    }
+
+    func testPlanParserReturnsNilWhenNoTaggedBlockExists() {
+        let artifact = TerminalPlanParser.parseArtifact(
+            assistant: "Claude",
+            turnId: "turn-3",
+            text: "plain response without plan tags"
+        )
+
+        XCTAssertNil(artifact)
+    }
 }

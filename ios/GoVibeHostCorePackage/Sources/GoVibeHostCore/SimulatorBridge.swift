@@ -368,10 +368,33 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             injectUnlock()
             return
         }
-        guard let keyCode = buttonActionToKeyCode(action) else { return }
         captureQueue.async {
+            guard self.simPID > 0, !self.windowBounds.isEmpty else {
+                self.logger.error("injectButton(\(action)) skipped — simulator target not ready (capture not started?)")
+                return
+            }
+            self.logger.info("injectButton: \(action) → simPID \(self.simPID)")
+
+            let keyEvents: (keyCode: CGKeyCode, flags: CGEventFlags)?
+            switch action {
+            case "home":        keyEvents = (4,   [.maskCommand, .maskShift])
+            case "shake":       keyEvents = (6,   [.maskCommand, .maskControl])
+            case "lock":        keyEvents = (37,  .maskCommand)
+            case "rotateLeft":  keyEvents = (123, .maskCommand)
+            case "rotateRight": keyEvents = (124, .maskCommand)
+            default:            keyEvents = nil
+            }
+
+            guard let (keyCode, flags) = keyEvents else { return }
             self.focusCapturedSimulatorWindow()
-            sendKeyPress(keyCode: keyCode)
+            if let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) {
+                down.flags = flags
+                down.post(tap: .cghidEventTap)
+            }
+            if let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) {
+                up.flags = flags
+                up.post(tap: .cghidEventTap)
+            }
         }
     }
 
@@ -595,24 +618,4 @@ private func sendMouseClick(at point: CGPoint, clickCount: Int) {
     let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)
     mouseUp?.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
     mouseUp?.post(tap: .cghidEventTap)
-}
-
-private func buttonActionToKeyCode(_ action: String) -> CGKeyCode? {
-    switch action {
-    case "home":
-        return 115
-    case "lock":
-        return 145
-    case "siri":
-        return 160
-    default:
-        return nil
-    }
-}
-
-private func sendKeyPress(keyCode: CGKeyCode) {
-    let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true)
-    let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
-    down?.post(tap: .cghidEventTap)
-    up?.post(tap: .cghidEventTap)
 }

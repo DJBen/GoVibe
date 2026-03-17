@@ -23,15 +23,24 @@ final class CodexLogWatcher {
     private var fileCwdCache: [String: String?] = [:]
     private var lastScanAt: Date?
     private static let rescanInterval: TimeInterval = 3
+    private var currentPlanArtifact: TerminalPlanArtifact?
+    private var pendingAssistantOutputs: [String] = []
 
     let onTurnComplete: (CodexPushEvent) -> Void
+    let onPlanStateChanged: (TerminalPlanArtifact?) -> Void
 
-    init(cwd: String, logger: HostLogger, onTurnComplete: @escaping (CodexPushEvent) -> Void) {
+    init(
+        cwd: String,
+        logger: HostLogger,
+        onTurnComplete: @escaping (CodexPushEvent) -> Void,
+        onPlanStateChanged: @escaping (TerminalPlanArtifact?) -> Void
+    ) {
         self.cwd = cwd
         self.logger = logger
         self.sessionsRoot = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/sessions")
         self.onTurnComplete = onTurnComplete
+        self.onPlanStateChanged = onPlanStateChanged
     }
 
     /// Update the working directory (e.g. when the tmux pane's cwd changes).
@@ -80,6 +89,8 @@ final class CodexLogWatcher {
         pendingEscalatedCallIDs.removeAll()
         approvalNotificationPending = false
         lastScanAt = nil
+        pendingAssistantOutputs.removeAll()
+        updatePlanArtifact(nil)
     }
 
     // MARK: - Private
@@ -92,6 +103,16 @@ final class CodexLogWatcher {
             if let turnID, turnID != lastNotifiedTurnID {
                 logger.info("CodexLogWatcher: task_complete detected, firing turn complete push")
                 lastNotifiedTurnID = turnID
+                let text = pendingAssistantOutputs.joined(separator: "\n\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if let artifact = TerminalPlanParser.parseArtifact(
+                    assistant: "Codex",
+                    turnId: turnID,
+                    text: text
+                ) {
+                    updatePlanArtifact(artifact)
+                }
+                pendingAssistantOutputs.removeAll()
                 pendingEscalatedCallIDs.removeAll()
                 approvalNotificationPending = false
                 onTurnComplete(.turnComplete)
@@ -102,11 +123,26 @@ final class CodexLogWatcher {
         if eventType == "turn_aborted" || eventType == "task_started" || eventType == "user_message" {
             pendingEscalatedCallIDs.removeAll()
             approvalNotificationPending = false
+            pendingAssistantOutputs.removeAll()
+            updatePlanArtifact(nil)
         }
     }
 
     private func handleResponseItem(payload: [String: Any]) {
         guard let itemType = payload["type"] as? String else { return }
+
+        if itemType == "message",
+           payload["role"] as? String == "assistant",
+           let content = payload["content"] as? [[String: Any]] {
+            let textParts = content.compactMap { item -> String? in
+                guard item["type"] as? String == "output_text" else { return nil }
+                return item["text"] as? String
+            }
+            if !textParts.isEmpty {
+                pendingAssistantOutputs.append(textParts.joined(separator: "\n\n"))
+            }
+            return
+        }
 
         if itemType == "function_call" {
             guard let callID = payload["call_id"] as? String else { return }
@@ -234,5 +270,11 @@ final class CodexLogWatcher {
         readOffset += UInt64(data.count)
         let text = String(data: data, encoding: .utf8) ?? ""
         return text.components(separatedBy: "\n").filter { !$0.isEmpty }
+    }
+
+    private func updatePlanArtifact(_ artifact: TerminalPlanArtifact?) {
+        guard artifact != currentPlanArtifact else { return }
+        currentPlanArtifact = artifact
+        onPlanStateChanged(artifact)
     }
 }

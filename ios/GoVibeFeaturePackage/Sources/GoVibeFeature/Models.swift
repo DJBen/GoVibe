@@ -82,3 +82,11 @@ struct SimInfo: Codable, Sendable, Equatable {
     let scale: Double
     let fps: Int
 }
+
+struct TerminalPlanState: Equatable, Sendable {
+    let assistant: String
+    let turnId: String
+    let title: String?
+    let markdown: String
+    let blockCount: Int
+}

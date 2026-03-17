@@ -454,7 +454,7 @@ struct SimulatorView: View {
             .ignoresSafeArea()
             .overlay(alignment: .topLeading) {
                 if isZoomed {
-                    HStack(alignment: .top, spacing: 12) {
+                    HStack(alignment: .center, spacing: 12) {
                         Button {
                             interactionMode = interactionMode == .viewport ? .mouse : .viewport
                         } label: {
