@@ -12,26 +12,23 @@ struct InAppNotificationBannerView: View {
                 .frame(width: 32, height: 32)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            Button(action: onTap) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(banner.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(banner.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(banner.body)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                if let roomId = banner.roomId {
+                    Text(roomId)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
-                    Text(banner.body)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    if let roomId = banner.roomId {
-                        Text(roomId)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
@@ -50,6 +47,8 @@ struct InAppNotificationBannerView: View {
                 .strokeBorder(Color.primary.opacity(0.08))
         }
         .shadow(color: .black.opacity(0.12), radius: 18, y: 10)
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onTapGesture { onTap() }
         .accessibilityIdentifier("foreground_notification_banner")
     }
 }
