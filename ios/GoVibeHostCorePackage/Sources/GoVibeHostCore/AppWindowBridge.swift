@@ -365,6 +365,15 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
     // MARK: - Input Injection
 
+    public func activateTargetApp() {
+        guard targetAppPID > 0, let app = NSRunningApplication(processIdentifier: targetAppPID) else { return }
+        if #available(macOS 14.0, *) {
+            _ = app.activate()
+        } else {
+            app.activate(options: .activateIgnoringOtherApps)
+        }
+    }
+
     public func injectCursorMove(dx: Double, dy: Double) {
         captureQueue.async {
             guard !self.windowBounds.isEmpty else { return }
@@ -382,6 +391,7 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         guard !windowBounds.isEmpty, targetAppPID > 0 else { return }
         let point = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
 
+        activateTargetApp()
         CGWarpMouseCursorPosition(point)
 
         guard let eventSpec = mouseEventSpec(for: button) else { return }
@@ -389,12 +399,12 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         if let down = CGEvent(mouseEventSource: nil, mouseType: eventSpec.downType,
                               mouseCursorPosition: point, mouseButton: eventSpec.button) {
             down.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
-            down.postToPid(targetAppPID)
+            down.post(tap: .cghidEventTap)
         }
         if let up = CGEvent(mouseEventSource: nil, mouseType: eventSpec.upType,
                             mouseCursorPosition: point, mouseButton: eventSpec.button) {
             up.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
-            up.postToPid(targetAppPID)
+            up.post(tap: .cghidEventTap)
         }
     }
 
@@ -402,6 +412,7 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         captureQueue.async {
             guard !self.windowBounds.isEmpty, self.targetAppPID > 0 else { return }
             let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
+            self.activateTargetApp()
             self.currentCursorPoint = point
             CGWarpMouseCursorPosition(point)
 
@@ -409,16 +420,14 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             let verticalPixels = self.scrollPixels(for: -dy, dimension: self.windowBounds.height)
             guard horizontalPixels != 0 || verticalPixels != 0 else { return }
 
-            if let event = CGEvent(
+            CGEvent(
                 scrollWheelEvent2Source: nil,
                 units: .pixel,
                 wheelCount: 2,
                 wheel1: Int32(verticalPixels),
                 wheel2: Int32(horizontalPixels),
                 wheel3: 0
-            ) {
-                event.postToPid(self.targetAppPID)
-            }
+            )?.post(tap: .cghidEventTap)
         }
     }
 
@@ -426,11 +435,12 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         captureQueue.async {
             guard !self.windowBounds.isEmpty, self.targetAppPID > 0 else { return }
             let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
+            self.activateTargetApp()
             self.isDragging = true
             self.currentCursorPoint = point
             CGWarpMouseCursorPosition(point)
             CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
-                    mouseCursorPosition: point, mouseButton: .left)?.postToPid(self.targetAppPID)
+                    mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
         }
     }
 
@@ -441,7 +451,7 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             self.currentCursorPoint = newPoint
             CGWarpMouseCursorPosition(newPoint)
             CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged,
-                    mouseCursorPosition: newPoint, mouseButton: .left)?.postToPid(self.targetAppPID)
+                    mouseCursorPosition: newPoint, mouseButton: .left)?.post(tap: .cghidEventTap)
         }
     }
 
@@ -451,7 +461,7 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
             self.isDragging = false
             CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
-                    mouseCursorPosition: point, mouseButton: .left)?.postToPid(self.targetAppPID)
+                    mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
         }
     }
 
