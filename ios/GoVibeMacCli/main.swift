@@ -54,8 +54,9 @@ struct Terminal: ParsableCommand {
         let resolvedSessionName = sessionName ?? deviceId
         logger.info("tmux session: \(resolvedSessionName)")
 
+        let hostId = MainActor.assumeIsolated { HostRuntimeDefaults.makeSettings().hostId }
         let session = TerminalHostSession(
-            hostId: HostRuntimeDefaults.makeSettings().hostId,
+            hostId: hostId,
             config: TerminalSessionConfig(
                 sessionId: deviceId,
                 shellPath: shell,
@@ -98,8 +99,9 @@ struct Simulator: ParsableCommand {
         }
         logger.info("NSApplication initialized (CGS ready)")
 
+        let hostId = MainActor.assumeIsolated { HostRuntimeDefaults.makeSettings().hostId }
         let session = SimulatorHostSession(
-            hostId: HostRuntimeDefaults.makeSettings().hostId,
+            hostId: hostId,
             config: SimulatorSessionConfig(sessionId: deviceId, preferredUDID: udid),
             relayBase: relay,
             logger: logger

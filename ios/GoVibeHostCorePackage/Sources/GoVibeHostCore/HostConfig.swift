@@ -8,8 +8,9 @@ public final class HostConfig {
 
     public var relayHost: String = ""
 
-    private let defaults = UserDefaults.standard
-    private let env = ProcessInfo.processInfo.environment
+    private let defaults: UserDefaults
+    private let env: [String: String]
+    private let bundle: Bundle
 
     private enum Keys {
         static let relayHost = "GOVIBE_RELAY_WS_BASE" // Env var
@@ -17,7 +18,14 @@ public final class HostConfig {
         static let relayHostDefaults = "GOVIBE_GCP_RELAY_HOST" // UserDefaults
     }
 
-    private init() {
+    init(
+        defaults: UserDefaults = .standard,
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        bundle: Bundle = .main
+    ) {
+        self.defaults = defaults
+        self.env = env
+        self.bundle = bundle
         load()
     }
 
@@ -46,7 +54,7 @@ public final class HostConfig {
         }
 
         // 3. Try Info.plist / Bundle
-        let bundleRelay = Bundle.main.object(forInfoDictionaryKey: Keys.relayHostPlist) as? String
+        let bundleRelay = bundle.object(forInfoDictionaryKey: Keys.relayHostPlist) as? String
         self.relayHost = (bundleRelay ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         
         if self.relayHost.hasPrefix("DUMMY_") { self.relayHost = "" }

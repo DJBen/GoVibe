@@ -63,4 +63,9 @@ final class HostAppDelegate: NSObject, NSApplicationDelegate {
         existing.activate()
         NSApp.terminate(nil)
     }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // Keep the app running in the tray even when all windows are closed
+        return false
+    }
 }

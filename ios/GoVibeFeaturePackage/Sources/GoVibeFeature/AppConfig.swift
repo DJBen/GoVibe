@@ -10,7 +10,8 @@ public final class AppConfig {
     public var gcpRegion: String = ""
     public var relayHost: String = ""
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    private let bundle: Bundle
 
     private enum Keys {
         static let gcpProjectID = "GOVIBE_GCP_PROJECT_ID"
@@ -18,7 +19,9 @@ public final class AppConfig {
         static let relayHost = "GOVIBE_GCP_RELAY_HOST"
     }
 
-    private init() {
+    init(defaults: UserDefaults = .standard, bundle: Bundle = .main) {
+        self.defaults = defaults
+        self.bundle = bundle
         load()
     }
 
@@ -55,9 +58,9 @@ public final class AppConfig {
         }
 
         // 2. Try Info.plist / Bundle
-        let bundleID = Bundle.main.object(forInfoDictionaryKey: Keys.gcpProjectID) as? String
-        let bundleRegion = Bundle.main.object(forInfoDictionaryKey: Keys.gcpRegion) as? String
-        let bundleRelay = Bundle.main.object(forInfoDictionaryKey: Keys.relayHost) as? String
+        let bundleID = bundle.object(forInfoDictionaryKey: Keys.gcpProjectID) as? String
+        let bundleRegion = bundle.object(forInfoDictionaryKey: Keys.gcpRegion) as? String
+        let bundleRelay = bundle.object(forInfoDictionaryKey: Keys.relayHost) as? String
 
         self.gcpProjectID = (bundleID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         self.gcpRegion = (bundleRegion ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

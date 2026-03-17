@@ -1,6 +1,28 @@
 import Testing
 @testable import GoVibeFeature
 
+@MainActor
+@Test func appConfigPersistsSavedValues() async throws {
+    let suiteName = "GoVibeFeatureTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+
+    let config = AppConfig(defaults: defaults, bundle: .main)
+    config.save(
+        projectID: " govibe-783119 ",
+        region: " us-west1 ",
+        relay: " govibe-relay.run.app "
+    )
+
+    let reloadedConfig = AppConfig(defaults: defaults, bundle: .main)
+
+    #expect(reloadedConfig.gcpProjectID == "govibe-783119")
+    #expect(reloadedConfig.gcpRegion == "us-west1")
+    #expect(reloadedConfig.relayHost == "govibe-relay.run.app")
+    #expect(reloadedConfig.apiBaseURL?.absoluteString == "https://us-west1-govibe-783119.cloudfunctions.net/api")
+    #expect(reloadedConfig.relayWebSocketBase == "wss://govibe-relay.run.app/relay")
+}
+
 @Test func simulatorGestureMathNormalizesTranslationsByBounds() async throws {
     let delta = try #require(
         SimulatorGestureMath.normalizedTranslation(

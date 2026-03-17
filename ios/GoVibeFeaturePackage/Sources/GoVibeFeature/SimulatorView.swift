@@ -442,7 +442,12 @@ struct SimulatorView: View {
                     case .ended:                       viewModel.sendSimDragEndAsync()
                     }
                 },
-                onScroll:       { viewModel.sendSimScrollAsync(dx: $0.x, dy: $0.y) },
+                onScroll: { delta in
+                    let scrollDelta = interactionMode == .mouse
+                        ? CGPoint(x: -delta.x, y: -delta.y)
+                        : delta
+                    viewModel.sendSimScrollAsync(dx: scrollDelta.x, dy: scrollDelta.y)
+                },
                 onZoomStateChange: { zoomed in
                     let wasZoomed = isZoomed
                     isZoomed = zoomed
@@ -461,20 +466,10 @@ struct SimulatorView: View {
                 }
             }
             .ignoresSafeArea()
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: .bottomLeading) {
                 if isZoomed {
                     HStack(alignment: .center, spacing: 12) {
-                        Button {
-                            interactionMode = interactionMode == .viewport ? .mouse : .viewport
-                        } label: {
-                            Image(systemName: interactionMode == .viewport
-                                  ? "arrow.up.and.down.and.arrow.left.and.right"
-                                  : "cursorarrow")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
+                        simulatorInteractionModeToggle
                         .accessibilityIdentifier("simulator_interaction_mode_toggle")
 
                         if showInteractionModeHint {
@@ -484,30 +479,19 @@ struct SimulatorView: View {
                                     .foregroundStyle(.primary)
                                     .fixedSize(horizontal: false, vertical: true)
 
-                                Button("OK") {
-                                    GoVibeBootstrap.hasSeenSimulatorInteractionModeHint = true
-                                    showInteractionModeHint = false
-                                }
-                                .font(.footnote.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.accentColor, in: Capsule())
-                                .foregroundStyle(.white)
+                                simulatorInteractionHintDismissButton
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .strokeBorder(Color.primary.opacity(0.08))
-                            }
-                            .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
+                            .modifier(SimulatorLiquidGlassBannerStyle())
                             .accessibilityIdentifier("simulator_interaction_mode_hint")
                         }
                     }
                     .padding(.leading, 16)
-                    .padding(.trailing, 48) // Avoid overlap with top-right floating controls
-                    .padding(.top, 20)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 20)
+                    .allowsHitTesting(true)
+                    .zIndex(1)
                 }
             }
             .accessibilityIdentifier("simulator_view")
@@ -515,6 +499,139 @@ struct SimulatorView: View {
             Color.black
                 .ignoresSafeArea()
                 .accessibilityIdentifier("simulator_view")
+        }
+    }
+
+    private var simulatorInteractionModeToggle: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
+        return Image(systemName: interactionMode == .viewport
+                     ? "arrow.up.and.down.and.arrow.left.and.right"
+                     : "cursorarrow")
+            .symbolRenderingMode(.hierarchical)
+            .font(.system(size: 18, weight: .bold))
+            .foregroundStyle(.black.opacity(0.92))
+            .frame(width: 50, height: 50)
+            .background {
+                Circle()
+                    .fill(.black.opacity(0.16))
+                    .blur(radius: 8)
+            }
+            .modifier(SimulatorLiquidGlassButtonStyle(isActive: interactionMode == .mouse))
+            .contentShape(shape)
+            .onTapGesture {
+                interactionMode = interactionMode == .viewport ? .mouse : .viewport
+            }
+            .accessibilityAddTraits(.isButton)
+    }
+
+    private var simulatorInteractionHintDismissButton: some View {
+        let shape = Capsule(style: .continuous)
+
+        return Text("OK")
+            .font(.footnote.weight(.semibold))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .modifier(SimulatorLiquidGlassCapsuleStyle())
+            .contentShape(shape)
+            .onTapGesture {
+                GoVibeBootstrap.hasSeenSimulatorInteractionModeHint = true
+                showInteractionModeHint = false
+            }
+            .accessibilityAddTraits(.isButton)
+    }
+}
+
+private struct SimulatorLiquidGlassButtonStyle: ViewModifier {
+    let isActive: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .background {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.clear)
+                        .glassEffect(
+                            .regular.tint(.white.opacity(0.92)),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(isActive ? 0.3 : 0.18), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.32), radius: 20, y: 10)
+        } else {
+            content
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(isActive ? .white.opacity(0.65) : .white.opacity(0.08))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.32), radius: 20, y: 10)
+        }
+    }
+}
+
+private struct SimulatorLiquidGlassBannerStyle: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .background {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.clear)
+                        .glassEffect(
+                            .regular.tint(.white.opacity(0.92)),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.28), radius: 20, y: 12)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.white.opacity(0.06))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.28), radius: 20, y: 12)
+        }
+    }
+}
+
+private struct SimulatorLiquidGlassCapsuleStyle: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .foregroundStyle(.black)
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(.clear)
+                        .glassEffect(.regular.tint(.white.opacity(0.92)),
+                                     in: Capsule(style: .continuous))
+                }
+        } else {
+            content
+                .foregroundStyle(.black)
+                .background(.thickMaterial, in: Capsule(style: .continuous))
+                .overlay {
+                    Capsule(style: .continuous)
+                        .fill(.white.opacity(0.68))
+                }
         }
     }
 }

@@ -2,12 +2,18 @@ import SwiftUI
 import GoVibeHostCore
 
 struct HostConfigSetupView: View {
-    @Bindable var config = HostConfig.shared
+    private let config = HostConfig.shared
     @Environment(\.dismiss) var dismiss
+
+    @State private var relayHost: String
 
     @State private var isVerifying = false
     @State private var verificationMessage: String?
     @State private var showVerificationError = false
+
+    init() {
+        _relayHost = State(initialValue: HostConfig.shared.relayHost)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,9 +41,9 @@ struct HostConfigSetupView: View {
                 Text("Relay Hostname")
                     .font(.subheadline.weight(.medium))
                 HStack(spacing: 8) {
-                    TextField("my-relay.run.app", text: $config.relayHost)
+                    TextField("my-relay.run.app", text: $relayHost)
                         .textFieldStyle(.roundedBorder)
-                    if config.isValid {
+                    if isDraftValid {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     }
@@ -68,6 +74,7 @@ struct HostConfigSetupView: View {
             HStack {
                 Button("Reset to Default", role: .destructive) {
                     config.reset()
+                    relayHost = config.relayHost
                     verificationMessage = nil
                 }
                 .foregroundStyle(.red)
@@ -85,7 +92,7 @@ struct HostConfigSetupView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!config.isValid || isVerifying)
+                .disabled(!isDraftValid || isVerifying)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
@@ -99,19 +106,41 @@ struct HostConfigSetupView: View {
         showVerificationError = false
 
         Task {
-            config.save(relay: config.relayHost)
-
-            guard config.relayWebSocketBase != nil else {
+            let trimmedRelayHost = relayHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard normalizedRelayHost(from: trimmedRelayHost) != nil else {
                 verificationMessage = "Invalid configuration format."
                 showVerificationError = true
                 isVerifying = false
                 return
             }
 
+            config.save(relay: trimmedRelayHost)
+
             try? await Task.sleep(for: .seconds(0.5))
 
             isVerifying = false
             dismiss()
         }
+    }
+
+    private var isDraftValid: Bool {
+        !relayHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func normalizedRelayHost(from input: String) -> String? {
+        if let url = URL(string: input), let host = url.host, !host.isEmpty {
+            return host
+        }
+
+        var host = input
+        if let schemeIndex = host.range(of: "://") {
+            host = String(host[schemeIndex.upperBound...])
+        }
+        if let slashIndex = host.firstIndex(of: "/") {
+            host = String(host[..<slashIndex])
+        }
+
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedHost.isEmpty ? nil : trimmedHost
     }
 }
