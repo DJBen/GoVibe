@@ -131,7 +131,6 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         config.height = screenHeight
         config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.capturesWithoutScreenOn = true
 
         let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
         let newStream = SCStream(filter: filter, configuration: config, delegate: self)
