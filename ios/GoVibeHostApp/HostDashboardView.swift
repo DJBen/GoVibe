@@ -193,7 +193,7 @@ private struct SessionCreationWizard: View {
                 }
             }
         }
-        .frame(width: 540)
+        .frame(width: 640)
     }
 
     private var navigationTitle: String {
