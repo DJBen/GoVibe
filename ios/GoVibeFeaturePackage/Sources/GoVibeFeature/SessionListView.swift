@@ -12,6 +12,8 @@ struct SessionListView: View {
     @State private var showingAddHost = false
     @State private var showingSettings = false
     @State private var createSessionForHost: HostInfo?
+    @State private var userDeletingIds: Set<String> = []
+    @State private var externallyDeletedRoomId: String? = nil
 
     var body: some View {
         Group {
@@ -87,10 +89,31 @@ struct SessionListView: View {
             consumePendingDeepLink()
         }
         .onChange(of: store.sessions) { _, sessions in
+            let sessionIds = Set(sessions.map(\.roomId))
+
+            // Detect external deletion of the currently displayed session.
+            let activeRoomId = selectedSession?.roomId ?? navigationPath.last?.roomId
+            if let roomId = activeRoomId,
+               !sessionIds.contains(roomId),
+               !userDeletingIds.contains(roomId) {
+                externallyDeletedRoomId = roomId
+            }
+
             if let selectedSession, !sessions.contains(selectedSession) {
                 self.selectedSession = nil
             }
+            navigationPath.removeAll { !sessionIds.contains($0.roomId) }
             syncActiveRoomSelection()
+        }
+        .alert("Session Deleted", isPresented: Binding(
+            get: { externallyDeletedRoomId != nil },
+            set: { if !$0 { externallyDeletedRoomId = nil } }
+        )) {
+            Button("OK") { externallyDeletedRoomId = nil }
+        } message: {
+            if let roomId = externallyDeletedRoomId {
+                Text("\"\(roomId)\" was deleted by the host.")
+            }
         }
         .onChange(of: selectedSession) { _, _ in
             syncActiveRoomSelection()
@@ -127,11 +150,12 @@ struct SessionListView: View {
     }
 
     private func deleteSession(_ session: SavedSession) {
+        userDeletingIds.insert(session.roomId)
         Task {
             await store.deleteSession(session)
-            if selectedSession == session {
-                selectedSession = nil
-            }
+            userDeletingIds.remove(session.roomId)
+            if selectedSession == session { selectedSession = nil }
+            navigationPath.removeAll { $0.roomId == session.roomId }
         }
     }
 
