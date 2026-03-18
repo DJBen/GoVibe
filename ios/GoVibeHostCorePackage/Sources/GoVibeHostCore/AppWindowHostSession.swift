@@ -84,6 +84,9 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
             guard let self else { return }
             self.recordPeerActivity()
             self.logger.info("Peer joined — starting app window capture")
+            DispatchQueue.main.async {
+                self.bridge.focusForPeerJoin()
+            }
             Task { await self.bridge.startCapture(relayTransport: self.transport) }
         }
         transport.onPeerLeft = { [weak self] in

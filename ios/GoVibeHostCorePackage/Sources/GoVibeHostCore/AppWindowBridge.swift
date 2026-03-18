@@ -378,11 +378,24 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     // MARK: - Input Injection
 
     public func activateTargetApp() {
-        guard targetAppPID > 0, let app = NSRunningApplication(processIdentifier: targetAppPID) else { return }
-        if #available(macOS 14.0, *) {
-            _ = app.activate()
-        } else {
-            app.activate(options: .activateIgnoringOtherApps)
+        guard let app = resolveTargetApplication() else { return }
+        if app.isHidden {
+            app.unhide()
+        }
+        var activated = app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        if !activated || !isTargetFrontmost() {
+            activated = activateApplicationViaAppleScript(
+                bundleIdentifier: app.bundleIdentifier,
+                appName: app.localizedName
+            ) || activated
+        }
+        let raisedWindow = raiseTargetWindow(pid: app.processIdentifier)
+        logger.info("activateTargetApp() -> activated=\(activated) raisedWindow=\(raisedWindow) pid=\(app.processIdentifier)")
+    }
+
+    public func focusForPeerJoin() {
+        captureQueue.async {
+            _ = self.focusForPeerJoinSync()
         }
     }
 
@@ -401,9 +414,9 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
     private func _injectClick(button: String, clickCount: Int) {
         guard !windowBounds.isEmpty, targetAppPID > 0 else { return }
+        guard ensureTargetFrontmostForInput(reason: "click") else { return }
         let point = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
 
-        activateTargetApp()
         CGWarpMouseCursorPosition(point)
 
         guard let eventSpec = mouseEventSpec(for: button) else { return }
@@ -423,8 +436,8 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     public func injectScroll(dx: Double, dy: Double) {
         captureQueue.async {
             guard !self.windowBounds.isEmpty, self.targetAppPID > 0 else { return }
+            guard self.ensureTargetFrontmostForInput(reason: "scroll") else { return }
             let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
-            self.activateTargetApp()
             self.currentCursorPoint = point
             CGWarpMouseCursorPosition(point)
 
@@ -446,8 +459,8 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     public func injectDragBegin() {
         captureQueue.async {
             guard !self.windowBounds.isEmpty, self.targetAppPID > 0 else { return }
+            guard self.ensureTargetFrontmostForInput(reason: "dragBegin") else { return }
             let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
-            self.activateTargetApp()
             self.isDragging = true
             self.currentCursorPoint = point
             CGWarpMouseCursorPosition(point)
@@ -506,5 +519,128 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         default:
             return nil
         }
+    }
+
+    @discardableResult
+    private func focusForPeerJoinSync() -> Bool {
+        activateTargetApp()
+        guard !windowBounds.isEmpty else { return isTargetFrontmost() }
+        usleep(80_000)
+        let focusPoint = windowChromeFocusPoint()
+        postLeftClick(at: focusPoint)
+        usleep(40_000)
+        activateTargetApp()
+        let frontmost = isTargetFrontmost()
+        logger.info("focusForPeerJoin() -> clicked title bar at \(focusPoint), frontmost=\(frontmost)")
+        return frontmost
+    }
+
+    private func ensureTargetFrontmostForInput(reason: String) -> Bool {
+        if isTargetFrontmost() { return true }
+        let frontmost = focusForPeerJoinSync()
+        if !frontmost {
+            logger.info("Suppressed app window input (\(reason)) because target app is not frontmost")
+        }
+        return frontmost
+    }
+
+    private func isTargetFrontmost() -> Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier == targetAppPID
+    }
+
+    private func activateApplicationViaAppleScript(bundleIdentifier: String?, appName: String?) -> Bool {
+        let command: String
+        if let bundleIdentifier, !bundleIdentifier.isEmpty {
+            command = """
+            tell application id "\(bundleIdentifier)"
+                activate
+            end tell
+            """
+        } else if let appName, !appName.isEmpty {
+            command = """
+            tell application "\(appName.replacingOccurrences(of: "\"", with: "\\\""))"
+                activate
+            end tell
+            """
+        } else {
+            return false
+        }
+
+        var error: NSDictionary?
+        let result = NSAppleScript(source: command)?.executeAndReturnError(&error)
+        if let error {
+            logger.info("AppleScript activate failed: \(error)")
+        }
+        return result != nil
+    }
+
+    private func windowChromeFocusPoint() -> CGPoint {
+        let insetY = min(14, max(windowBounds.height * 0.02, 10))
+        return CGPoint(x: windowBounds.midX, y: max(windowBounds.minY + 1, windowBounds.maxY - insetY))
+    }
+
+    private func postLeftClick(at point: CGPoint) {
+        CGWarpMouseCursorPosition(point)
+        if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                              mouseCursorPosition: point, mouseButton: .left) {
+            down.post(tap: .cghidEventTap)
+        }
+        if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                            mouseCursorPosition: point, mouseButton: .left) {
+            up.post(tap: .cghidEventTap)
+        }
+    }
+
+    private func resolveTargetApplication() -> NSRunningApplication? {
+        if targetAppPID > 0, let app = NSRunningApplication(processIdentifier: targetAppPID) {
+            return app
+        }
+
+        if let bundleIdentifier,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+            targetAppPID = app.processIdentifier
+            return app
+        }
+
+        guard let windowInfoList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        if let match = windowInfoList.first(where: { info in
+            let title = info[kCGWindowName as String] as? String ?? ""
+            if title.isEmpty { return false }
+            return title == windowTitle || title.localizedCaseInsensitiveContains(windowTitle)
+        }),
+           let pidNumber = match[kCGWindowOwnerPID as String] as? NSNumber,
+           let pid = pid_t(exactly: pidNumber.intValue),
+           let app = NSRunningApplication(processIdentifier: pid) {
+            targetAppPID = pid
+            return app
+        }
+
+        return nil
+    }
+
+    private func raiseTargetWindow(pid: pid_t) -> Bool {
+        let appElement = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        let windowsResult = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+        guard windowsResult == .success, let windows = windowsRef as? [AXUIElement] else {
+            return false
+        }
+
+        for window in windows {
+            var titleRef: CFTypeRef?
+            let titleResult = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
+            guard titleResult == .success else { continue }
+            let title = titleRef as? String ?? ""
+            guard title == windowTitle || title.localizedCaseInsensitiveContains(windowTitle) else { continue }
+
+            _ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            return AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+        }
+
+        return false
     }
 }

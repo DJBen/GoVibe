@@ -104,6 +104,9 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
             if let info = self.latestSimInfo {
                 self.bridge.sendSimInfo(info)
             }
+            DispatchQueue.main.async {
+                self.simulatorBridge.focusForPeerJoin()
+            }
             Task { await self.simulatorBridge.startCapture(preferredUDID: self.preferredUDID ?? self.latestSimInfo?.udid) }
         }
         bridge.onPeerLeft = { [weak self] in
