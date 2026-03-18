@@ -558,7 +558,7 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             x: windowBounds.midX,
             y: windowBounds.midY
         )
-        let speed = 1.5
+        let speed = 1.0
         let dim = min(windowBounds.width, windowBounds.height)
         let newX = max(
             windowBounds.minX,
