@@ -72,8 +72,9 @@ jobs:
             -scheme GoVibeHost \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/GoVibeHost.xcarchive" \
-            -allowProvisioningUpdates \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             DEVELOPMENT_TEAM=52RD2GH5DP
 
       # ── Export ─────────────────────────────────────────────────────────────
