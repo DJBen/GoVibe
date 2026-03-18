@@ -28,6 +28,7 @@ ios/GoVibe.xcodeproj/xcshareddata/xcschemes/GoVibeMacCli.xcscheme
 .env.*
 **/.env
 **/.env.*
+!.env.*.template
 
 # Firebase config — each contributor generates their own from their Firebase project
 ios/Config/GoogleService-Info.plist
