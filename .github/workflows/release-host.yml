@@ -68,7 +68,7 @@ jobs:
       - name: Archive GoVibeHost
         run: |
           xcodebuild archive \
-            -workspace ios/GoVibe.xcworkspace \
+            -project ios/GoVibe.xcodeproj \
             -scheme GoVibeHost \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/GoVibeHost.xcarchive" \
