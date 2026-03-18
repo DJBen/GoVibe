@@ -5,7 +5,6 @@ struct HostOnboardingView: View {
     @State var manager: HostSessionManager
     @State private var relayBase: String = ""
     @State private var shellPath: String = ""
-    @State private var isVerifyingRelay = false
     @State private var relayVerificationError: String? = nil
 
     private let selfHostingURL = URL(string: "https://github.com/DJBen/GoVibe/blob/main/README.md#self-hosting-production")!
@@ -92,20 +91,11 @@ struct HostOnboardingView: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
-                HStack(spacing: 12) {
-                    Button {
-                        Task { await finishSetup() }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if isVerifyingRelay {
-                                ProgressView().controlSize(.small)
-                            }
-                            Text(isVerifyingRelay ? "Verifying relay…" : "Finish Setup")
-                        }
-                    }
-                    .disabled(relayBase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isVerifyingRelay)
-                    .buttonStyle(.borderedProminent)
+                Button("Finish Setup") {
+                    finishSetup()
                 }
+                .disabled(relayBase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.borderedProminent)
             }
             .padding(32)
             .frame(maxWidth: 780, alignment: .leading)
@@ -119,17 +109,11 @@ struct HostOnboardingView: View {
 
     // MARK: - Actions
 
-    private func finishSetup() async {
+    private func finishSetup() {
         let trimmed = relayBase.trimmingCharacters(in: .whitespacesAndNewlines)
-        isVerifyingRelay = true
-        relayVerificationError = nil
 
-        defer { isVerifyingRelay = false }
-
-        do {
-            try await verifyRelay(urlString: trimmed)
-        } catch {
-            relayVerificationError = error.localizedDescription
+        guard HostConfig.normalizedRelayHost(from: trimmed) != nil else {
+            relayVerificationError = "Invalid relay host format. Expected: wss://your-relay-host/relay"
             return
         }
 
@@ -142,51 +126,7 @@ struct HostOnboardingView: View {
         )
     }
 
-    /// Probes the relay by converting the wss:// URL to https:// and making an HTTP request.
-    /// Any HTTP response (even 4xx/5xx) means the server is reachable.
-    /// Throws a user-readable error if the relay is unreachable or malformed.
-    private func verifyRelay(urlString: String) async throws {
-        // Parse and validate the URL
-        guard let wsURL = URL(string: urlString),
-              let scheme = wsURL.scheme,
-              scheme == "wss" || scheme == "ws",
-              let host = wsURL.host, !host.isEmpty
-        else {
-            throw RelayVerificationError.invalidURL
-        }
-
-        // Convert wss/ws → https/http for the HTTP probe
-        let httpScheme = scheme == "wss" ? "https" : "http"
-        var components = URLComponents(url: wsURL, resolvingAgainstBaseURL: false)!
-        components.scheme = httpScheme
-        guard let probeURL = components.url else {
-            throw RelayVerificationError.invalidURL
-        }
-
-        var request = URLRequest(url: probeURL, timeoutInterval: 10)
-        request.httpMethod = "GET"
-
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 10
-        config.timeoutIntervalForResource = 10
-        let session = URLSession(configuration: config)
-
-        do {
-            let (_, _) = try await session.data(for: request)
-            // Any response means the server is up
-        } catch let urlError as URLError {
-            switch urlError.code {
-            case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet,
-                 .timedOut, .cannotFindHost, .dnsLookupFailed:
-                throw RelayVerificationError.unreachable(host: host)
-            default:
-                // Other errors (e.g. SSL, redirect) still indicate a reachable server
-                break
-            }
-        }
-    }
-
-    // MARK: - Helpers
+    // MARK: - Row Helpers
 
     private func dependencyRow(
         title: String,
@@ -235,21 +175,5 @@ struct HostOnboardingView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.system(.body, design: .monospaced))
-    }
-}
-
-// MARK: - Errors
-
-private enum RelayVerificationError: LocalizedError {
-    case invalidURL
-    case unreachable(host: String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL:
-            return "Invalid relay URL. Expected format: wss://your-relay-host/relay"
-        case .unreachable(let host):
-            return "Could not reach \(host). Check that your relay is deployed and reachable."
-        }
     }
 }

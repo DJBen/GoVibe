@@ -70,6 +70,24 @@ public final class HostConfig {
         load()
     }
 
+    /// Returns the normalized hostname from a relay URL string, or nil if the input is empty/invalid.
+    /// Strips scheme (wss://, https://, etc.) and path components.
+    /// Mirrors the validation logic used by the iOS companion app.
+    public static func normalizedRelayHost(from input: String) -> String? {
+        if let url = URL(string: input), let host = url.host, !host.isEmpty {
+            return host
+        }
+        var host = input
+        if let schemeIndex = host.range(of: "://") {
+            host = String(host[schemeIndex.upperBound...])
+        }
+        if let slashIndex = host.firstIndex(of: "/") {
+            host = String(host[..<slashIndex])
+        }
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func normalizedRelayHost(from input: String) -> String {
         if let url = URL(string: input), let host = url.host, !host.isEmpty {
             return host
