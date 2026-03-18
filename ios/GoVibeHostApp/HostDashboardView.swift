@@ -157,6 +157,7 @@ private struct SessionCreationWizard: View {
     @State private var step: Step = .typeSelection
     @State private var selectedKind: SessionKind? = nil
     @State private var sessionID = ""
+    @State private var sessionIDPrompt = ""
     @State private var tmuxID = ""
     @State private var simulatorUDID = ""
     @State private var pickerSimulators: [BootedSimulatorDevice] = []
@@ -164,6 +165,7 @@ private struct SessionCreationWizard: View {
     @State private var availableWindows: [AvailableWindow] = []
     @State private var selectedWindow: AvailableWindow? = nil
     @State private var isLoadingWindows = false
+    @State private var windowSearchText = ""
 
     var body: some View {
         NavigationStack {
@@ -334,7 +336,7 @@ private struct SessionCreationWizard: View {
                     title: "Session ID",
                     help: "A unique identifier peers will use to connect to this relay."
                 ) {
-                    TextField("", text: $sessionID, prompt: Text("e.g. sim-ios-18"))
+                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. sim-ios-18" : sessionIDPrompt).foregroundColor(.secondary))
                         .textFieldStyle(.plain)
                         .focused($focusedField, equals: .sessionID)
                 }
@@ -392,15 +394,20 @@ private struct SessionCreationWizard: View {
 
     // MARK: Helpers
 
+    private var effectiveSessionID: String {
+        let trimmed = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? sessionIDPrompt : trimmed
+    }
+
     private var canCreate: Bool {
-        guard !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !effectiveSessionID.isEmpty else { return false }
         if selectedKind == .simulator { return !simulatorUDID.isEmpty }
         if selectedKind == .appWindow { return selectedWindow != nil }
         return true
     }
 
     private func createSession() {
-        let normalizedID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedID = effectiveSessionID
         switch selectedKind {
         case .terminal:
             let tmux = tmuxID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -449,6 +456,9 @@ private struct SessionCreationWizard: View {
         } else if !simulators.contains(where: { $0.udid == simulatorUDID }) {
             simulatorUDID = simulators.first?.udid ?? ""
         }
+        if let selected = simulators.first(where: { $0.udid == simulatorUDID }) ?? simulators.first {
+            sessionIDPrompt = selected.name
+        }
         isLoadingSimulators = false
     }
 
@@ -464,7 +474,7 @@ private struct SessionCreationWizard: View {
                     title: "Session ID",
                     help: "A unique identifier peers will use to connect to this relay."
                 ) {
-                    TextField("", text: $sessionID, prompt: Text("e.g. safari-window"))
+                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. safari-window" : sessionIDPrompt).foregroundColor(.secondary))
                         .textFieldStyle(.plain)
                         .focused($focusedField, equals: .sessionID)
                 }
@@ -490,6 +500,20 @@ private struct SessionCreationWizard: View {
                             .help("Refresh available windows")
                         }
 
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                                .font(.callout)
+                            TextField("Search apps or windows…", text: $windowSearchText)
+                                .textFieldStyle(.plain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.06))
+                        }
+
                         if isLoadingWindows {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small)
@@ -498,16 +522,28 @@ private struct SessionCreationWizard: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 6)
-                        } else if availableWindows.isEmpty {
-                            Text("No application windows found. Make sure other apps are open and visible, then refresh.")
+                        } else if filteredWindowsByApp.isEmpty {
+                            Text(availableWindows.isEmpty
+                                 ? "No application windows found. Make sure other apps are open and visible, then refresh."
+                                 : "No windows match your search.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 6)
                         } else {
-                            VStack(spacing: 8) {
-                                ForEach(availableWindows) { window in
-                                    windowOptionRow(window)
+                            VStack(alignment: .leading, spacing: 16) {
+                                ForEach(filteredWindowsByApp, id: \.appName) { group in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(group.appName)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 4)
+                                        VStack(spacing: 6) {
+                                            ForEach(group.windows) { window in
+                                                windowOptionRow(window)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -534,6 +570,9 @@ private struct SessionCreationWizard: View {
         } else if selectedWindow == nil {
             selectedWindow = windows.first
         }
+        if let selected = selectedWindow {
+            sessionIDPrompt = selected.appName
+        }
         isLoadingWindows = false
     }
 
@@ -544,22 +583,36 @@ private struct SessionCreationWizard: View {
         return "Selected: \(selected.appName) – \(selected.title)"
     }
 
+    private var filteredWindowsByApp: [(appName: String, windows: [AvailableWindow])] {
+        let filtered = windowSearchText.isEmpty
+            ? availableWindows
+            : availableWindows.filter {
+                $0.appName.localizedCaseInsensitiveContains(windowSearchText) ||
+                $0.title.localizedCaseInsensitiveContains(windowSearchText)
+            }
+        var appOrder: [String] = []
+        var groupMap: [String: [AvailableWindow]] = [:]
+        for window in filtered {
+            if groupMap[window.appName] == nil {
+                appOrder.append(window.appName)
+                groupMap[window.appName] = []
+            }
+            groupMap[window.appName]!.append(window)
+        }
+        return appOrder.map { (appName: $0, windows: groupMap[$0]!) }
+    }
+
     private func windowOptionRow(_ window: AvailableWindow) -> some View {
         let isSelected = selectedWindow?.id == window.id
         return Button {
             selectedWindow = window
+            sessionIDPrompt = window.appName
         } label: {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(window.title)
-                        .foregroundStyle(.primary)
-                    Text(window.appName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(window.title)
+                    .foregroundStyle(.primary)
                 Spacer()
             }
             .padding(12)
@@ -624,6 +677,7 @@ private struct SessionCreationWizard: View {
         let isSelected = simulator.udid == simulatorUDID
         return Button {
             simulatorUDID = simulator.udid
+            sessionIDPrompt = simulator.name
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")

@@ -5,6 +5,11 @@ import Observation
 protocol ManagedHostRuntime: AnyObject {
     func start() throws
     func stop()
+    func remove()
+}
+
+extension ManagedHostRuntime {
+    func remove() { stop() }
 }
 
 @MainActor
@@ -316,13 +321,18 @@ public final class HostSessionManager {
     }
 
     public func removeSession(id: String) {
-        stopSession(id: id)
+        runtimes[id]?.remove()
+        runtimes[id] = nil
+        updateSession(id: id) { descriptor in
+            descriptor.state = .stopped
+        }
         sessions.removeAll { $0.sessionId == id }
         logsBySessionID[id] = nil
         if selectedSessionID == id {
             selectedSessionID = sessions.first?.sessionId
         }
         persistSessions()
+        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
     }
 
     public func sessionLogs(id: String) -> [HostLogEntry] {

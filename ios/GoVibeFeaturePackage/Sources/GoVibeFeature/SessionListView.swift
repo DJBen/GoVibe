@@ -76,6 +76,9 @@ struct SessionListView: View {
             consumePendingDeepLink()
             syncActiveRoomSelection()
         }
+        .onAppear {
+            Task { await store.refresh() }
+        }
         .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, _ in
             // Only navigate directly when no detail view is pushed.
             // When a detail view is active, SessionDetailView.onChange handles the exit

@@ -60,13 +60,14 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         let content = try await SCShareableContent.current
         let skippedAppNames: Set<String> = [
             "Dock", "Desktop", "Window Server", "Wallpaper", "Control Centre",
-            "Control Center", "Notification Center", "SystemUIServer"
+            "Control Center", "Notification Center", "SystemUIServer", "loginwindow"
         ]
         var results: [AvailableWindow] = []
         for window in content.windows {
             guard let title = window.title, !title.isEmpty else { continue }
             guard let app = window.owningApplication else { continue }
             let appName = app.applicationName
+            guard !appName.isEmpty else { continue }
             guard !skippedAppNames.contains(appName) else { continue }
             guard window.frame.width > 50, window.frame.height > 50 else { continue }
             results.append(AvailableWindow(

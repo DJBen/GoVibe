@@ -139,6 +139,16 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         signalStopIfNeeded()
     }
 
+    public func remove() {
+        stop()
+        if let sessionName = pty.tmuxSessionName, let tmuxPath = PtySession.resolveTmux() {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: tmuxPath)
+            p.arguments = ["kill-session", "-t", sessionName]
+            try? p.run()
+        }
+    }
+
     private func signalStopIfNeeded() {
         stateLock.lock()
         defer { stateLock.unlock() }
