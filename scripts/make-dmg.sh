@@ -27,9 +27,6 @@ mkdir -p "$STAGING_DIR"
 echo "==> Copying $APP_PATH"
 cp -R "$APP_PATH" "$STAGING_DIR/"
 
-echo "==> Adding /Applications symlink"
-ln -s /Applications "$STAGING_DIR/Applications"
-
 VOLUME_SIZE="$(du -sm "$STAGING_DIR" | awk '{print $1 + 20}')m"
 
 echo "==> Creating writable DMG (${VOLUME_SIZE})"
@@ -42,11 +39,15 @@ hdiutil create \
     -size "$VOLUME_SIZE" \
     "$TEMP_DMG"
 
-echo "==> Mounting DMG to configure layout"
+echo "==> Mounting DMG"
 MOUNT_OUTPUT="$(hdiutil attach -readwrite -noverify "$TEMP_DMG")"
 MOUNT_POINT="$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)"
 
-echo "==> Configuring Finder window via AppleScript"
+echo "==> Creating Finder alias to /Applications"
+# A proper Finder alias (not a Unix symlink) renders with the Applications folder icon
+osascript -e "tell application \"Finder\" to make alias file to POSIX file \"/Applications\" at POSIX file \"$MOUNT_POINT\""
+
+echo "==> Configuring Finder window layout"
 osascript <<APPLESCRIPT
 tell application "Finder"
     tell disk "$VOLUME_NAME"
