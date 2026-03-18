@@ -12,9 +12,9 @@ BG_IMAGE="${3:-$SCRIPT_DIR/../assets/dmg-background.png}"
 APP_NAME="$(basename "$APP_PATH" .app)"
 STAGING_DIR="$(mktemp -d)/dmg-staging"
 TEMP_DMG="${OUTPUT_DMG%.dmg}-temp.dmg"
-VOLUME_NAME="$APP_NAME"
+rm -f "$TEMP_DMG"
 
-# Window layout — sized to match background image aspect ratio (2720×1568 ≈ 660×380)
+# Window layout — 660×380 matches background aspect ratio (2720×1568)
 WIN_W=660
 WIN_H=380
 ICON_SIZE=128
@@ -29,7 +29,6 @@ mkdir -p "$STAGING_DIR"
 echo "==> Copying $APP_PATH"
 cp -R "$APP_PATH" "$STAGING_DIR/"
 
-# Stage background image — NOT hidden yet so hdiutil includes it
 HAS_BG=false
 if [[ -f "$BG_IMAGE" ]]; then
     echo "==> Staging background image"
@@ -37,7 +36,7 @@ if [[ -f "$BG_IMAGE" ]]; then
     cp "$BG_IMAGE" "$STAGING_DIR/.background/background.png"
     HAS_BG=true
 else
-    echo "==> Warning: background image not found at $BG_IMAGE, skipping"
+    echo "==> Warning: background not found at $BG_IMAGE, skipping"
 fi
 
 VOLUME_SIZE="$(du -sm "$STAGING_DIR" | awk '{print $1 + 20}')m"
@@ -45,7 +44,7 @@ VOLUME_SIZE="$(du -sm "$STAGING_DIR" | awk '{print $1 + 20}')m"
 echo "==> Creating writable DMG (${VOLUME_SIZE})"
 hdiutil create \
     -srcfolder "$STAGING_DIR" \
-    -volname "$VOLUME_NAME" \
+    -volname "$APP_NAME" \
     -fs HFS+ \
     -fsargs "-c c=64,a=16,b=16" \
     -format UDRW \
@@ -55,42 +54,61 @@ hdiutil create \
 echo "==> Mounting DMG"
 MOUNT_OUTPUT="$(hdiutil attach -readwrite -noverify "$TEMP_DMG")"
 MOUNT_POINT="$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)"
+DISK_NAME="$(basename "$MOUNT_POINT")"
+echo "    Mounted at: $MOUNT_POINT (disk: $DISK_NAME)"
 
 echo "==> Creating Finder alias to /Applications"
-# Finder alias (not Unix symlink) inherits the real Applications folder icon
 osascript -e \
     "tell application \"Finder\" to make alias file to POSIX file \"/Applications\" at POSIX file \"$MOUNT_POINT\""
 
 echo "==> Configuring Finder window layout"
-BG_POSIX="$MOUNT_POINT/.background/background.png"
-osascript <<APPLESCRIPT
-tell application "Finder"
-    tell disk "$VOLUME_NAME"
-        open
-        set current view of container window to icon view
-        set toolbar visible of container window to false
-        set statusbar visible of container window to false
-        set bounds of container window to {400, 200, $((WIN_W + 400)), $((WIN_H + 200))}
-        set theViewOptions to the icon view options of container window
-        set arrangement of theViewOptions to not arranged
-        set icon size of theViewOptions to $ICON_SIZE
-        set text size of theViewOptions to 13
-        set shows icon preview of theViewOptions to true
-        $([ "$HAS_BG" = "true" ] && echo "set background picture of theViewOptions to POSIX file \"$BG_POSIX\"")
-        -- Force layout pass before positioning
-        update without registering applications
-        delay 1
-        set position of item "${APP_NAME}.app" of container window to {$APP_X, $APP_Y}
-        set position of item "Applications" of container window to {$LINK_X, $LINK_Y}
-        update without registering applications
-        delay 2
-        close
+# Pass BG path as empty string when not used; AppleScript checks length
+BG_PATH="$( [[ "$HAS_BG" == "true" ]] && echo "$MOUNT_POINT/.background/background.png" || echo "" )"
+
+osascript - "$DISK_NAME" "$APP_NAME" "$BG_PATH" \
+           "$WIN_W" "$WIN_H" "$ICON_SIZE" \
+           "$APP_X" "$APP_Y" "$LINK_X" "$LINK_Y" <<'APPLESCRIPT'
+on run argv
+    set diskName to item 1 of argv
+    set appName  to item 2 of argv
+    set bgPath   to item 3 of argv
+    set winW     to (item 4 of argv) as integer
+    set winH     to (item 5 of argv) as integer
+    set iconSz   to (item 6 of argv) as integer
+    set appX     to (item 7 of argv) as integer
+    set appY     to (item 8 of argv) as integer
+    set linkX    to (item 9 of argv) as integer
+    set linkY    to (item 10 of argv) as integer
+
+    tell application "Finder"
+        tell disk diskName
+            open
+            set current view of container window to icon view
+            set toolbar visible of container window to false
+            set statusbar visible of container window to false
+            set bounds of container window to {400, 200, winW + 400, winH + 200}
+            set opts to icon view options of container window
+            set arrangement of opts to not arranged
+            set icon size of opts to iconSz
+            set text size of opts to 13
+            set shows icon preview of opts to true
+            if length of bgPath > 0 then
+                set background picture of opts to POSIX file bgPath
+            end if
+            update without registering applications
+            delay 1
+            set position of item (appName & ".app") of container window to {appX, appY}
+            set position of item "Applications" of container window to {linkX, linkY}
+            update without registering applications
+            delay 2
+            close
+        end tell
     end tell
-end tell
+end run
 APPLESCRIPT
 
-# Hide .background folder so it doesn't appear as an item in the mounted DMG
-if [[ "$HAS_BG" = "true" ]]; then
+# Hide .background so it doesn't appear as an icon in the window
+if [[ "$HAS_BG" == "true" ]]; then
     SetFile -a V "$MOUNT_POINT/.background" 2>/dev/null || \
         chflags hidden "$MOUNT_POINT/.background"
 fi
