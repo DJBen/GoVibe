@@ -25,6 +25,7 @@ public final class HostSessionManager {
     public private(set) var bootedSimulators: [BootedSimulatorDevice] = []
     public private(set) var permissionState: HostPermissionState
     public var selectedSessionID: String?
+    public private(set) var isTmuxInstalling: Bool = false
 
     private let defaults: UserDefaults
     private var logsBySessionID: [String: [HostLogEntry]] = [:]
@@ -60,7 +61,8 @@ public final class HostSessionManager {
         }
         self.permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
-            screenRecordingGranted: CGPreflightScreenCaptureAccess()
+            screenRecordingGranted: CGPreflightScreenCaptureAccess(),
+            tmuxInstalled: Self.detectTmux()
         )
         self.selectedSessionID = sessions.first?.sessionId
         refreshPermissions()
@@ -88,8 +90,38 @@ public final class HostSessionManager {
     public func refreshPermissions() {
         permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
-            screenRecordingGranted: CGPreflightScreenCaptureAccess()
+            screenRecordingGranted: CGPreflightScreenCaptureAccess(),
+            tmuxInstalled: Self.detectTmux()
         )
+    }
+
+    private static func detectTmux() -> Bool {
+        let candidates = [
+            "/opt/homebrew/bin/tmux",  // Homebrew Apple Silicon
+            "/usr/local/bin/tmux",     // Homebrew Intel
+            "/opt/local/bin/tmux",     // MacPorts
+            "/usr/bin/tmux",
+        ]
+        return candidates.contains { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    public func installTmux() async {
+        isTmuxInstalling = true
+        defer { isTmuxInstalling = false }
+
+        let brewCandidates = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+        guard let brewPath = brewCandidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(filePath: brewPath)
+        process.arguments = ["install", "tmux"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+        refreshPermissions()
     }
 
     public func setBootedSimulators(_ simulators: [BootedSimulatorDevice]) {

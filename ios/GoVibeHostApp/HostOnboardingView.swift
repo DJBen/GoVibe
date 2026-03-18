@@ -50,7 +50,20 @@ struct HostOnboardingView: View {
                     }
                 }
 
-                GroupBox("4. Terminal Defaults") {
+                GroupBox("4. Dependencies") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        dependencyRow(
+                            title: "tmux",
+                            detail: "Required for terminal sessions",
+                            installed: manager.permissionState.tmuxInstalled,
+                            isInstalling: manager.isTmuxInstalling
+                        ) {
+                            Task { await manager.installTmux() }
+                        }
+                    }
+                }
+
+                GroupBox("5. Terminal Defaults") {
                     TextField("Shell Path", text: $shellPath)
                         .textFieldStyle(.roundedBorder)
                 }
@@ -72,6 +85,30 @@ struct HostOnboardingView: View {
             relayBase = manager.settings.relayBase
             shellPath = manager.settings.defaultShellPath
             manager.refreshEnvironment()
+        }
+    }
+
+    private func dependencyRow(
+        title: String,
+        detail: String,
+        installed: Bool,
+        isInstalling: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                Text(isInstalling ? "Installing via Homebrew…" : (installed ? "Installed" : detail))
+                    .font(.caption)
+                    .foregroundStyle(installed ? .green : .secondary)
+            }
+            Spacer()
+            if isInstalling {
+                ProgressView()
+                    .controlSize(.small)
+            } else if !installed {
+                Button("Install via Homebrew", action: action)
+            }
         }
     }
 
