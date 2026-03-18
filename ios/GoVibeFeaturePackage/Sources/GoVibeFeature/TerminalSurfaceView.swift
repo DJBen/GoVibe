@@ -1,9 +1,7 @@
 import Foundation
 import SwiftUI
 import SwiftTerm
-#if canImport(UIKit)
 import UIKit
-#endif
 
 enum TerminalScrollPageDirection {
     case up
@@ -32,7 +30,6 @@ struct TerminalScrollGestureMapper {
     }
 }
 
-#if canImport(UIKit)
 struct TerminalSurfaceView: UIViewRepresentable {
     @Bindable var viewModel: SessionViewModel
 
@@ -237,4 +234,3 @@ struct TerminalSurfaceView: UIViewRepresentable {
         }
     }
 }
-#endif

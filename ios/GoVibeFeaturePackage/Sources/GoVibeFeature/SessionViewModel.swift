@@ -1,10 +1,8 @@
 import FirebaseAuth
 import Foundation
 import Observation
-#if canImport(UIKit)
 import AVFoundation
 import UIKit
-#endif
 
 @MainActor
 @Observable
@@ -35,11 +33,9 @@ final class SessionViewModel {
     // Simulator mirror
     private(set) var simInfo: SimInfo?
     private(set) var appWindowInfo: AppWindowInfo?
-    #if canImport(UIKit)
     var videoDecoder: SimulatorVideoDecoder?
     var captureSnapshot: (() -> UIImage?)?   // registered by the active surface view
     var pendingSnapshotImage: UIImage?       // captured eagerly during dismantleUIView
-    #endif
 
     let iosDeviceId: String
     let macDeviceId: String
@@ -61,11 +57,7 @@ final class SessionViewModel {
             self.relayCandidates = []
         }
 
-        #if canImport(UIKit)
         self.iosDeviceId = UIDevice.current.identifierForVendor?.uuidString ?? "ios-demo-01"
-        #else
-        self.iosDeviceId = "ios-demo-01"
-        #endif
         self.macDeviceId = macDeviceId
     }
 
@@ -257,10 +249,8 @@ final class SessionViewModel {
         planState = nil
         simInfo = nil
         appWindowInfo = nil
-        #if canImport(UIKit)
         videoDecoder?.reset()
         videoDecoder = nil
-        #endif
         terminalResetSink?()
         logs.append(TerminalLine(text: reason))
     }
@@ -272,9 +262,7 @@ final class SessionViewModel {
         planState = nil
         simInfo = nil
         appWindowInfo = nil
-        #if canImport(UIKit)
         videoDecoder = nil
-        #endif
     }
 
     private func checkPeerFreshness() {
@@ -303,13 +291,11 @@ final class SessionViewModel {
                                    screenWidth: screenWidth, screenHeight: screenHeight,
                                    scale: scale, fps: fps)
                 simInfo = info
-                #if canImport(UIKit)
                 if videoDecoder == nil {
                     videoDecoder = SimulatorVideoDecoder { [weak self] in
                         self?.sendSimKeyframeRequestAsync()
                     }
                 }
-                #endif
             }
             return
         }
@@ -326,13 +312,11 @@ final class SessionViewModel {
                                         screenWidth: screenWidth, screenHeight: screenHeight,
                                         scale: scale, fps: fps)
                 appWindowInfo = info
-                #if canImport(UIKit)
                 if videoDecoder == nil {
                     videoDecoder = SimulatorVideoDecoder { [weak self] in
                         self?.sendSimKeyframeRequestAsync()
                     }
                 }
-                #endif
             }
             return
         }
@@ -548,17 +532,13 @@ final class SessionViewModel {
 
     func handleBinaryRelayFrame(_ data: Data) {
         recordPeerActivity()
-        #if canImport(UIKit)
         videoDecoder?.receiveBinaryFrame(data)
-        #endif
     }
 
-    #if canImport(UIKit)
     func connectDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
         print("[SessionViewModel] connectDisplayLayer called, decoder=\(videoDecoder != nil ? "ready" : "nil")")
         videoDecoder?.setDisplayLayer(layer)
     }
-    #endif
 
     func sendSimCursorMove(dx: Double, dy: Double) async {
         guard relayTask != nil else { return }
@@ -633,9 +613,7 @@ final class SessionViewModel {
         stopOutboundHeartbeat()
         relayTask?.cancel(with: .goingAway, reason: nil)
         relayTask = nil
-        #if canImport(UIKit)
         videoDecoder?.reset()
-        #endif
         resetPeerState()
         relayStatus = "Disconnected"
     }

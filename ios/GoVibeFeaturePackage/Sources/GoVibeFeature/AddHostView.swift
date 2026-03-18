@@ -30,9 +30,7 @@ struct AddHostView: View {
                 Section {
                     TextField("Paste Host ID here", text: $hostId)
                         .autocorrectionDisabled()
-#if canImport(UIKit)
                         .textInputAutocapitalization(.never)
-#endif
                         .font(.system(.body, design: .monospaced))
                         .focused($focusedField, equals: .hostId)
                 } header: {
@@ -42,9 +40,7 @@ struct AddHostView: View {
                 }
             }
             .navigationTitle("Add Mac Host")
-#if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
-#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(UIKit)
 import UIKit
-#endif
 
 struct SessionListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -29,11 +27,9 @@ struct SessionListView: View {
                             onKindDiscovered: { kind in store.update(roomId: selectedSession.roomId, kind: kind) },
                             onStatusChanged: { status in store.update(roomId: selectedSession.roomId, relayStatus: status) }
                         )
-#if canImport(UIKit)
                         .withSnapshot { image, date in
                             saveSnapshot(image: image, date: date, roomId: selectedSession.roomId)
                         }
-#endif
                     } else {
                         SessionPlaceholderView()
                     }
@@ -50,11 +46,9 @@ struct SessionListView: View {
                                 onKindDiscovered: { kind in store.update(roomId: session.roomId, kind: kind) },
                                 onStatusChanged: { status in store.update(roomId: session.roomId, relayStatus: status) }
                             )
-#if canImport(UIKit)
                             .withSnapshot { image, date in
                                 saveSnapshot(image: image, date: date, roomId: session.roomId)
                             }
-#endif
                         }
                 }
             }
@@ -186,7 +180,6 @@ struct SessionListView: View {
 
     @ViewBuilder
     private func sessionSectionedList() -> some View {
-#if canImport(UIKit)
         ScrollView {
             LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                 if let errorMessage = store.errorMessage {
@@ -246,66 +239,8 @@ struct SessionListView: View {
             .padding(.bottom, 40)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-#else
-        List {
-            if let errorMessage = store.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(.footnote)
-                }
-            }
-
-            // One section per registered host
-            ForEach(store.hosts) { host in
-                Section {
-                    let hostSessions = store.sessions(for: host.id)
-                    ForEach(hostSessions) { session in
-                        sessionRowButton(session)
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    deleteSession(session)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                            .accessibilityIdentifier("session_row_\(session.roomId)")
-                    }
-                    .onDelete { offsets in
-                        let sessions = store.sessions(for: host.id)
-                        for index in offsets {
-                            deleteSession(sessions[index])
-                        }
-                    }
-
-                    Button {
-                        createSessionForHost = host
-                    } label: {
-                        Label("New Terminal Session", systemImage: "plus")
-                            .foregroundStyle(.secondary)
-                            .font(.subheadline)
-                    }
-                    .accessibilityIdentifier("new_session_\(host.id)")
-                } header: {
-                    Text(host.name)
-                        .textCase(nil)
-                        .contextMenu {
-                            Button(role: .destructive) {
-                                store.removeHost(id: host.id)
-                                if let selected = selectedSession, selected.hostId == host.id {
-                                    selectedSession = nil
-                                }
-                            } label: {
-                                Label("Remove Host", systemImage: "trash")
-                            }
-                        }
-                }
-            }
-        }
-#endif
     }
-    
-    #if canImport(UIKit)
+
     private func iosSectionHeader(title: String, hostId: String) -> some View {
         HStack {
             Text(title)
@@ -333,7 +268,6 @@ struct SessionListView: View {
         .background(.ultraThinMaterial) // sticky header effect
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    #endif
 
     @ViewBuilder
     private func sessionRowButton(_ session: SavedSession) -> some View {
@@ -452,7 +386,6 @@ struct SessionListView: View {
 
     // MARK: - Snapshot helpers
 
-#if canImport(UIKit)
     private func saveSnapshot(image: UIImage, date: Date, roomId: String) {
         let url = SessionStore.thumbnailURL(for: roomId)
         if let data = image.jpegData(compressionQuality: 0.7) {
@@ -460,7 +393,6 @@ struct SessionListView: View {
         }
         store.update(roomId: roomId, lastActiveAt: date)
     }
-#endif
 }
 
 // MARK: - Helpers
@@ -476,7 +408,6 @@ private struct SessionPlaceholderView: View {
     }
 }
 
-#if canImport(UIKit)
 private struct SessionCardItem: View {
     let session: SavedSession
     let isSelected: Bool
@@ -576,4 +507,3 @@ private struct SessionCardView: View {
         }
     }
 }
-#endif

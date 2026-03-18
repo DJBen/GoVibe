@@ -34,7 +34,6 @@ GoVibe/
 │   ├── GoVibeFeaturePackage/      # All shared Swift feature code
 │   ├── GoVibeHostApp/             # macOS host app target
 │   ├── GoVibeHostCorePackage/     # Shared host/runtime code
-│   ├── GoVibeMacCli/              # macOS CLI target (Swift executable)
 │   └── Config/
 │       ├── GoogleService-Info.plist.template   # Fill in & rename (gitignored)
 │       ├── Debug.xcconfig

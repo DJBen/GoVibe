@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import AVFoundation
 import SwiftUI
 import UIKit
@@ -729,5 +728,3 @@ private struct SimulatorLiquidGlassBannerStyle: ViewModifier {
         }
     }
 }
-
-#endif

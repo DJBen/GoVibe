@@ -37,12 +37,6 @@ struct PlanMarkdownSheet: View {
     }
 
     private var sheetBackgroundColor: Color {
-        #if canImport(UIKit)
         Color(uiColor: .systemBackground)
-        #elseif canImport(AppKit)
-        Color(nsColor: .textBackgroundColor)
-        #else
-        Color.clear
-        #endif
     }
 }

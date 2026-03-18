@@ -36,27 +36,6 @@ Optional env vars:
 - `GOVIBE_ID_TOKEN`
 - `GOVIBE_TERMINAL_SOURCE` (`terminalapp` or `pty`)
 
-## 3b) Start mac CLI agent (recommended for robustness)
-
-Run scheme `GoVibeMacCli` with arguments, for example:
-
-```bash
---device-id mac-demo-01 --command "claude"
-```
-
-or:
-
-```bash
---device-id mac-demo-01 --command "tmux new -As govibe"
-```
-
-Optional CLI flags:
-
-- `--relay <wss-url>`
-- `--shell </bin/zsh>`
-- `--device-id <room-id>`
-- `--command <startup-command>`
-
 ## 4) Launch iOS app
 
 1. Add `GoogleService-Info.plist` to `ios/GoVibe` target.

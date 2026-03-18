@@ -1,10 +1,8 @@
 import FirebaseCore
 import FirebaseMessaging
 import Foundation
-#if canImport(UIKit)
 import UIKit
 import UserNotifications
-#endif
 
 public enum GoVibeBootstrap {
     public static func configureFirebaseIfNeeded() {
@@ -13,7 +11,6 @@ public enum GoVibeBootstrap {
         }
     }
 
-    #if canImport(UIKit)
     // MARK: - Notification Onboarding
 
     /// True once the user has dismissed the notification onboarding sheet
@@ -38,5 +35,4 @@ public enum GoVibeBootstrap {
     public static func setAPNSToken(_ tokenData: Data) {
         Messaging.messaging().apnsToken = tokenData
     }
-    #endif
 }
