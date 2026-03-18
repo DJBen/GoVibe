@@ -559,13 +559,14 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             y: windowBounds.midY
         )
         let speed = 1.5
+        let dim = min(windowBounds.width, windowBounds.height)
         let newX = max(
             windowBounds.minX,
-            min(windowBounds.maxX, current.x + dx * windowBounds.width * speed)
+            min(windowBounds.maxX, current.x + dx * dim * speed)
         )
         let newY = max(
             windowBounds.minY,
-            min(windowBounds.maxY, current.y + dy * windowBounds.height * speed)
+            min(windowBounds.maxY, current.y + dy * dim * speed)
         )
         return CGPoint(x: newX, y: newY)
     }

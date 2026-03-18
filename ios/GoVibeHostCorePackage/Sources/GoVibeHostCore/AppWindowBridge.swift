@@ -496,8 +496,9 @@ public final class AppWindowBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     private func nextCursorPoint(dx: Double, dy: Double) -> CGPoint {
         let current = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
         let speed = 1.5
-        let newX = max(windowBounds.minX, min(windowBounds.maxX, current.x + dx * windowBounds.width * speed))
-        let newY = max(windowBounds.minY, min(windowBounds.maxY, current.y + dy * windowBounds.height * speed))
+        let dim = min(windowBounds.width, windowBounds.height)
+        let newX = max(windowBounds.minX, min(windowBounds.maxX, current.x + dx * dim * speed))
+        let newY = max(windowBounds.minY, min(windowBounds.maxY, current.y + dy * dim * speed))
         return CGPoint(x: newX, y: newY)
     }
 
