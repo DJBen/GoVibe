@@ -75,7 +75,8 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Developer ID Application" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            DEVELOPMENT_TEAM=52RD2GH5DP
+            DEVELOPMENT_TEAM=52RD2GH5DP \
+            ENABLE_HARDENED_RUNTIME=YES
 
       # ── Export ─────────────────────────────────────────────────────────────
       - name: Export Developer ID app
