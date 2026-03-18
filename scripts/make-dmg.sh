@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
 # make-dmg.sh — Package a .app bundle into a polished DMG with drag-to-install layout
-# Usage: ./scripts/make-dmg.sh path/to/App.app output.dmg
+# Usage: ./scripts/make-dmg.sh path/to/App.app output.dmg [path/to/background.png]
 
 set -euo pipefail
 
-APP_PATH="${1:?Usage: $0 <App.app> <output.dmg>}"
-OUTPUT_DMG="${2:?Usage: $0 <App.app> <output.dmg>}"
+APP_PATH="${1:?Usage: $0 <App.app> <output.dmg> [background.png]}"
+OUTPUT_DMG="${2:?Usage: $0 <App.app> <output.dmg> [background.png]}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BG_IMAGE="${3:-$SCRIPT_DIR/../assets/dmg-background.png}"
 
 APP_NAME="$(basename "$APP_PATH" .app)"
 STAGING_DIR="$(mktemp -d)/dmg-staging"
 TEMP_DMG="${OUTPUT_DMG%.dmg}-temp.dmg"
 VOLUME_NAME="$APP_NAME"
 
-# Window layout constants
+# Window layout — sized to match background image aspect ratio (2720×1568 ≈ 660×380)
 WIN_W=660
 WIN_H=380
 ICON_SIZE=128
-APP_X=175
+APP_X=165
 APP_Y=185
-LINK_X=485
+LINK_X=495
 LINK_Y=185
 
 echo "==> Staging: $STAGING_DIR"
@@ -26,6 +28,17 @@ mkdir -p "$STAGING_DIR"
 
 echo "==> Copying $APP_PATH"
 cp -R "$APP_PATH" "$STAGING_DIR/"
+
+# Stage background image — NOT hidden yet so hdiutil includes it
+HAS_BG=false
+if [[ -f "$BG_IMAGE" ]]; then
+    echo "==> Staging background image"
+    mkdir -p "$STAGING_DIR/.background"
+    cp "$BG_IMAGE" "$STAGING_DIR/.background/background.png"
+    HAS_BG=true
+else
+    echo "==> Warning: background image not found at $BG_IMAGE, skipping"
+fi
 
 VOLUME_SIZE="$(du -sm "$STAGING_DIR" | awk '{print $1 + 20}')m"
 
@@ -44,10 +57,12 @@ MOUNT_OUTPUT="$(hdiutil attach -readwrite -noverify "$TEMP_DMG")"
 MOUNT_POINT="$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)"
 
 echo "==> Creating Finder alias to /Applications"
-# A proper Finder alias (not a Unix symlink) renders with the Applications folder icon
-osascript -e "tell application \"Finder\" to make alias file to POSIX file \"/Applications\" at POSIX file \"$MOUNT_POINT\""
+# Finder alias (not Unix symlink) inherits the real Applications folder icon
+osascript -e \
+    "tell application \"Finder\" to make alias file to POSIX file \"/Applications\" at POSIX file \"$MOUNT_POINT\""
 
 echo "==> Configuring Finder window layout"
+BG_POSIX="$MOUNT_POINT/.background/background.png"
 osascript <<APPLESCRIPT
 tell application "Finder"
     tell disk "$VOLUME_NAME"
@@ -55,20 +70,30 @@ tell application "Finder"
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set bounds of container window to {400, 200, ${WIN_W} + 400, ${WIN_H} + 200}
+        set bounds of container window to {400, 200, $((WIN_W + 400)), $((WIN_H + 200))}
         set theViewOptions to the icon view options of container window
         set arrangement of theViewOptions to not arranged
         set icon size of theViewOptions to $ICON_SIZE
+        set text size of theViewOptions to 13
+        set shows icon preview of theViewOptions to true
+        $([ "$HAS_BG" = "true" ] && echo "set background picture of theViewOptions to POSIX file \"$BG_POSIX\"")
+        -- Force layout pass before positioning
+        update without registering applications
+        delay 1
         set position of item "${APP_NAME}.app" of container window to {$APP_X, $APP_Y}
         set position of item "Applications" of container window to {$LINK_X, $LINK_Y}
-        close
-        open
         update without registering applications
         delay 2
         close
     end tell
 end tell
 APPLESCRIPT
+
+# Hide .background folder so it doesn't appear as an item in the mounted DMG
+if [[ "$HAS_BG" = "true" ]]; then
+    SetFile -a V "$MOUNT_POINT/.background" 2>/dev/null || \
+        chflags hidden "$MOUNT_POINT/.background"
+fi
 
 echo "==> Detaching DMG"
 hdiutil detach "$MOUNT_POINT" -quiet
