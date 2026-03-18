@@ -14,6 +14,7 @@ public final class HostConfig {
 
     private enum Keys {
         static let relayHost = "GOVIBE_RELAY_WS_BASE" // Env var
+        static let relayHostEnv = "GOVIBE_GCP_RELAY_HOST" // Env var (New)
         static let relayHostPlist = "GOVIBE_GCP_RELAY_HOST" // Plist
         static let relayHostDefaults = "GOVIBE_GCP_RELAY_HOST" // UserDefaults
     }
@@ -49,6 +50,11 @@ public final class HostConfig {
 
         // 2. Try Environment Variable (for dev/scripting)
         if let relay = env[Keys.relayHost], !relay.isEmpty {
+            self.relayHost = relay
+            return
+        }
+
+        if let relay = env[Keys.relayHostEnv], !relay.isEmpty {
             self.relayHost = relay
             return
         }

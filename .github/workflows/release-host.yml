@@ -88,6 +88,9 @@ jobs:
             -allowProvisioningUpdates
 
       # ── DMG ────────────────────────────────────────────────────────────────
+      - name: Install create-dmg
+        run: npm install --global create-dmg
+
       - name: Build DMG
         id: dmg
         env:
