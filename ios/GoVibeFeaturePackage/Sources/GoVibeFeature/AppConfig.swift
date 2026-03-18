@@ -43,50 +43,51 @@ public final class AppConfig {
     }
 
     public func load() {
-        // 1. Try UserDefaults
-        let defaultsID = defaults.string(forKey: Keys.gcpProjectID)
-        let defaultsRegion = defaults.string(forKey: Keys.gcpRegion)
-        let defaultsRelay = defaults.string(forKey: Keys.relayHost)
+        // GCP project/region: read from environment variables, then fall back to Info.plist
+        let env = ProcessInfo.processInfo.environment
+        let envID = env[Keys.gcpProjectID].flatMap { $0.isEmpty ? nil : $0 }
+        let envRegion = env[Keys.gcpRegion].flatMap { $0.isEmpty ? nil : $0 }
 
-        if let id = defaultsID, !id.isEmpty,
-           let region = defaultsRegion, !region.isEmpty,
-           let relay = defaultsRelay, !relay.isEmpty {
+        if let id = envID {
             self.gcpProjectID = id
+        } else {
+            let bundleID = bundle.object(forInfoDictionaryKey: Keys.gcpProjectID) as? String ?? ""
+            let trimmed = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.gcpProjectID = trimmed.hasPrefix("DUMMY_") ? "" : trimmed
+        }
+
+        if let region = envRegion {
             self.gcpRegion = region
-            self.relayHost = relay
+        } else {
+            let bundleRegion = bundle.object(forInfoDictionaryKey: Keys.gcpRegion) as? String ?? ""
+            let trimmed = bundleRegion.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.gcpRegion = trimmed.hasPrefix("DUMMY_") ? "" : trimmed
+        }
+
+        // Relay host: UserDefaults first, then environment, then Info.plist
+        if let savedRelay = defaults.string(forKey: Keys.relayHost), !savedRelay.isEmpty {
+            self.relayHost = savedRelay
             return
         }
 
-        // 2. Try Info.plist / Bundle
-        let bundleID = bundle.object(forInfoDictionaryKey: Keys.gcpProjectID) as? String
-        let bundleRegion = bundle.object(forInfoDictionaryKey: Keys.gcpRegion) as? String
-        let bundleRelay = bundle.object(forInfoDictionaryKey: Keys.relayHost) as? String
+        if let envRelay = env[Keys.relayHost], !envRelay.isEmpty {
+            self.relayHost = envRelay
+            return
+        }
 
-        self.gcpProjectID = (bundleID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        self.gcpRegion = (bundleRegion ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        self.relayHost = (bundleRelay ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Filter out dummy values if any
-        if self.gcpProjectID.hasPrefix("DUMMY_") { self.gcpProjectID = "" }
-        if self.gcpRegion.hasPrefix("DUMMY_") { self.gcpRegion = "" }
-        if self.relayHost.hasPrefix("DUMMY_") { self.relayHost = "" }
+        let bundleRelay = bundle.object(forInfoDictionaryKey: Keys.relayHost) as? String ?? ""
+        let trimmedRelay = bundleRelay.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.relayHost = trimmedRelay.hasPrefix("DUMMY_") ? "" : trimmedRelay
     }
 
-    public func save(projectID: String, region: String, relay: String) {
-        self.gcpProjectID = projectID.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.gcpRegion = region.trimmingCharacters(in: .whitespacesAndNewlines)
+    public func save(relay: String) {
         self.relayHost = relay.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        defaults.set(self.gcpProjectID, forKey: Keys.gcpProjectID)
-        defaults.set(self.gcpRegion, forKey: Keys.gcpRegion)
         defaults.set(self.relayHost, forKey: Keys.relayHost)
     }
 
     public func reset() {
-        defaults.removeObject(forKey: Keys.gcpProjectID)
-        defaults.removeObject(forKey: Keys.gcpRegion)
         defaults.removeObject(forKey: Keys.relayHost)
-        load() // Reloads from Bundle if available, or clears
+        load()
     }
 
     private func normalizedRelayHost(from input: String) -> String {
