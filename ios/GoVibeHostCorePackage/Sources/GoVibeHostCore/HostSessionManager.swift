@@ -39,9 +39,19 @@ public final class HostSessionManager {
             .flatMap { try? JSONDecoder().decode(HostSettings.self, from: $0) }
         let defaultsSettings = HostRuntimeDefaults.makeSettings(bundle: bundle)
         let resolvedSettings = persistedSettings ?? defaultsSettings
+        // If onboarding hasn't been completed, always prefer the relay derived from
+        // HostConfig (xcconfig / env var) so that the pre-filled value in the setup
+        // screen is always fresh, even if a stale relay was saved in a prior run.
+        let configRelay = HostConfig.shared.relayWebSocketBase ?? ""
+        let effectiveRelay: String
+        if resolvedSettings.onboardingCompleted || configRelay.isEmpty {
+            effectiveRelay = resolvedSettings.relayBase
+        } else {
+            effectiveRelay = configRelay
+        }
         self.settings = HostSettings(
             hostId: resolvedSettings.hostId,
-            relayBase: resolvedSettings.relayBase,
+            relayBase: effectiveRelay,
             defaultShellPath: resolvedSettings.defaultShellPath,
             preferredSimulatorUDID: resolvedSettings.preferredSimulatorUDID,
             onboardingCompleted: resolvedSettings.onboardingCompleted
