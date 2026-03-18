@@ -644,7 +644,7 @@ private enum SimulatorInteractionHintContext {
         case .unzoomed:
             nil
         case .zoomedViewport:
-            ("arrow.up.and.down.and.arrow.left.and.right", "Viewport Mode")
+            ("arrow.up.and.down.and.arrow.left.and.right", "View Mode")
         case .zoomedMouse:
             ("cursorarrow", "Mouse Mode")
         }
