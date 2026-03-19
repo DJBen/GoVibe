@@ -34,10 +34,15 @@ GoVibe/
 │   ├── GoVibeFeaturePackage/      # All shared Swift feature code
 │   ├── GoVibeHostApp/             # macOS host app target
 │   ├── GoVibeHostCorePackage/     # Shared host/runtime code
-│   └── Config/
-│       ├── GoogleService-Info.plist.template   # Fill in & rename (gitignored)
+│   ├── Config/
 │       ├── Debug.xcconfig
 │       └── Release.xcconfig
+│   ├── GoVibe/
+│   │   ├── GoogleService-Info.plist.template   # Copy to GoogleService-Info.plist locally
+│   │   └── GoogleService-Info.plist            # iOS Firebase config (gitignored)
+│   └── GoVibeHostApp/
+│       ├── GoogleService-Info.plist.template   # Copy to GoogleService-Info.plist locally
+│       └── GoogleService-Info.plist            # macOS Firebase config (gitignored)
 ├── backend/
 │   └── functions/                 # Firebase Functions (Node.js / TypeScript)
 ├── infra/
@@ -89,10 +94,7 @@ node index.js
 
 ### 3. Run the macOS Host App
 
-1. Copy the Firebase config plist:
-   ```bash
-   cp ios/Config/GoogleService-Info.plist.template ios/Config/GoogleService-Info.plist
-   ```
+1. Copy `ios/GoVibeHostApp/GoogleService-Info.plist.template` to `ios/GoVibeHostApp/GoogleService-Info.plist`, then replace it with the real Firebase file for the macOS host target.
 2. Open `ios/GoVibe.xcodeproj` or `ios/GoVibe.xcworkspace` in Xcode.
 3. Build and run the `GoVibeHost` macOS target.
 4. In the host onboarding flow:
@@ -127,17 +129,23 @@ node index.js
 ### Step 2: Configure the iOS App
 
 1. In the Firebase Console, add an iOS app. Use whatever bundle ID you like.
-2. Download `GoogleService-Info.plist` and place it at:
+2. Copy `ios/GoVibe/GoogleService-Info.plist.template` to `ios/GoVibe/GoogleService-Info.plist`, then replace it with the real iOS `GoogleService-Info.plist`:
    ```
-   ios/Config/GoogleService-Info.plist
+   ios/GoVibe/GoogleService-Info.plist
    ```
-   This file is gitignored — never commit it. See `ios/Config/GoogleService-Info.plist.template` for the expected shape.
+   This file is gitignored — never commit it.
+3. Copy `ios/GoVibeHostApp/GoogleService-Info.plist.template` to `ios/GoVibeHostApp/GoogleService-Info.plist`, then replace it with the real macOS host `GoogleService-Info.plist`:
+   ```
+   ios/GoVibeHostApp/GoogleService-Info.plist
+   ```
+   This file is gitignored — never commit it.
 
 ### Step 3: Set Firebase Functions Secrets
 
 ```bash
 firebase functions:secrets:set SESSION_TOKEN_SECRET
 firebase functions:secrets:set TURN_SECRET
+firebase functions:secrets:set RELAY_TOKEN_SECRET
 ```
 
 ### Step 4: Deploy Firebase
@@ -157,6 +165,7 @@ gcloud run deploy govibe-relay \
   --source . \
   --region us-west1 \
   --allow-unauthenticated \
+  --set-env-vars RELAY_TOKEN_SECRET=<same-secret-as-functions> \
   --project <your-project-id>
 ```
 
@@ -223,4 +232,4 @@ All endpoints are served from the Firebase Functions HTTPS app (`api` export).
 1. Fork the repo and create a branch.
 2. Follow the local dev setup above.
 3. Open a pull request with a clear description of the change.
-4. Never commit `ios/Config/GoogleService-Info.plist` or any file containing API keys.
+4. Never commit `ios/GoVibe/GoogleService-Info.plist`, `ios/GoVibeHostApp/GoogleService-Info.plist`, or any file containing API keys.

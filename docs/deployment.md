@@ -20,6 +20,7 @@ firebase use govibe-demo
 ```bash
 firebase functions:secrets:set SESSION_TOKEN_SECRET
 firebase functions:secrets:set TURN_SECRET
+firebase functions:secrets:set RELAY_TOKEN_SECRET
 ```
 
 3. Deploy:
@@ -42,6 +43,7 @@ gcloud run deploy govibe-relay \
   --source . \
   --region us-west1 \
   --allow-unauthenticated \
+  --set-env-vars RELAY_TOKEN_SECRET=<same-secret-as-functions> \
   --min-instances 0
 ```
 

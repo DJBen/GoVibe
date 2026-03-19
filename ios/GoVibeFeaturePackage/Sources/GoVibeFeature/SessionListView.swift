@@ -4,6 +4,7 @@ import UIKit
 struct SessionListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var store = SessionStore()
+    @State private var authController = GoVibeAuthController.shared
     @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
     @State private var selectedSession: SavedSession?
     @State private var navigationPath: [SavedSession] = []
@@ -21,7 +22,7 @@ struct SessionListView: View {
                 } detail: {
                     if let selectedSession {
                         SessionDetailView(
-                            roomId: selectedSession.roomId,
+                            session: selectedSession,
                             presentationMode: .regular,
                             onExit: { self.selectedSession = nil },
                             onKindDiscovered: { kind in store.update(roomId: selectedSession.roomId, kind: kind) },
@@ -41,7 +42,7 @@ struct SessionListView: View {
                     sidebarContent()
                         .navigationDestination(for: SavedSession.self) { session in
                             SessionDetailView(
-                                roomId: session.roomId,
+                                session: session,
                                 presentationMode: .compact,
                                 onKindDiscovered: { kind in store.update(roomId: session.roomId, kind: kind) },
                                 onStatusChanged: { status in store.update(roomId: session.roomId, relayStatus: status) }
@@ -311,8 +312,20 @@ struct SessionListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button {
-                showingSettings = true
+            Menu {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Label("Relay Settings", systemImage: "gear")
+                }
+
+                if authController.isAuthenticated {
+                    Button(role: .destructive) {
+                        authController.signOut()
+                    } label: {
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
             } label: {
                 Image(systemName: "gear")
             }

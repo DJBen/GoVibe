@@ -4,6 +4,7 @@ import Foundation
 public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime {
     private static let peerStaleTimeout: TimeInterval = 10
 
+    private let hostId: String
     private let macDeviceId: String
     private let logger: HostLogger
     private let bridge: RelayTransport
@@ -27,6 +28,7 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
+        self.hostId = hostId
         self.macDeviceId = "\(hostId)-\(config.sessionId)"
         self.logger = logger
         self.bridge = RelayTransport(logger: logger)
@@ -113,7 +115,7 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
             self?.markPeerOffline(reason: "Peer left")
         }
 
-        bridge.start(room: macDeviceId, relayBase: relayBase)
+        bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
         startHeartbeat()
         eventHandler(.stateChanged(.waitingForPeer, nil, nil))
 

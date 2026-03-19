@@ -77,6 +77,7 @@ final class SessionStore {
             currentUserId = user.uid
             load(for: user.uid)
             loadHosts(for: user.uid)
+            try await refreshDiscoveredHosts()
         } catch {
             sessions = []
             hosts = []
@@ -181,9 +182,11 @@ final class SessionStore {
     }
 
     private func connectAndListen(hostId: String, relayBase: String) async {
-        guard var components = URLComponents(string: relayBase) else { return }
-        components.queryItems = [URLQueryItem(name: "room", value: "\(hostId)-ctl")]
-        guard let url = components.url else { return }
+        let room = "\(hostId)-ctl"
+        let authClient = RelayAuthClient(relayWebSocketBase: relayBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
+        guard let url = try? await authClient.authorizedURL(hostId: hostId, room: room, role: "client-control") else {
+            return
+        }
 
         let wsTask = URLSession.shared.webSocketTask(with: url)
         wsTask.resume()
@@ -237,6 +240,7 @@ final class SessionStore {
         hosts.append(HostInfo(id: trimmedId, name: trimmedName))
         saveHosts(for: userId)
         save(for: userId)
+        reconcileListeners()
     }
 
     func removeHost(id: String) {
@@ -246,6 +250,7 @@ final class SessionStore {
         sessions.removeAll { $0.hostId == id }
         saveHosts(for: userId)
         save(for: userId)
+        reconcileListeners()
     }
 
     // MARK: - Session Management
@@ -375,7 +380,8 @@ final class SessionStore {
 
     private func saveHosts(for userId: String) {
         do {
-            let data = try JSONEncoder().encode(hosts)
+            let persisted = hosts.filter { !$0.isDiscovered }
+            let data = try JSONEncoder().encode(persisted)
             UserDefaults.standard.set(data, forKey: hostsStorageKey(for: userId))
         } catch {
             errorMessage = "Failed to persist host list."
@@ -394,6 +400,52 @@ final class SessionStore {
         }
     }
 
+    private func refreshDiscoveredHosts() async throws {
+        let result = try await apiClient.discoverHosts()
+        mergeDiscoveredHosts(result.hosts)
+    }
+
+    private func mergeDiscoveredHosts(_ discoveredHosts: [DiscoveredHost]) {
+        let manualHosts = hosts.filter { !$0.isDiscovered }
+        var merged = manualHosts
+
+        for discovered in discoveredHosts {
+            if let index = merged.firstIndex(where: { $0.id == discovered.deviceId }) {
+                merged[index].isDiscovered = true
+                merged[index].capabilities = discovered.capabilities
+                merged[index].isOnline = discovered.isOnline
+                merged[index].lastSeenAt = discovered.lastSeenAt
+                merged[index].lastOnlineAt = discovered.lastOnlineAt
+                if merged[index].name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    merged[index].name = discovered.displayName
+                }
+            } else {
+                merged.append(
+                    HostInfo(
+                        id: discovered.deviceId,
+                        name: discovered.displayName,
+                        isDiscovered: true,
+                        capabilities: discovered.capabilities,
+                        isOnline: discovered.isOnline,
+                        lastSeenAt: discovered.lastSeenAt,
+                        lastOnlineAt: discovered.lastOnlineAt
+                    )
+                )
+            }
+        }
+
+        hosts = merged.sorted { lhs, rhs in
+            switch ((lhs.isOnline ?? false), (rhs.isOnline ?? false)) {
+            case (true, false):
+                return true
+            case (false, true):
+                return false
+            default:
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        }
+    }
+
     // MARK: - Auth
 
     private func ensureAuthenticated() async throws -> User {
@@ -401,13 +453,6 @@ final class SessionStore {
             _ = try await user.getIDTokenResult(forcingRefresh: false)
             return user
         }
-
-        do {
-            let result = try await Auth.auth().signInAnonymously()
-            _ = try await result.user.getIDTokenResult(forcingRefresh: true)
-            return result.user
-        } catch {
-            throw APIError.notAuthenticated
-        }
+        throw APIError.notAuthenticated
     }
 }

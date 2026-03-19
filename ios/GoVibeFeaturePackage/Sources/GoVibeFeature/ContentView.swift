@@ -4,11 +4,16 @@ import Observation
 public struct ContentView: View {
     private var config = AppConfig.shared
     private var foregroundNotifications = ForegroundNotificationCoordinator.shared
+    @State private var authController = GoVibeAuthController.shared
 
     public var body: some View {
         Group {
             if config.isValid {
-                SessionListView()
+                if authController.isAuthenticated {
+                    SessionListView()
+                } else {
+                    GoVibeSignInView()
+                }
             } else {
                 AppConfigSetupView()
             }
@@ -31,6 +36,9 @@ public struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: foregroundNotifications.banner)
+        .task {
+            await authController.restoreSessionIfPossible()
+        }
     }
 
     public init() {}

@@ -16,6 +16,7 @@ final class SessionViewModel {
 
     private let apiClient: GoVibeAPIClient
     private let relayCandidates: [String]
+    private let hostId: String
     private var relayTask: URLSessionWebSocketTask?
     private var terminalOutputSink: ((Data) -> Void)?
     private var terminalResetSink: (() -> Void)?
@@ -38,10 +39,11 @@ final class SessionViewModel {
     var pendingSnapshotImage: UIImage?       // captured eagerly during dismantleUIView
 
     let iosDeviceId: String
-    let macDeviceId: String
+    let roomId: String
 
     init(
-        macDeviceId: String,
+        roomId: String,
+        hostId: String,
         apiBaseURL: URL? = AppRuntimeConfig.apiBaseURL,
         relayBase: String = AppRuntimeConfig.relayWebSocketBase
     ) {
@@ -57,18 +59,15 @@ final class SessionViewModel {
             self.relayCandidates = []
         }
 
-        self.iosDeviceId = UIDevice.current.identifierForVendor?.uuidString ?? "ios-demo-01"
-        self.macDeviceId = macDeviceId
+        self.iosDeviceId = LocalDevice.iosDeviceID
+        self.roomId = roomId
+        self.hostId = hostId
     }
 
     func bootstrapAuth() async {
-        if Auth.auth().currentUser == nil {
-            do {
-                _ = try await Auth.auth().signInAnonymously()
-                logs.append(TerminalLine(text: "Signed in anonymously"))
-            } catch {
-                logs.append(TerminalLine(text: "Auth failed: \(error.localizedDescription)"))
-            }
+        guard Auth.auth().currentUser != nil else {
+            logs.append(TerminalLine(text: "Authentication required. Sign in with Google first."))
+            return
         }
 
         // Register whatever FCM token is already available, then stay subscribed to refreshes.
@@ -89,7 +88,7 @@ final class SessionViewModel {
         defer { isBusy = false }
 
         do {
-            let response = try await apiClient.sessionCreate(ownerDeviceId: iosDeviceId, peerDeviceId: macDeviceId)
+            let response = try await apiClient.sessionCreate(ownerDeviceId: iosDeviceId, peerDeviceId: hostId)
             sessionId = response.sessionId
             logs.append(TerminalLine(text: "Session created: \(response.sessionId)"))
         } catch {
@@ -106,10 +105,12 @@ final class SessionViewModel {
         relayTask = nil
         resetPeerState()
         relayStatus = "Connecting..."
-        attemptRelayConnection(candidateIndex: 0, room: macDeviceId)
+        Task {
+            await attemptRelayConnection(candidateIndex: 0, room: roomId)
+        }
     }
 
-    private func attemptRelayConnection(candidateIndex: Int, room: String) {
+    private func attemptRelayConnection(candidateIndex: Int, room: String) async {
         guard candidateIndex < relayCandidates.count else {
             relayStatus = "Disconnected"
             logs.append(TerminalLine(text: "Relay connect failed across all endpoints"))
@@ -117,17 +118,19 @@ final class SessionViewModel {
         }
 
         let candidate = relayCandidates[candidateIndex]
-        guard var components = URLComponents(string: candidate) else {
-            attemptRelayConnection(candidateIndex: candidateIndex + 1, room: room)
+        guard let apiBaseURL = AppRuntimeConfig.apiBaseURL else {
+            relayStatus = "Disconnected"
+            logs.append(TerminalLine(text: "Relay auth unavailable: API base URL missing"))
             return
         }
+        let authClient = RelayAuthClient(relayWebSocketBase: candidate, apiBaseURL: apiBaseURL)
 
-        components.queryItems = [
-            URLQueryItem(name: "room", value: room),
-            URLQueryItem(name: "iosDeviceId", value: iosDeviceId)
-        ]
-        guard let url = components.url else {
-            attemptRelayConnection(candidateIndex: candidateIndex + 1, room: room)
+        let url: URL
+        do {
+            url = try await authClient.authorizedURL(hostId: hostId, room: room, role: "client-session")
+        } catch {
+            logs.append(TerminalLine(text: "Relay auth failed: \(error.localizedDescription)"))
+            await attemptRelayConnection(candidateIndex: candidateIndex + 1, room: room)
             return
         }
 

@@ -7,7 +7,7 @@ struct SessionDetailView: View {
         case regular
     }
 
-    let roomId: String
+    let session: SavedSession
     let presentationMode: PresentationMode
     let onExit: (() -> Void)?
     var onKindDiscovered: ((SessionKind) -> Void)? = nil
@@ -20,18 +20,18 @@ struct SessionDetailView: View {
     @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
 
     init(
-        roomId: String,
+        session: SavedSession,
         presentationMode: PresentationMode = .compact,
         onExit: (() -> Void)? = nil,
         onKindDiscovered: ((SessionKind) -> Void)? = nil,
         onStatusChanged: ((String) -> Void)? = nil
     ) {
-        self.roomId = roomId
+        self.session = session
         self.presentationMode = presentationMode
         self.onExit = onExit
         self.onKindDiscovered = onKindDiscovered
         self.onStatusChanged = onStatusChanged
-        _viewModel = State(initialValue: SessionViewModel(macDeviceId: roomId))
+        _viewModel = State(initialValue: SessionViewModel(roomId: session.roomId, hostId: session.hostId))
     }
 
     var body: some View {
@@ -71,7 +71,7 @@ struct SessionDetailView: View {
                     .padding(.bottom, 16)
             }
         }
-        .navigationTitle(roomId)
+        .navigationTitle(session.roomId)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if presentationMode == .regular {
@@ -104,7 +104,7 @@ struct SessionDetailView: View {
             }
         }
         .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, newRoomId in
-            guard let newRoomId, newRoomId != roomId else { return }
+            guard let newRoomId, newRoomId != session.roomId else { return }
             exitSession()
         }
         .onChange(of: viewModel.relayStatus) { _, newStatus in

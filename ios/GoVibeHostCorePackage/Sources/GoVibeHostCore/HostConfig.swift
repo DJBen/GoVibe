@@ -7,6 +7,8 @@ public final class HostConfig {
     public static let shared = HostConfig()
 
     public var relayHost: String = ""
+    public var gcpProjectID: String = ""
+    public var gcpRegion: String = ""
 
     private let defaults: UserDefaults
     private let env: [String: String]
@@ -17,6 +19,8 @@ public final class HostConfig {
         static let relayHostEnv = "GOVIBE_GCP_RELAY_HOST" // Env var (New)
         static let relayHostPlist = "GOVIBE_GCP_RELAY_HOST" // Plist
         static let relayHostDefaults = "GOVIBE_GCP_RELAY_HOST" // UserDefaults
+        static let gcpProjectID = "GOVIBE_GCP_PROJECT_ID"
+        static let gcpRegion = "GOVIBE_GCP_REGION"
     }
 
     init(
@@ -41,7 +45,28 @@ public final class HostConfig {
         return "wss://\(host)/relay"
     }
 
+    public var apiBaseURL: URL? {
+        guard !gcpProjectID.isEmpty, !gcpRegion.isEmpty else { return nil }
+        return URL(string: "https://\(gcpRegion)-\(gcpProjectID).cloudfunctions.net/api")
+    }
+
     public func load() {
+        if let projectID = env[Keys.gcpProjectID], !projectID.isEmpty {
+            gcpProjectID = projectID
+        } else {
+            let bundleValue = bundle.object(forInfoDictionaryKey: Keys.gcpProjectID) as? String ?? ""
+            let trimmed = bundleValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            gcpProjectID = trimmed.hasPrefix("DUMMY_") ? "" : trimmed
+        }
+
+        if let region = env[Keys.gcpRegion], !region.isEmpty {
+            gcpRegion = region
+        } else {
+            let bundleValue = bundle.object(forInfoDictionaryKey: Keys.gcpRegion) as? String ?? ""
+            let trimmed = bundleValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            gcpRegion = trimmed.hasPrefix("DUMMY_") ? "" : trimmed
+        }
+
         // 1. Try UserDefaults
         if let relay = defaults.string(forKey: Keys.relayHostDefaults), !relay.isEmpty {
             self.relayHost = relay

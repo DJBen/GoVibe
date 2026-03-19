@@ -23,6 +23,7 @@ enum HostControlError: LocalizedError {
 }
 
 /// Connects to a host's control relay room and sends a create_session command.
+@MainActor
 struct HostControlClient {
     let relayWebSocketBase: String
 
@@ -33,13 +34,8 @@ struct HostControlClient {
         tmuxSession: String?
     ) async throws {
         let roomId = "\(hostId)-ctl"
-        guard var components = URLComponents(string: relayWebSocketBase) else {
-            throw HostControlError.connectionFailed("Invalid relay URL")
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: roomId)]
-        guard let url = components.url else {
-            throw HostControlError.connectionFailed("Failed to compose relay URL")
-        }
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
+        let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
         let task = urlSession.webSocketTask(with: url)
@@ -110,13 +106,8 @@ struct HostControlClient {
     /// Connects to `<hostId>-ctl` and requests deletion of a session.
     func deleteSession(hostId: String, sessionId: String) async throws {
         let roomId = "\(hostId)-ctl"
-        guard var components = URLComponents(string: relayWebSocketBase) else {
-            throw HostControlError.connectionFailed("Invalid relay URL")
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: roomId)]
-        guard let url = components.url else {
-            throw HostControlError.connectionFailed("Failed to compose relay URL")
-        }
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
+        let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
         let task = urlSession.webSocketTask(with: url)
@@ -178,13 +169,8 @@ struct HostControlClient {
     /// Connects to `<hostId>-ctl`, sends `list_sessions`, and returns the host's session list.
     func listSessions(hostId: String) async throws -> [HostSessionSummary] {
         let roomId = "\(hostId)-ctl"
-        guard var components = URLComponents(string: relayWebSocketBase) else {
-            throw HostControlError.connectionFailed("Invalid relay URL")
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: roomId)]
-        guard let url = components.url else {
-            throw HostControlError.connectionFailed("Failed to compose relay URL")
-        }
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
+        let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
         let task = urlSession.webSocketTask(with: url)

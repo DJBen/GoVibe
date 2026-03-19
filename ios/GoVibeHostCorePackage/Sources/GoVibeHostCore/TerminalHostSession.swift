@@ -7,6 +7,7 @@ public enum HostSessionRuntimeEvent: Sendable {
 public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime {
     private static let peerStaleTimeout: TimeInterval = 10
 
+    private let hostId: String
     private let macDeviceId: String
     private let pty: PtySession
     private let logger: HostLogger
@@ -38,6 +39,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
+        self.hostId = hostId
         self.macDeviceId = "\(hostId)-\(config.sessionId)"
         self.pty = PtySession(shellPath: config.shellPath, tmuxSessionName: config.tmuxSessionName, logger: logger)
         self.logger = logger
@@ -109,7 +111,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
                 self?.setPlanArtifact(artifact)
             }
         )
-        bridge.start(room: macDeviceId, relayBase: relayBase)
+        bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
         try pty.start()
         startProgramPolling()
         startHeartbeat()

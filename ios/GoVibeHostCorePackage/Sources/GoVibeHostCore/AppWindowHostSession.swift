@@ -4,6 +4,7 @@ import Foundation
 public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime {
     private static let peerStaleTimeout: TimeInterval = 10
 
+    private let hostId: String
     private let macDeviceId: String
     private let logger: HostLogger
     private let transport: RelayTransport
@@ -26,6 +27,7 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
+        self.hostId = hostId
         self.macDeviceId = "\(hostId)-\(config.sessionId)"
         self.logger = logger
         self.transport = RelayTransport(logger: logger)
@@ -93,7 +95,7 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
             self?.markPeerOffline(reason: "Peer left")
         }
 
-        transport.start(room: macDeviceId, relayBase: relayBase)
+        transport.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
         startHeartbeat()
         eventHandler(.stateChanged(.waitingForPeer, nil, nil))
     }

@@ -7,24 +7,35 @@ import Observation
 struct GoVibeHostApp: App {
     @NSApplicationDelegateAdaptor(HostAppDelegate.self) private var appDelegate
     @State private var manager = HostSessionManager()
+    @State private var auth = HostAuthController.shared
     private var config = HostConfig.shared
 
     var body: some Scene {
         Window("GoVibe Host", id: "main") {
             Group {
-                if config.isValid {
+                if !auth.isAuthenticated {
+                    HostSignInView(auth: auth)
+                        .frame(minWidth: 440, minHeight: 360)
+                } else if config.isValid {
                     HostAppRootView(manager: manager)
                         .frame(minWidth: 980, minHeight: 680)
                         .onAppear {
                             manager.updateFromConfig()
+                            syncHostRegistration()
                         }
                 } else {
                     HostConfigSetupView()
                         .frame(minWidth: 400, minHeight: 300)
                 }
             }
+            .task {
+                await auth.restoreSessionIfPossible()
+                syncHostRegistration()
+            }
             .onChange(of: config.relayHost) { _, _ in
                 manager.updateFromConfig()
+                auth.refreshConfig()
+                syncHostRegistration()
             }
         }
         .windowResizability(.contentSize)
@@ -43,12 +54,27 @@ struct GoVibeHostApp: App {
         MenuBarExtra("GoVibe Host", systemImage: "desktopcomputer.and.macbook") {
             HostMenuBarView(manager: manager)
             Divider()
+            if auth.isAuthenticated {
+                Button("Sign Out") {
+                    auth.signOut()
+                }
+                Divider()
+            }
             ConfigureRelayButton()
             Divider()
             Button("Quit GoVibe Host") {
                 NSApp.terminate(nil)
             }
         }
+    }
+
+    private func syncHostRegistration() {
+        auth.startHostRegistration(
+            hostId: manager.settings.hostId,
+            displayName: Host.current().localizedName ?? "GoVibe Host",
+            capabilities: ["terminal", "simulator", "app_window"],
+            discoveryVisible: manager.settings.onboardingCompleted && config.isValid
+        )
     }
 }
 

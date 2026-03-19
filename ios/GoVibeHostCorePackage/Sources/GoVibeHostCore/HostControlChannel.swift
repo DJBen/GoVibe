@@ -67,22 +67,31 @@ public final class HostControlChannel: @unchecked Sendable {
 
     private func connect() {
         guard !stopped else { return }
-        guard var components = URLComponents(string: relayBase) else {
-            logger.error("HostControl: invalid relay URL: \(relayBase)")
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: controlRoomId)]
-        guard let url = components.url else {
-            logger.error("HostControl: failed to compose relay URL")
-            return
-        }
+        let generation = socketGeneration &+ 1
+        socketGeneration = generation
 
-        logger.info("HostControl: connecting to \(url.absoluteString)")
-        socketGeneration &+= 1
-        let task = urlSession.webSocketTask(with: url)
-        task.resume()
-        wsTask = task
-        receiveLoop(generation: socketGeneration)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let apiBaseURL = await MainActor.run { HostConfig.shared.apiBaseURL }
+                let auth = HostRelayAuth(relayWebSocketBase: self.relayBase, apiBaseURL: apiBaseURL)
+                let url = try await auth.authorizedURL(deviceId: self.hostId, hostId: self.hostId, room: self.controlRoomId, role: "host-control")
+                self.logger.info("HostControl: connecting to \(url.absoluteString)")
+                self.queue.async {
+                    guard generation == self.socketGeneration else { return }
+                    let task = self.urlSession.webSocketTask(with: url)
+                    task.resume()
+                    self.wsTask = task
+                    self.receiveLoop(generation: generation)
+                }
+            } catch {
+                self.logger.error("HostControl auth failed: \(error.localizedDescription)")
+                self.queue.async {
+                    guard generation == self.socketGeneration else { return }
+                    self.scheduleReconnect()
+                }
+            }
+        }
     }
 
     private func scheduleReconnect() {

@@ -7,7 +7,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { getConfig } from "./config";
 import { signToken, verifyToken } from "./crypto";
-import { DeviceDoc, SessionDoc } from "./types";
+import { DeviceDoc, RelayRole, SessionDoc } from "./types";
 
 initializeApp();
 
@@ -50,6 +50,18 @@ function getTurnCredentials(sessionId: string): { username: string; credential: 
     ttl: 600,
     urls: cfg.turnUrls
   };
+}
+
+function timestampToISOString(value?: Timestamp): string | null {
+  return value ? value.toDate().toISOString() : null;
+}
+
+function isControlRoom(room: string, hostId: string): boolean {
+  return room == `${hostId}-ctl`;
+}
+
+function isHostScopedSessionRoom(room: string, hostId: string): boolean {
+  return room.startsWith(`${hostId}-`) && room !== `${hostId}-ctl`;
 }
 
 const sessionCreateSchema = z.object({
@@ -337,6 +349,221 @@ const fcmTokenSchema = z.object({
   fcmToken: z.string().min(1)
 });
 
+const deviceRegisterSchema = z.object({
+  deviceId: z.string().min(3),
+  platform: z.enum(["mac", "ios"]),
+  displayName: z.string().trim().min(1).max(120).optional(),
+  isHost: z.boolean().default(false),
+  discoveryVisible: z.boolean().default(false),
+  capabilities: z.array(z.string().trim().min(1).max(64)).max(32).default([]),
+  appVersion: z.string().trim().min(1).max(64).optional(),
+  osVersion: z.string().trim().min(1).max(64).optional(),
+  pubKey: z.string().optional()
+});
+
+app.post("/device/register", async (req: Request, res: Response) => {
+  try {
+    const { uid } = await requireAuth(req);
+    const body = deviceRegisterSchema.parse(req.body);
+
+    const now = Timestamp.now();
+    const deviceRef = firestore.collection("devices").doc(body.deviceId);
+    const existingSnap = await deviceRef.get();
+    const existing = existingSnap.exists ? (existingSnap.data() as DeviceDoc) : null;
+
+    if (existing && existing.ownerUid !== uid) {
+      res.status(403).json({ error: "device_not_owned_by_user" });
+      return;
+    }
+
+    const device: DeviceDoc = {
+      ownerUid: uid,
+      platform: body.platform,
+      pubKey: body.pubKey ?? existing?.pubKey ?? "",
+      createdAt: existing?.createdAt ?? now,
+      lastSeenAt: now,
+      lastOnlineAt: now,
+      fcmToken: existing?.fcmToken,
+      displayName: body.displayName ?? existing?.displayName,
+      isHost: body.isHost,
+      discoveryVisible: body.discoveryVisible,
+      capabilities: body.capabilities,
+      appVersion: body.appVersion,
+      osVersion: body.osVersion
+    };
+
+    await deviceRef.set(device, { merge: true });
+
+    res.json({
+      ok: true,
+      deviceId: body.deviceId,
+      ownerUid: uid,
+      platform: device.platform,
+      isHost: device.isHost ?? false,
+      discoveryVisible: device.discoveryVisible ?? false,
+      lastSeenAt: timestampToISOString(device.lastSeenAt)
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: "device_register_failed",
+      detail: error instanceof Error ? error.message : "unknown"
+    });
+  }
+});
+
+const deviceHeartbeatSchema = z.object({
+  deviceId: z.string().min(3),
+  discoveryVisible: z.boolean().optional(),
+  capabilities: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
+  appVersion: z.string().trim().min(1).max(64).optional(),
+  osVersion: z.string().trim().min(1).max(64).optional()
+});
+
+app.post("/device/heartbeat", async (req: Request, res: Response) => {
+  try {
+    const { uid } = await requireAuth(req);
+    const body = deviceHeartbeatSchema.parse(req.body);
+
+    const deviceRef = firestore.collection("devices").doc(body.deviceId);
+    const deviceSnap = await deviceRef.get();
+    if (!deviceSnap.exists) {
+      res.status(404).json({ error: "device_not_found" });
+      return;
+    }
+
+    const device = deviceSnap.data() as DeviceDoc;
+    if (device.ownerUid !== uid) {
+      res.status(403).json({ error: "device_not_owned_by_user" });
+      return;
+    }
+
+    const now = Timestamp.now();
+    const update: Partial<DeviceDoc> = {
+      lastSeenAt: now,
+      lastOnlineAt: now
+    };
+    if (body.discoveryVisible !== undefined) {
+      update.discoveryVisible = body.discoveryVisible;
+    }
+    if (body.capabilities !== undefined) {
+      update.capabilities = body.capabilities;
+    }
+    if (body.appVersion !== undefined) {
+      update.appVersion = body.appVersion;
+    }
+    if (body.osVersion !== undefined) {
+      update.osVersion = body.osVersion;
+    }
+
+    await deviceRef.update(update);
+
+    res.json({
+      ok: true,
+      deviceId: body.deviceId,
+      lastSeenAt: timestampToISOString(now)
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: "device_heartbeat_failed",
+      detail: error instanceof Error ? error.message : "unknown"
+    });
+  }
+});
+
+const relayTokenSchema = z.object({
+  deviceId: z.string().min(3),
+  hostId: z.string().min(3),
+  room: z.string().min(3),
+  role: z.enum(["host-control", "client-control", "host-session", "client-session"])
+});
+
+app.post("/relay/token", async (req: Request, res: Response) => {
+  try {
+    const { uid } = await requireAuth(req);
+    const body = relayTokenSchema.parse(req.body);
+
+    const deviceRef = firestore.collection("devices").doc(body.deviceId);
+    const hostRef = firestore.collection("devices").doc(body.hostId);
+    const [deviceSnap, hostSnap] = await Promise.all([deviceRef.get(), hostRef.get()]);
+
+    if (!deviceSnap.exists) {
+      res.status(404).json({ error: "device_not_found" });
+      return;
+    }
+    if (!hostSnap.exists) {
+      res.status(404).json({ error: "host_not_found" });
+      return;
+    }
+
+    const device = deviceSnap.data() as DeviceDoc;
+    const host = hostSnap.data() as DeviceDoc;
+    if (device.ownerUid !== uid || host.ownerUid !== uid) {
+      res.status(403).json({ error: "device_not_owned_by_user" });
+      return;
+    }
+    if (host.platform !== "mac" || host.isHost === false) {
+      res.status(403).json({ error: "invalid_host_device" });
+      return;
+    }
+
+    const role = body.role as RelayRole;
+    switch (role) {
+      case "host-control":
+        if (body.deviceId !== body.hostId || device.platform !== "mac" || !isControlRoom(body.room, body.hostId)) {
+          res.status(403).json({ error: "invalid_relay_scope" });
+          return;
+        }
+        break;
+      case "client-control":
+        if (device.platform !== "ios" || !isControlRoom(body.room, body.hostId)) {
+          res.status(403).json({ error: "invalid_relay_scope" });
+          return;
+        }
+        break;
+      case "host-session":
+        if (body.deviceId !== body.hostId || device.platform !== "mac" || !isHostScopedSessionRoom(body.room, body.hostId)) {
+          res.status(403).json({ error: "invalid_relay_scope" });
+          return;
+        }
+        break;
+      case "client-session":
+        if (device.platform !== "ios" || !isHostScopedSessionRoom(body.room, body.hostId)) {
+          res.status(403).json({ error: "invalid_relay_scope" });
+          return;
+        }
+        break;
+      default:
+        res.status(403).json({ error: "invalid_relay_scope" });
+        return;
+    }
+
+    const token = signToken(
+      {
+        typ: "relay_join",
+        uid,
+        deviceId: body.deviceId,
+        hostId: body.hostId,
+        room: body.room,
+        role
+      },
+      cfg.relayTokenSecret,
+      cfg.relayTokenTtlSeconds
+    );
+
+    res.json({
+      token,
+      room: body.room,
+      role,
+      expiresInSeconds: cfg.relayTokenTtlSeconds
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: "relay_token_failed",
+      detail: error instanceof Error ? error.message : "unknown"
+    });
+  }
+});
+
 app.post("/device/fcmToken", async (req: Request, res: Response) => {
   try {
     const { uid } = await requireAuth(req);
@@ -375,6 +602,43 @@ app.post("/device/fcmToken", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/hosts/discover", async (req: Request, res: Response) => {
+  try {
+    const { uid } = await requireAuth(req);
+
+    const devicesSnap = await firestore
+      .collection("devices")
+      .where("ownerUid", "==", uid)
+      .where("platform", "==", "mac")
+      .get();
+
+    const hosts = devicesSnap.docs
+      .map((doc) => ({ id: doc.id, ...(doc.data() as DeviceDoc) }))
+      .filter((device) => device.isHost && device.discoveryVisible !== false)
+      .sort((lhs, rhs) => rhs.lastSeenAt.toMillis() - lhs.lastSeenAt.toMillis())
+      .map((device) => ({
+        deviceId: device.id,
+        displayName: device.displayName ?? device.id,
+        capabilities: device.capabilities ?? [],
+        appVersion: device.appVersion ?? null,
+        osVersion: device.osVersion ?? null,
+        lastSeenAt: timestampToISOString(device.lastSeenAt),
+        lastOnlineAt: timestampToISOString(device.lastOnlineAt),
+        isOnline: Date.now() - device.lastSeenAt.toMillis() <= 60_000
+      }));
+
+    res.json({
+      hosts,
+      count: hosts.length
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: "hosts_discover_failed",
+      detail: error instanceof Error ? error.message : "unknown"
+    });
+  }
+});
+
 app.get("/healthz", (_req: Request, res: Response) => {
   res.json({ status: "ok", service: "govibe-api" });
 });
@@ -383,7 +647,8 @@ export const api = onRequest(
   {
     region: "us-west1",
     timeoutSeconds: 60,
-    maxInstances: 50
+    maxInstances: 50,
+    secrets: ["SESSION_TOKEN_SECRET", "TURN_SECRET", "RELAY_TOKEN_SECRET"]
   },
   app
 );

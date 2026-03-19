@@ -10,6 +10,7 @@ public final class RelayTransport: @unchecked Sendable {
     private var reconnectScheduled = false
     private var socketGeneration: UInt64 = 0
     private var room: String?
+    private var hostId: String?
     private var relayBase: String?
     private let maxQueuedMessages = 2000
 
@@ -33,8 +34,9 @@ public final class RelayTransport: @unchecked Sendable {
         self.logger = logger
     }
 
-    public func start(room: String, relayBase: String) {
+    public func start(room: String, hostId: String, relayBase: String) {
         self.room = room
+        self.hostId = hostId
         self.relayBase = relayBase
         connect()
     }
@@ -51,25 +53,33 @@ public final class RelayTransport: @unchecked Sendable {
     }
 
     private func connect() {
-        guard let room, let relayBase else { return }
-        guard var components = URLComponents(string: relayBase) else {
-            logger.error("Invalid relay URL: \(relayBase)")
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: room)]
+        guard let room, let relayBase, let hostId else { return }
+        let generation = socketGeneration &+ 1
+        socketGeneration = generation
 
-        guard let url = components.url else {
-            logger.error("Failed to compose relay URL")
-            return
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let apiBaseURL = await MainActor.run { HostConfig.shared.apiBaseURL }
+                let auth = HostRelayAuth(relayWebSocketBase: relayBase, apiBaseURL: apiBaseURL)
+                let url = try await auth.authorizedURL(deviceId: hostId, hostId: hostId, room: room, role: "host-session")
+                self.logger.info("Connecting relay socket: \(url.absoluteString)")
+                self.queue.async {
+                    guard generation == self.socketGeneration else { return }
+                    let task = self.session.webSocketTask(with: url)
+                    task.resume()
+                    self.wsTask = task
+                    self.receiveLoop(generation: generation)
+                    self.flushOutboundQueueLocked()
+                }
+            } catch {
+                self.logger.error("Failed to authorize relay socket: \(error.localizedDescription)")
+                self.queue.async {
+                    guard generation == self.socketGeneration else { return }
+                    self.scheduleReconnectLocked()
+                }
+            }
         }
-
-        logger.info("Connecting relay socket: \(url.absoluteString)")
-        socketGeneration &+= 1
-        let task = session.webSocketTask(with: url)
-        task.resume()
-        wsTask = task
-        receiveLoop(generation: socketGeneration)
-        flushOutboundQueue()
     }
 
     public func sendTerminalOutput(_ data: Data) {
