@@ -26,6 +26,7 @@ public final class HostSessionManager {
     public private(set) var permissionState: HostPermissionState
     public var selectedSessionID: String?
     public private(set) var isTmuxInstalling: Bool = false
+    public private(set) var isClaudeHookInstalling: Bool = false
 
     private let defaults: UserDefaults
     private var logsBySessionID: [String: [HostLogEntry]] = [:]
@@ -72,7 +73,8 @@ public final class HostSessionManager {
         self.permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
             screenRecordingGranted: CGPreflightScreenCaptureAccess(),
-            tmuxInstalled: Self.detectTmux()
+            tmuxInstalled: Self.detectTmux(),
+            claudeHookInstalled: Self.detectClaudeHook()
         )
         self.selectedSessionID = sessions.first?.sessionId
         refreshPermissions()
@@ -101,7 +103,8 @@ public final class HostSessionManager {
         permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
             screenRecordingGranted: CGPreflightScreenCaptureAccess(),
-            tmuxInstalled: Self.detectTmux()
+            tmuxInstalled: Self.detectTmux(),
+            claudeHookInstalled: Self.detectClaudeHook()
         )
     }
 
@@ -131,6 +134,66 @@ public final class HostSessionManager {
         process.standardError = FileHandle.nullDevice
         try? process.run()
         process.waitUntilExit()
+        refreshPermissions()
+    }
+
+    /// Returns true if ~/.claude/settings.json already has the GoVibe permission_prompt
+    /// Notification hook that writes the sentinel file.
+    private static func detectClaudeHook() -> Bool {
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/settings.json")
+        guard let data = try? Data(contentsOf: settingsURL),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = obj["hooks"] as? [String: Any],
+              let notificationHooks = hooks["Notification"] as? [[String: Any]] else {
+            return false
+        }
+        for entry in notificationHooks {
+            guard (entry["matcher"] as? String) == "permission_prompt",
+                  let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
+            for hook in innerHooks {
+                if let cmd = hook["command"] as? String,
+                   cmd.contains("govibe-permission-pending") {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    public func installClaudeHook() async {
+        isClaudeHookInstalling = true
+        defer { isClaudeHookInstalling = false }
+
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/settings.json")
+
+        var root: [String: Any] = (
+            (try? Data(contentsOf: settingsURL))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        ) ?? [:]
+
+        var hooks = root["hooks"] as? [String: Any] ?? [:]
+        var notificationHooks = hooks["Notification"] as? [[String: Any]] ?? []
+
+        let newEntry: [String: Any] = [
+            "matcher": "permission_prompt",
+            "hooks": [
+                ["type": "command", "command": "touch ~/.claude/govibe-permission-pending"]
+            ]
+        ]
+        notificationHooks.append(newEntry)
+        hooks["Notification"] = notificationHooks
+        root["hooks"] = hooks
+
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
+            return
+        }
+
+        // Ensure the ~/.claude directory exists.
+        let claudeDir = settingsURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        try? data.write(to: settingsURL, options: .atomic)
         refreshPermissions()
     }
 

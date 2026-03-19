@@ -91,6 +91,22 @@ struct HostOnboardingView: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
+                GroupBox("6. Claude Code Hook") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        dependencyRow(
+                            title: "Permission Prompt Hook",
+                            detail: "Enables precise 'Unblock Claude Now' push notifications",
+                            installed: manager.permissionState.claudeHookInstalled,
+                            isInstalling: manager.isClaudeHookInstalling
+                        ) {
+                            Task { await manager.installClaudeHook() }
+                        }
+                        Text("Adds a Notification hook to ~/.claude/settings.json that fires only when Claude is waiting for your decision.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Button("Finish Setup") {
                     finishSetup()
                 }

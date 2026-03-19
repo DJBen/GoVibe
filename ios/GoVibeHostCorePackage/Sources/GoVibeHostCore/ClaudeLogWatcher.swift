@@ -6,8 +6,9 @@ enum ClaudePushEvent: String {
 }
 
 /// Watches Claude's JSONL conversation log and fires `onTurnComplete` whenever
-/// Claude is waiting for user input — either after `end_turn` or after a `tool_use`
-/// that goes unanswered for `toolUseIdleThreshold` seconds (i.e. awaiting approval).
+/// Claude is waiting for user input — either after `end_turn` or when a
+/// permission sentinel file is present (written by the `permission_prompt`
+/// Notification hook in ~/.claude/settings.json).
 ///
 /// Polling is driven externally — call `poll()` every second from the host session.
 final class ClaudeLogWatcher {
@@ -20,11 +21,12 @@ final class ClaudeLogWatcher {
     private var awaitingNextTurn = false
     private var currentPlanArtifact: TerminalPlanArtifact?
 
-    /// Set when a tool_use is seen; cleared when any new JSONL line appears.
-    /// If the date is more than `toolUseIdleThreshold` seconds old on the next
-    /// poll with no new lines, we fire a push (Claude is likely awaiting approval).
-    private var pendingToolUseSince: Date?
-    private static let toolUseIdleThreshold: TimeInterval = 8
+    /// Path to the sentinel file written by the Claude Code `permission_prompt`
+    /// Notification hook. Presence means a real permission prompt is on-screen.
+    /// The watcher consumes (deletes) it the moment it fires the push.
+    static let permissionSentinelURL: URL = FileManager.default
+        .homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/govibe-permission-pending")
 
     let onTurnComplete: (ClaudePushEvent) -> Void
     let onPlanStateChanged: (TerminalPlanArtifact?) -> Void
@@ -56,23 +58,23 @@ final class ClaudeLogWatcher {
     func poll() {
         refreshFileIfNeeded()
         guard let url = fileURL else { return }
-        let newLines = readNewLines(from: url)
 
-        if newLines.isEmpty {
-            // No new lines — check if a pending tool_use has gone idle long enough.
-            if let since = pendingToolUseSince,
-               !awaitingNextTurn,
-               Date().timeIntervalSince(since) >= Self.toolUseIdleThreshold {
-                logger.info("ClaudeLogWatcher: tool_use idle for \(Int(Self.toolUseIdleThreshold))s, awaiting approval — firing push")
-                pendingToolUseSince = nil
-                awaitingNextTurn = true
-                onTurnComplete(.awaitingApproval)
-            }
-            return
+        // Check for the permission sentinel before reading new lines.
+        // The sentinel is written by the `permission_prompt` Notification hook in
+        // ~/.claude/settings.json — it only fires when a real permission prompt is
+        // on-screen, never for auto-approved tools, eliminating false positives from
+        // long-running Bash commands (gh run watch, xcodebuild, brew, etc.).
+        let sentinelPath = Self.permissionSentinelURL.path
+        if !awaitingNextTurn,
+           FileManager.default.fileExists(atPath: sentinelPath) {
+            logger.info("ClaudeLogWatcher: permission sentinel detected, firing approval push")
+            try? FileManager.default.removeItem(atPath: sentinelPath)
+            awaitingNextTurn = true
+            onTurnComplete(.awaitingApproval)
         }
 
-        // New lines arrived — cancel any pending tool_use timer.
-        pendingToolUseSince = nil
+        let newLines = readNewLines(from: url)
+        guard !newLines.isEmpty else { return }
 
         for line in newLines {
             guard
@@ -86,12 +88,11 @@ final class ClaudeLogWatcher {
             let stopReason = message?["stop_reason"] as? String
 
             if type == "user", isExternalUserPrompt(message) {
-                // User replied (or tool result arrived) — ready for next notification.
+                // User replied — ready for next notification.
                 if awaitingNextTurn {
                     logger.info("ClaudeLogWatcher: user turn detected, ready for next end_turn")
                 }
                 awaitingNextTurn = false
-                pendingToolUseSince = nil
                 updatePlanArtifact(nil)
             }
 
@@ -106,19 +107,12 @@ final class ClaudeLogWatcher {
                 updatePlanArtifact(artifact)
             }
 
-            if type == "assistant", stopReason == "tool_use", !awaitingNextTurn {
-                // Start the idle timer — if no new lines arrive within the threshold,
-                // Claude is likely waiting for the user to approve this tool call.
-                pendingToolUseSince = Date()
-            }
-
             if type == "assistant",
                stopReason == "end_turn",
                let uuid,
                uuid != lastNotifiedUUID,
                !awaitingNextTurn {
                 logger.info("ClaudeLogWatcher: end_turn detected, firing push notification")
-                pendingToolUseSince = nil
                 lastNotifiedUUID = uuid
                 if let text = assistantText(from: message),
                    let artifact = TerminalPlanParser.parseArtifact(assistant: "Claude", turnId: uuid, text: text) {
@@ -137,7 +131,7 @@ final class ClaudeLogWatcher {
         readOffset = 0
         lastNotifiedUUID = nil
         awaitingNextTurn = false
-        pendingToolUseSince = nil
+        try? FileManager.default.removeItem(at: Self.permissionSentinelURL)
         updatePlanArtifact(nil)
     }
 
@@ -189,7 +183,6 @@ final class ClaudeLogWatcher {
             logger.info("ClaudeLogWatcher: watching \(newest.lastPathComponent) at offset \(endOffset)")
             fileURL = newest
             readOffset = endOffset
-            pendingToolUseSince = nil
             updatePlanArtifact(existingPlanArtifact(in: newest))
         }
     }
