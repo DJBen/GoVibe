@@ -116,9 +116,6 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             logger: logger,
             onTurnComplete: { [weak self] event in
                 self?.bridge.sendPushNotify(event: event.rawValue)
-            },
-            onPlanStateChanged: { [weak self] artifact in
-                self?.setPlanArtifact(artifact)
             }
         )
         bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)

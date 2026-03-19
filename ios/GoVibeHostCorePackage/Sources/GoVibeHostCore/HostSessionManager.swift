@@ -140,28 +140,46 @@ public final class HostSessionManager {
         refreshPermissions()
     }
 
-    /// Returns true if ~/.claude/settings.json already has the GoVibe permission_prompt
-    /// Notification hook that writes the sentinel file.
+    /// Returns true if ~/.claude/settings.json has both GoVibe hooks:
+    /// - `Notification`/`permission_prompt` → govibe-permission-pending
+    /// - `Stop` → govibe-turn-complete-pending
     private static func detectClaudeHook() -> Bool {
         let settingsURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/settings.json")
         guard let data = try? Data(contentsOf: settingsURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = obj["hooks"] as? [String: Any],
-              let notificationHooks = hooks["Notification"] as? [[String: Any]] else {
+              let hooks = obj["hooks"] as? [String: Any] else {
             return false
         }
-        for entry in notificationHooks {
-            guard (entry["matcher"] as? String) == "permission_prompt",
-                  let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
-            for hook in innerHooks {
-                if let cmd = hook["command"] as? String,
-                   cmd.contains("govibe-permission-pending") {
-                    return true
+
+        var hasPermission = false
+        if let notificationHooks = hooks["Notification"] as? [[String: Any]] {
+            outer: for entry in notificationHooks {
+                guard (entry["matcher"] as? String) == "permission_prompt",
+                      let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
+                for hook in innerHooks {
+                    if let cmd = hook["command"] as? String, cmd.contains("govibe-permission-pending") {
+                        hasPermission = true
+                        break outer
+                    }
                 }
             }
         }
-        return false
+        guard hasPermission else { return false }
+
+        var hasStop = false
+        if let stopHooks = hooks["Stop"] as? [[String: Any]] {
+            outer: for entry in stopHooks {
+                guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
+                for hook in innerHooks {
+                    if let cmd = hook["command"] as? String, cmd.contains("govibe-turn-complete-pending") {
+                        hasStop = true
+                        break outer
+                    }
+                }
+            }
+        }
+        return hasStop
     }
 
     public func installClaudeHook() async {
@@ -179,14 +197,25 @@ public final class HostSessionManager {
         var hooks = root["hooks"] as? [String: Any] ?? [:]
         var notificationHooks = hooks["Notification"] as? [[String: Any]] ?? []
 
-        let newEntry: [String: Any] = [
+        let permissionEntry: [String: Any] = [
             "matcher": "permission_prompt",
             "hooks": [
                 ["type": "command", "command": "touch ~/.claude/govibe-permission-pending"]
             ]
         ]
-        notificationHooks.append(newEntry)
+        notificationHooks.append(permissionEntry)
         hooks["Notification"] = notificationHooks
+
+        // Stop hook — fires when Claude finishes a turn (replaces end_turn JSONL detection).
+        var stopHooks = hooks["Stop"] as? [[String: Any]] ?? []
+        let stopEntry: [String: Any] = [
+            "hooks": [
+                ["type": "command", "command": "touch ~/.claude/govibe-turn-complete-pending"]
+            ]
+        ]
+        stopHooks.append(stopEntry)
+        hooks["Stop"] = stopHooks
+
         root["hooks"] = hooks
 
         guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {

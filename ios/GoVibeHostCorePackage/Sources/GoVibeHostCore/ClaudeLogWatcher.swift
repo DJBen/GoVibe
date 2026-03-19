@@ -5,10 +5,17 @@ enum ClaudePushEvent: String {
     case turnComplete = "claude_turn_complete"
 }
 
-/// Watches Claude's JSONL conversation log and fires `onTurnComplete` whenever
-/// Claude is waiting for user input — either after `end_turn` or when a
-/// permission sentinel file is present (written by the `permission_prompt`
-/// Notification hook in ~/.claude/settings.json).
+/// Watches Claude's sentinel files and JSONL conversation log.
+///
+/// Push notifications are entirely hook-driven:
+/// - Turn-complete: the `Stop` hook in ~/.claude/settings.json writes
+///   `govibe-turn-complete-pending` when Claude finishes responding.
+/// - Approval-required: the `Notification`/`permission_prompt` hook writes
+///   `govibe-permission-pending` when a permission prompt appears.
+///
+/// The JSONL file is still read (at new-content-only offsets) to:
+/// - Clear `awaitingNextTurn` when the user sends a new prompt, re-arming notifications.
+/// - Extract plan artifacts from `ExitPlanMode` tool calls and `TerminalPlanParser`.
 ///
 /// Polling is driven externally — call `poll()` every second from the host session.
 final class ClaudeLogWatcher {
@@ -17,13 +24,15 @@ final class ClaudeLogWatcher {
     private var cwd: String
     private var fileURL: URL?
     private var readOffset: UInt64 = 0
-    private var lastNotifiedUUID: String?
     private var awaitingNextTurn = false
     private var currentPlanArtifact: TerminalPlanArtifact?
 
-    /// Path to the sentinel file written by the Claude Code `permission_prompt`
-    /// Notification hook. Presence means a real permission prompt is on-screen.
-    /// The watcher consumes (deletes) it the moment it fires the push.
+    /// Written by the `Stop` hook in ~/.claude/settings.json.
+    static let turnCompleteSentinelURL: URL = FileManager.default
+        .homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude/govibe-turn-complete-pending")
+
+    /// Written by the `Notification`/`permission_prompt` hook in ~/.claude/settings.json.
     static let permissionSentinelURL: URL = FileManager.default
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/govibe-permission-pending")
@@ -56,23 +65,26 @@ final class ClaudeLogWatcher {
 
     /// Called every second by `TerminalHostSession.pollPaneProgram()` while Claude is active.
     func poll() {
-        refreshFileIfNeeded()
-        guard let url = fileURL else { return }
-
-        // Check for the permission sentinel before reading new lines.
-        // The sentinel is written by the `permission_prompt` Notification hook in
-        // ~/.claude/settings.json — it only fires when a real permission prompt is
-        // on-screen, never for auto-approved tools, eliminating false positives from
-        // long-running Bash commands (gh run watch, xcodebuild, brew, etc.).
-        let sentinelPath = Self.permissionSentinelURL.path
-        if !awaitingNextTurn,
-           FileManager.default.fileExists(atPath: sentinelPath) {
+        // Check sentinels before reading JSONL — hooks are the authoritative notification source.
+        let permPath = Self.permissionSentinelURL.path
+        if !awaitingNextTurn, FileManager.default.fileExists(atPath: permPath) {
             logger.info("ClaudeLogWatcher: permission sentinel detected, firing approval push")
-            try? FileManager.default.removeItem(atPath: sentinelPath)
+            try? FileManager.default.removeItem(atPath: permPath)
             awaitingNextTurn = true
             onTurnComplete(.awaitingApproval)
         }
 
+        let turnPath = Self.turnCompleteSentinelURL.path
+        if !awaitingNextTurn, FileManager.default.fileExists(atPath: turnPath) {
+            logger.info("ClaudeLogWatcher: turn-complete sentinel detected, firing turn-complete push")
+            try? FileManager.default.removeItem(atPath: turnPath)
+            awaitingNextTurn = true
+            onTurnComplete(.turnComplete)
+        }
+
+        // Read new JSONL lines for plan artifact extraction and awaitingNextTurn reset.
+        refreshFileIfNeeded()
+        guard let url = fileURL else { return }
         let newLines = readNewLines(from: url)
         guard !newLines.isEmpty else { return }
 
@@ -85,41 +97,25 @@ final class ClaudeLogWatcher {
             let type = obj["type"] as? String
             let uuid = obj["uuid"] as? String
             let message = obj["message"] as? [String: Any]
-            let stopReason = message?["stop_reason"] as? String
 
             if type == "user", isExternalUserPrompt(message) {
-                // User replied — ready for next notification.
+                // User replied — re-arm notifications for the next turn.
                 if awaitingNextTurn {
-                    logger.info("ClaudeLogWatcher: user turn detected, ready for next end_turn")
+                    logger.info("ClaudeLogWatcher: user turn detected, ready for next notification")
                 }
                 awaitingNextTurn = false
                 updatePlanArtifact(nil)
             }
 
-            if type == "assistant", let stopReason {
-                logger.info("ClaudeLogWatcher: assistant stop_reason=\(stopReason) uuid=\(uuid ?? "nil") awaitingNextTurn=\(awaitingNextTurn)")
-            }
-
-            if type == "assistant",
-               let uuid,
-               let artifact = exitPlanModeArtifact(from: message, uuid: uuid) {
-                logger.info("ClaudeLogWatcher: ExitPlanMode detected, publishing plan artifact")
-                updatePlanArtifact(artifact)
-            }
-
-            if type == "assistant",
-               stopReason == "end_turn",
-               let uuid,
-               uuid != lastNotifiedUUID,
-               !awaitingNextTurn {
-                logger.info("ClaudeLogWatcher: end_turn detected, firing push notification")
-                lastNotifiedUUID = uuid
-                if let text = assistantText(from: message),
-                   let artifact = TerminalPlanParser.parseArtifact(assistant: "Claude", turnId: uuid, text: text) {
+            if type == "assistant", let uuid {
+                if let artifact = exitPlanModeArtifact(from: message, uuid: uuid) {
+                    logger.info("ClaudeLogWatcher: ExitPlanMode detected, publishing plan artifact")
+                    updatePlanArtifact(artifact)
+                } else if let text = assistantText(from: message),
+                          let artifact = TerminalPlanParser.parseArtifact(
+                            assistant: "Claude", turnId: uuid, text: text) {
                     updatePlanArtifact(artifact)
                 }
-                awaitingNextTurn = true
-                onTurnComplete(.turnComplete)
             }
         }
     }
@@ -129,18 +125,15 @@ final class ClaudeLogWatcher {
         logger.info("ClaudeLogWatcher: reset (pane switched away from Claude)")
         fileURL = nil
         readOffset = 0
-        lastNotifiedUUID = nil
         awaitingNextTurn = false
         try? FileManager.default.removeItem(at: Self.permissionSentinelURL)
+        try? FileManager.default.removeItem(at: Self.turnCompleteSentinelURL)
         updatePlanArtifact(nil)
     }
 
     // MARK: - Private
 
     private func projectDir() -> URL? {
-        // Claude derives the project dir name by replacing every '/' in the cwd with '-'
-        // (including the leading slash), e.g.:
-        //   "/Users/sihaolu/Developments/GoVibe" → "-Users-sihaolu-Developments-GoVibe"
         let dirName = cwd.replacingOccurrences(of: "/", with: "-")
         let dir = projectsRoot.appendingPathComponent(dirName)
         guard FileManager.default.fileExists(atPath: dir.path) else { return nil }
@@ -162,12 +155,13 @@ final class ClaudeLogWatcher {
             options: .skipsHiddenFiles
         ) else { return }
 
-        let jsonlFiles = contents.filter { $0.pathExtension == "jsonl" }
-        let newest = jsonlFiles.max { a, b in
-            let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            return aDate < bDate
-        }
+        let newest = contents
+            .filter { $0.pathExtension == "jsonl" }
+            .max {
+                let aDate = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let bDate = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return aDate < bDate
+            }
 
         guard let newest else {
             if fileURL != nil {
@@ -178,7 +172,6 @@ final class ClaudeLogWatcher {
         }
 
         if newest != fileURL {
-            // Seek to end so we don't replay historical turns written before this session started.
             let endOffset = (try? FileManager.default.attributesOfItem(atPath: newest.path)[.size] as? UInt64) ?? 0
             logger.info("ClaudeLogWatcher: watching \(newest.lastPathComponent) at offset \(endOffset)")
             fileURL = newest
@@ -212,16 +205,11 @@ final class ClaudeLogWatcher {
         if let content = message?["content"] as? String {
             return !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-
         guard let content = message?["content"] as? [[String: Any]] else { return false }
-        for item in content {
-            if let type = item["type"] as? String, type == "text",
-               let text = item["text"] as? String,
-               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return true
-            }
+        return content.contains {
+            $0["type"] as? String == "text" &&
+            !($0["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        return false
     }
 
     private func exitPlanModeArtifact(from message: [String: Any]?, uuid: String) -> TerminalPlanArtifact? {
@@ -229,9 +217,7 @@ final class ClaudeLogWatcher {
         for item in content {
             guard item["type"] as? String == "tool_use",
                   item["name"] as? String == "ExitPlanMode",
-                  let input = item["input"] as? [String: Any] else {
-                continue
-            }
+                  let input = item["input"] as? [String: Any] else { continue }
 
             if let plan = input["plan"] as? String,
                !plan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -262,9 +248,7 @@ final class ClaudeLogWatcher {
 
     private func existingPlanArtifact(in url: URL) -> TerminalPlanArtifact? {
         guard let data = try? Data(contentsOf: url),
-              let text = String(data: data, encoding: .utf8) else {
-            return nil
-        }
+              let text = String(data: data, encoding: .utf8) else { return nil }
 
         var artifact: TerminalPlanArtifact?
         for line in text.components(separatedBy: "\n") where !line.isEmpty {
@@ -275,33 +259,22 @@ final class ClaudeLogWatcher {
             let type = obj["type"] as? String
             let uuid = obj["uuid"] as? String
             let message = obj["message"] as? [String: Any]
-            let stopReason = message?["stop_reason"] as? String
 
             if type == "user", isExternalUserPrompt(message) {
                 artifact = nil
                 continue
             }
 
-            if type == "assistant",
-               let uuid,
-               let planArtifact = exitPlanModeArtifact(from: message, uuid: uuid) {
-                artifact = planArtifact
-                continue
-            }
-
-            if type == "assistant",
-               stopReason == "end_turn",
-               let uuid,
-               let assistantText = assistantText(from: message),
-               let planArtifact = TerminalPlanParser.parseArtifact(
-                assistant: "Claude",
-                turnId: uuid,
-                text: assistantText
-               ) {
-                artifact = planArtifact
+            if type == "assistant", let uuid {
+                if let planArtifact = exitPlanModeArtifact(from: message, uuid: uuid) {
+                    artifact = planArtifact
+                } else if let text = assistantText(from: message),
+                          let planArtifact = TerminalPlanParser.parseArtifact(
+                            assistant: "Claude", turnId: uuid, text: text) {
+                    artifact = planArtifact
+                }
             }
         }
-
         return artifact
     }
 
