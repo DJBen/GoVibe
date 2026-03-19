@@ -1,10 +1,5 @@
 #include "Shared.xcconfig"
 
-// Ad-hoc signing for local debug builds — avoids needing a provisioning profile
-// or a specific Apple Development cert in the keychain.
-CODE_SIGN_IDENTITY = -
-CODE_SIGN_STYLE = Manual
-PROVISIONING_PROFILE_SPECIFIER =
 
 CODE_SIGN_ENTITLEMENTS = Config/GoVibeHost.entitlements
 
