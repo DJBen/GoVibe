@@ -15,7 +15,7 @@ struct HostSignInView: View {
             Text("Sign In Required")
                 .font(.largeTitle.bold())
 
-            Text("Sign in with Google so this Mac host is tied to your Firebase account and only discovered by your devices.")
+            Text("Sign in to make Claude, Codex and Gemini CLI available to your phone. Vibe code anywhere you go.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -31,15 +31,21 @@ struct HostSignInView: View {
             Button {
                 Task { await auth.signIn() }
             } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "globe")
-                    Text(auth.isBusy ? "Signing In..." : "Continue With Google")
-                        .fontWeight(.semibold)
+                ZStack {
+                    Image("ContinueWithGoogle")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .opacity(auth.isBusy ? 0.7 : 1)
+
+                    if auth.isBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 }
-                .frame(width: 280)
-                .padding(.vertical, 12)
+                .frame(width: 240)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .disabled(auth.isBusy)
 
             Spacer()

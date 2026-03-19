@@ -132,3 +132,27 @@ import Testing
     #expect(payload.title == "Unblock Codex now")
     #expect(payload.body == "Codex requires your decision before proceeding")
 }
+
+@Test func contentRoutePrefersConfigSetupWhenConfigIsInvalid() async throws {
+    let route = ContentView.route(configIsValid: false, bootstrapState: .authenticated)
+
+    #expect(route == .configSetup)
+}
+
+@Test func contentRouteShowsLaunchScreenWhileAuthBootstrapIsChecking() async throws {
+    let route = ContentView.route(configIsValid: true, bootstrapState: .checking)
+
+    #expect(route == .launch)
+}
+
+@Test func contentRouteShowsSessionsWhenBootstrapAuthenticatesUser() async throws {
+    let route = ContentView.route(configIsValid: true, bootstrapState: .authenticated)
+
+    #expect(route == .sessions)
+}
+
+@Test func contentRouteShowsSignInWhenBootstrapFindsNoSession() async throws {
+    let route = ContentView.route(configIsValid: true, bootstrapState: .unauthenticated)
+
+    #expect(route == .signIn)
+}

@@ -15,21 +15,33 @@ struct HostMenuBarView: View {
                 }
                 .buttonStyle(.plain)
 
+                Divider()
+
                 Button("Show Device ID") {
                     presentHostIDWindow()
                 }
                 .buttonStyle(.plain)
+
+                Button("Set up GoVibe") {
+                    manager.restartSetup()
+                    presentMainWindow()
+                }
+                .buttonStyle(.plain)
+
+                SettingsLink {
+                    Text("Configure Relay")
+                }
+
+                Divider()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            Divider()
 
             sessionSummary
                 .frame(maxWidth: .infinity)
 
         }
         .padding(12)
-        .frame(width: 320)
+        .frame(width: 380)
     }
 
     @ViewBuilder
@@ -50,7 +62,7 @@ struct HostMenuBarView: View {
                     .multilineTextAlignment(.center)
             } else {
                 ForEach(manager.listSessions()) { session in
-                    VStack(spacing: 2) {
+                    VStack(spacing: 0) {
                         Text(session.displayName)
                             .lineLimit(1)
                             .truncationMode(.middle)

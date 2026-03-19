@@ -69,11 +69,10 @@ struct GoVibeHostApp: App {
                 }
                 Divider()
             }
-            SetupGoVibeButton(manager: manager)
-            Divider()
             Button("Quit GoVibe Host") {
                 NSApp.terminate(nil)
             }
+            .keyboardShortcut("q")
         } label: {
             Image("HostMenuBarIcon")
                 .renderingMode(.template)
@@ -87,19 +86,6 @@ struct GoVibeHostApp: App {
             capabilities: ["terminal", "simulator", "app_window"],
             discoveryVisible: manager.settings.onboardingCompleted && config.isValid
         )
-    }
-}
-
-private struct SetupGoVibeButton: View {
-    @Environment(\.openWindow) private var openWindow
-    @State var manager: HostSessionManager
-
-    var body: some View {
-        Button("Set up GoVibe") {
-            manager.restartSetup()
-            NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "main")
-        }
     }
 }
 

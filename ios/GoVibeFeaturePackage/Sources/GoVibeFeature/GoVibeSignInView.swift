@@ -31,15 +31,21 @@ struct GoVibeSignInView: View {
             Button {
                 Task { await authController.signIn() }
             } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "globe")
-                    Text(authController.isBusy ? "Signing In..." : "Continue With Google")
-                        .fontWeight(.semibold)
+                ZStack {
+                    Image("ContinueWithGoogle", bundle: .main)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .opacity(authController.isBusy ? 0.7 : 1)
+
+                    if authController.isBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 }
-                .frame(maxWidth: 320)
-                .padding(.vertical, 14)
+                .frame(width: 240)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .disabled(authController.isBusy)
 
             Spacer()
