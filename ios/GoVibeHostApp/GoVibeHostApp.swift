@@ -43,14 +43,22 @@ struct GoVibeHostApp: App {
         MenuBarExtra("GoVibe Host", systemImage: "desktopcomputer.and.macbook") {
             HostMenuBarView(manager: manager)
             Divider()
-            Button("Configure Relay...") {
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-            }
+            ConfigureRelayButton()
             Divider()
             Button("Quit GoVibe Host") {
                 NSApp.terminate(nil)
             }
+        }
+    }
+}
+
+private struct ConfigureRelayButton: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Button("Configure Relay...") {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
         }
     }
 }
