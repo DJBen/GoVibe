@@ -212,13 +212,17 @@ public final class HostSessionManager {
         }
 
         // Check AfterAgent hook for turn-complete sentinel.
+        // Each entry must use the nested { hooks: [...] } format required by Gemini CLI.
         var hasAfterAgent = false
-        if let afterAgentHooks = hooks["AfterAgent"] as? [[String: Any]] {
-            for hook in afterAgentHooks {
-                if let cmd = hook["command"] as? String,
-                   cmd.contains("govibe-turn-complete-pending") {
-                    hasAfterAgent = true
-                    break
+        if let afterAgentEntries = hooks["AfterAgent"] as? [[String: Any]] {
+            outer: for entry in afterAgentEntries {
+                guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
+                for hook in innerHooks {
+                    if let cmd = hook["command"] as? String,
+                       cmd.contains("govibe-turn-complete-pending") {
+                        hasAfterAgent = true
+                        break outer
+                    }
                 }
             }
         }
@@ -256,10 +260,12 @@ public final class HostSessionManager {
         var hooks = root["hooks"] as? [String: Any] ?? [:]
 
         // AfterAgent hook — fires when Gemini finishes a turn.
+        // Gemini CLI requires the nested { hooks: [...] } wrapper on every definition entry.
         var afterAgentHooks = hooks["AfterAgent"] as? [[String: Any]] ?? []
         let afterAgentEntry: [String: Any] = [
-            "type": "command",
-            "command": "touch ~/.gemini/govibe-turn-complete-pending"
+            "hooks": [
+                ["type": "command", "command": "touch ~/.gemini/govibe-turn-complete-pending"]
+            ]
         ]
         afterAgentHooks.append(afterAgentEntry)
         hooks["AfterAgent"] = afterAgentHooks
@@ -310,6 +316,13 @@ public final class HostSessionManager {
         persistSettings()
         refreshPermissions()
         autoStartPersistedSessionsIfNeeded()
+    }
+
+    public func restartSetup() {
+        stopAllSessions()
+        settings.onboardingCompleted = false
+        persistSettings()
+        refreshPermissions()
     }
 
     public func listSessions() -> [HostedSessionDescriptor] {
