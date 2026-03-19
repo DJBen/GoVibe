@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "Scroll-Vertical.svg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

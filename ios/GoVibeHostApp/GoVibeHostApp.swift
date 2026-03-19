@@ -43,11 +43,22 @@ struct GoVibeHostApp: App {
         MenuBarExtra("GoVibe Host", systemImage: "desktopcomputer.and.macbook") {
             HostMenuBarView(manager: manager)
             Divider()
-            SettingsLink { Text("Configure Relay...") }
+            ConfigureRelayButton()
             Divider()
             Button("Quit GoVibe Host") {
                 NSApp.terminate(nil)
             }
+        }
+    }
+}
+
+private struct ConfigureRelayButton: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Button("Configure Relay...") {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
         }
     }
 }
@@ -62,5 +73,10 @@ final class HostAppDelegate: NSObject, NSApplicationDelegate {
         guard let existing = otherInstances.first else { return }
         existing.activate()
         NSApp.terminate(nil)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        // Keep the app running in the tray even when all windows are closed
+        return false
     }
 }

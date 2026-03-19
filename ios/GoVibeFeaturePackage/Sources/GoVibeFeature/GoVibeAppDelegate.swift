@@ -53,4 +53,15 @@ public final class GoVibeAppDelegate: NSObject, UIApplicationDelegate, @MainActo
         ForegroundNotificationCoordinator.shared.handleForegroundNotification(notification)
         completionHandler([])
     }
+
+    // Called when the user taps a system notification (app backgrounded or killed).
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        ForegroundNotificationCoordinator.shared.handleNotificationTap(userInfo: userInfo)
+        completionHandler()
+    }
 }

@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "Press-and-Drag.svg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

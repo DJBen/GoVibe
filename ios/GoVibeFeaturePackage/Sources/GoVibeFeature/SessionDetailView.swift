@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SessionDetailView: View {
     enum PresentationMode {
@@ -11,13 +12,12 @@ struct SessionDetailView: View {
     let onExit: (() -> Void)?
     var onKindDiscovered: ((SessionKind) -> Void)? = nil
     var onStatusChanged: ((String) -> Void)? = nil
-    #if canImport(UIKit)
     var onSnapshot: ((UIImage, Date) -> Void)? = nil
-    #endif
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SessionViewModel
     @State private var showNotificationOnboarding = false
     @State private var showPlanSheet = false
+    @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
 
     init(
         roomId: String,
@@ -38,8 +38,7 @@ struct SessionDetailView: View {
         VStack(spacing: 0) {
             statusBar
 
-            #if canImport(UIKit)
-            if viewModel.simInfo != nil {
+            if viewModel.simInfo != nil || viewModel.appWindowInfo != nil {
                 SimulatorView(viewModel: viewModel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
@@ -51,23 +50,6 @@ struct SessionDetailView: View {
                     .safeAreaPadding(.bottom, 14)
                     .accessibilityIdentifier("terminal_log_view")
             }
-            #else
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
-                    ForEach(viewModel.logs) { line in
-                        Text(line.text)
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(8)
-            .background(.black.opacity(0.9))
-            .foregroundStyle(.green)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .accessibilityIdentifier("terminal_log_view")
-            #endif
         }
         .overlay(alignment: .topTrailing) {
             if presentationMode == .compact && !viewModel.isInTmuxScrollMode {
@@ -75,7 +57,7 @@ struct SessionDetailView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if viewModel.simInfo == nil, let paneProgram = viewModel.paneProgram {
+            if viewModel.simInfo == nil, viewModel.appWindowInfo == nil, let paneProgram = viewModel.paneProgram {
                 QuickActionsButton(paneProgram: paneProgram) { data in
                     viewModel.sendInputDataAsync(data)
                 }
@@ -99,12 +81,9 @@ struct SessionDetailView: View {
                 }
             }
         }
-#if canImport(UIKit)
         .toolbar(presentationMode == .compact ? .hidden : .automatic, for: .navigationBar)
-#endif
         .background(Color.black)
         .accessibilityIdentifier("govibe_root_view")
-#if canImport(UIKit)
         .onChange(of: viewModel.paneProgram) { _, newProgram in
             guard let program = newProgram,
                   (program == "Claude" || program == "Codex"),
@@ -124,7 +103,10 @@ struct SessionDetailView: View {
                 PlanMarkdownSheet(plan: planState)
             }
         }
-#endif
+        .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, newRoomId in
+            guard let newRoomId, newRoomId != roomId else { return }
+            exitSession()
+        }
         .onChange(of: viewModel.relayStatus) { _, newStatus in
             onStatusChanged?(newStatus)
         }
@@ -136,6 +118,9 @@ struct SessionDetailView: View {
         .onChange(of: viewModel.simInfo) { _, simInfo in
             if simInfo != nil { onKindDiscovered?(.simulator) }
         }
+        .onChange(of: viewModel.appWindowInfo) { _, appWindowInfo in
+            if appWindowInfo != nil { onKindDiscovered?(.appWindow) }
+        }
         .onChange(of: viewModel.paneProgram) { _, program in
             if program != nil { onKindDiscovered?(.terminal) }
         }
@@ -143,7 +128,6 @@ struct SessionDetailView: View {
             await viewModel.bootstrapAuth()
         }
         .onDisappear {
-            #if canImport(UIKit)
             // Prefer pendingSnapshotImage (captured eagerly in exitSession before
             // disconnectRelay clears simInfo and causes TerminalSurfaceView.makeUIView
             // to overwrite captureSnapshot with a blank terminal capture).
@@ -154,7 +138,6 @@ struct SessionDetailView: View {
                 onSnapshot?(image, Date())
             }
             viewModel.pendingSnapshotImage = nil
-            #endif
             viewModel.disconnectRelay()
         }
     }
@@ -180,6 +163,12 @@ struct SessionDetailView: View {
                         .clipShape(Capsule())
                 }
                 .accessibilityIdentifier("exit_scroll_button")
+            } else if let appWindowInfo = viewModel.appWindowInfo {
+                Text("\(appWindowInfo.appName) \u{2013} \(appWindowInfo.windowTitle)")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.green)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("app_window_name_text")
             } else if let simInfo = viewModel.simInfo {
                 Text(simInfo.deviceName)
                     .font(.system(.caption, design: .monospaced))
@@ -236,20 +225,11 @@ struct SessionDetailView: View {
     private var floatingTopControls: some View {
         VStack(alignment: .trailing, spacing: 8) {
             sessionMenu
-            #if canImport(UIKit)
             if viewModel.simInfo != nil {
                 SimulatorQuickActionsMenu { action in
                     viewModel.sendSimButtonAsync(action: action)
                 }
             }
-            #endif
-            #if !canImport(UIKit)
-            if let paneProgram = viewModel.paneProgram {
-                QuickActionsButton(paneProgram: paneProgram) { data in
-                    viewModel.sendInputDataAsync(data)
-                }
-            }
-            #endif
         }
         .padding(.top, 12)
         .padding(.trailing, 12)
@@ -257,6 +237,7 @@ struct SessionDetailView: View {
 
     private var shouldShowPlanButton: Bool {
         viewModel.simInfo == nil &&
+        viewModel.appWindowInfo == nil &&
         !viewModel.isInTmuxScrollMode &&
         viewModel.planState != nil &&
         (viewModel.paneProgram == "Claude" || viewModel.paneProgram == "Codex")
@@ -284,11 +265,9 @@ struct SessionDetailView: View {
     }
 
     private func exitSession() {
-        #if canImport(UIKit)
         if viewModel.pendingSnapshotImage == nil, let captured = viewModel.captureSnapshot?() {
             viewModel.pendingSnapshotImage = captured
         }
-        #endif
         viewModel.disconnectRelay()
         if let onExit {
             onExit()
@@ -298,7 +277,6 @@ struct SessionDetailView: View {
     }
 }
 
-#if canImport(UIKit)
 extension SessionDetailView {
     func withSnapshot(_ handler: @escaping (UIImage, Date) -> Void) -> SessionDetailView {
         var copy = self
@@ -306,4 +284,3 @@ extension SessionDetailView {
         return copy
     }
 }
-#endif

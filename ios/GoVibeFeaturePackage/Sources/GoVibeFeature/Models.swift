@@ -33,11 +33,13 @@ struct TerminalLine: Identifiable {
 enum SessionKind: String, Codable {
     case terminal
     case simulator
+    case appWindow
 
     var iconName: String {
         switch self {
         case .terminal:  return "terminal"
         case .simulator: return "iphone"
+        case .appWindow: return "macwindow"
         }
     }
 
@@ -45,6 +47,7 @@ enum SessionKind: String, Codable {
         switch self {
         case .terminal:  return "Terminal"
         case .simulator: return "Simulator"
+        case .appWindow: return "App Window"
         }
     }
 }
@@ -60,7 +63,12 @@ struct HostInfo: Identifiable, Codable, Hashable {
 }
 
 struct SavedSession: Identifiable, Codable, Hashable {
+    /// Relay room key — always `"\(hostId)-\(sessionId)"`.
+    /// Scoped to the host so two hosts with identically-named sessions
+    /// never share a relay room.
     var roomId: String
+    /// The user-visible session name (e.g. "ios-dev").
+    var sessionId: String
     var hostId: String
     var kind: SessionKind?
     var lastRelayStatus: String?
@@ -68,15 +76,26 @@ struct SavedSession: Identifiable, Codable, Hashable {
 
     var id: String { roomId }
 
-    init(roomId: String, hostId: String) {
-        self.roomId = roomId
+    init(sessionId: String, hostId: String) {
+        self.sessionId = sessionId
         self.hostId = hostId
+        self.roomId = "\(hostId)-\(sessionId)"
     }
 }
 
 struct SimInfo: Codable, Sendable, Equatable {
     let deviceName: String
     let udid: String
+    let screenWidth: Int
+    let screenHeight: Int
+    let scale: Double
+    let fps: Int
+}
+
+
+struct AppWindowInfo: Codable, Sendable, Equatable {
+    let windowTitle: String
+    let appName: String
     let screenWidth: Int
     let screenHeight: Int
     let scale: Double

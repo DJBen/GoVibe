@@ -6,9 +6,3 @@
 
 // No additional debug-specific overrides needed
 // All debug settings use Xcode project defaults
-
-// ==========================================
-// Local overrides (git-ignored)
-// ==========================================
-// Create ios/Config/Shared.xcconfig.local that contains the key above.
-//#include? "Shared.xcconfig.local"

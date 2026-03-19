@@ -5,6 +5,11 @@ import Observation
 protocol ManagedHostRuntime: AnyObject {
     func start() throws
     func stop()
+    func remove()
+}
+
+extension ManagedHostRuntime {
+    func remove() { stop() }
 }
 
 @MainActor
@@ -20,11 +25,13 @@ public final class HostSessionManager {
     public private(set) var bootedSimulators: [BootedSimulatorDevice] = []
     public private(set) var permissionState: HostPermissionState
     public var selectedSessionID: String?
+    public private(set) var isTmuxInstalling: Bool = false
 
     private let defaults: UserDefaults
     private var logsBySessionID: [String: [HostLogEntry]] = [:]
     private var runtimes: [String: ManagedHostRuntime] = [:]
     private var controlChannel: HostControlChannel?
+    private var didAutoStartPersistedSessions = false
 
     public init(defaults: UserDefaults = .standard, bundle: Bundle = .main) {
         self.defaults = defaults
@@ -32,9 +39,19 @@ public final class HostSessionManager {
             .flatMap { try? JSONDecoder().decode(HostSettings.self, from: $0) }
         let defaultsSettings = HostRuntimeDefaults.makeSettings(bundle: bundle)
         let resolvedSettings = persistedSettings ?? defaultsSettings
+        // If onboarding hasn't been completed, always prefer the relay derived from
+        // HostConfig (xcconfig / env var) so that the pre-filled value in the setup
+        // screen is always fresh, even if a stale relay was saved in a prior run.
+        let configRelay = HostConfig.shared.relayWebSocketBase ?? ""
+        let effectiveRelay: String
+        if resolvedSettings.onboardingCompleted || configRelay.isEmpty {
+            effectiveRelay = resolvedSettings.relayBase
+        } else {
+            effectiveRelay = configRelay
+        }
         self.settings = HostSettings(
             hostId: resolvedSettings.hostId,
-            relayBase: resolvedSettings.relayBase,
+            relayBase: effectiveRelay,
             defaultShellPath: resolvedSettings.defaultShellPath,
             preferredSimulatorUDID: resolvedSettings.preferredSimulatorUDID,
             onboardingCompleted: resolvedSettings.onboardingCompleted
@@ -54,7 +71,8 @@ public final class HostSessionManager {
         }
         self.permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
-            screenRecordingGranted: CGPreflightScreenCaptureAccess()
+            screenRecordingGranted: CGPreflightScreenCaptureAccess(),
+            tmuxInstalled: Self.detectTmux()
         )
         self.selectedSessionID = sessions.first?.sessionId
         refreshPermissions()
@@ -71,6 +89,7 @@ public final class HostSessionManager {
             persistSettings()
             startControlChannel()
         }
+        autoStartPersistedSessionsIfNeeded()
     }
 
     public func refreshEnvironment() {
@@ -81,8 +100,38 @@ public final class HostSessionManager {
     public func refreshPermissions() {
         permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
-            screenRecordingGranted: CGPreflightScreenCaptureAccess()
+            screenRecordingGranted: CGPreflightScreenCaptureAccess(),
+            tmuxInstalled: Self.detectTmux()
         )
+    }
+
+    private static func detectTmux() -> Bool {
+        let candidates = [
+            "/opt/homebrew/bin/tmux",  // Homebrew Apple Silicon
+            "/usr/local/bin/tmux",     // Homebrew Intel
+            "/opt/local/bin/tmux",     // MacPorts
+            "/usr/bin/tmux",
+        ]
+        return candidates.contains { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    public func installTmux() async {
+        isTmuxInstalling = true
+        defer { isTmuxInstalling = false }
+
+        let brewCandidates = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+        guard let brewPath = brewCandidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(filePath: brewPath)
+        process.arguments = ["install", "tmux"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+        refreshPermissions()
     }
 
     public func setBootedSimulators(_ simulators: [BootedSimulatorDevice]) {
@@ -107,6 +156,7 @@ public final class HostSessionManager {
         settings.onboardingCompleted = !settings.relayBase.isEmpty
         persistSettings()
         refreshPermissions()
+        autoStartPersistedSessionsIfNeeded()
     }
 
     public func listSessions() -> [HostedSessionDescriptor] {
@@ -218,6 +268,26 @@ public final class HostSessionManager {
         controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
     }
 
+
+    public func createAppWindowSession(config: AppWindowSessionConfig) {
+        let sessionID = config.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionID.isEmpty else { return }
+        guard !sessions.contains(where: { $0.sessionId == sessionID }) else { return }
+        let descriptor = HostedSessionDescriptor(
+            hostId: settings.hostId,
+            sessionId: sessionID,
+            kind: .appWindow,
+            displayName: config.windowTitle,
+            state: .stopped,
+            configuration: .appWindow(config)
+        )
+        sessions.append(descriptor)
+        selectedSessionID = descriptor.sessionId
+        persistSessions()
+        startSession(id: descriptor.sessionId)
+        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
+    }
+
     public func startSession(id: String) {
         guard runtimes[id] == nil,
               let descriptor = sessions.first(where: { $0.sessionId == id }) else { return }
@@ -252,13 +322,17 @@ public final class HostSessionManager {
                     self?.handleRuntimeEvent(event, sessionID: id)
                 }
             }
-        case .appWindow(_):
-            updateSession(id: id) { descriptor in
-                descriptor.state = .error
-                descriptor.lastError = "App window sessions are not yet supported."
+        case .appWindow(let config):
+            runtime = AppWindowHostSession(
+                hostId: settings.hostId,
+                config: config,
+                relayBase: settings.relayBase,
+                logger: logger
+            ) { [weak self] event in
+                Task { @MainActor in
+                    self?.handleRuntimeEvent(event, sessionID: id)
+                }
             }
-            logger.error("App window sessions are not yet supported.")
-            return
         }
 
         runtimes[id] = runtime
@@ -289,17 +363,35 @@ public final class HostSessionManager {
     }
 
     public func removeSession(id: String) {
-        stopSession(id: id)
+        runtimes[id]?.remove()
+        runtimes[id] = nil
+        updateSession(id: id) { descriptor in
+            descriptor.state = .stopped
+        }
         sessions.removeAll { $0.sessionId == id }
         logsBySessionID[id] = nil
         if selectedSessionID == id {
             selectedSessionID = sessions.first?.sessionId
         }
         persistSessions()
+        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
     }
 
     public func sessionLogs(id: String) -> [HostLogEntry] {
         logsBySessionID[id] ?? []
+    }
+
+    private func autoStartPersistedSessionsIfNeeded() {
+        guard !didAutoStartPersistedSessions,
+              settings.onboardingCompleted,
+              !settings.relayBase.isEmpty else { return }
+
+        didAutoStartPersistedSessions = true
+        startControlChannel()
+
+        for session in sessions where runtimes[session.sessionId] == nil {
+            startSession(id: session.sessionId)
+        }
     }
 
     private func handleRuntimeEvent(_ event: HostSessionRuntimeEvent, sessionID: String) {

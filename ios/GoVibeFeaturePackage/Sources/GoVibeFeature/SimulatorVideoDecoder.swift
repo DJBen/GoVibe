@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import AVFoundation
 import CoreImage
 import CoreMedia
@@ -262,4 +261,3 @@ final class SimulatorVideoDecoder {
         Int(data[offset + 2]) << 8 | Int(data[offset + 3])
     }
 }
-#endif

@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import CoreMedia
 import Foundation
+import IOKit.pwr_mgt
 import ScreenCaptureKit
 import VideoToolbox
 
@@ -42,6 +43,7 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     private var simUDID: String = ""
     private var simName: String = ""
     private var needsWindowDisambiguation = true
+    private var displaySleepAssertionID: IOPMAssertionID = 0
 
     public var onSimInfo: ((SimInfoPayload) -> Void)?
     public var onBinaryFrame: ((Data) -> Void)?
@@ -168,6 +170,12 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
         stream = newStream
         isCapturing = true
+        IOPMAssertionCreateWithName(
+            kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+            "GoVibe simulator relay active" as CFString,
+            &displaySleepAssertionID
+        )
         logger.info("Simulator capture started: \(screenWidth)x\(screenHeight)")
 
         onSimInfo?(SimInfoPayload(
@@ -181,6 +189,10 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     }
 
     public func stopCapture() {
+        if displaySleepAssertionID != 0 {
+            IOPMAssertionRelease(displaySleepAssertionID)
+            displaySleepAssertionID = 0
+        }
         stream?.stopCapture(completionHandler: nil)
         stream = nil
         isCapturing = false
@@ -191,11 +203,27 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     }
 
     public func activateSimulator() {
+        if simPID <= 0,
+           let app = NSRunningApplication.runningApplications(
+               withBundleIdentifier: "com.apple.iphonesimulator"
+           ).first {
+            simPID = app.processIdentifier
+        }
         guard simPID > 0, let app = NSRunningApplication(processIdentifier: simPID) else { return }
-        if #available(macOS 14.0, *) {
-            _ = app.activate()
-        } else {
-            app.activate(options: .activateIgnoringOtherApps)
+        if app.isHidden {
+            app.unhide()
+        }
+        var activated = app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        if !activated || !isSimulatorFrontmost() {
+            activated = activateApplicationViaAppleScript(bundleIdentifier: "com.apple.iphonesimulator") || activated
+        }
+        let raisedWindow = raiseSimulatorWindow(pid: simPID)
+        logger.info("activateSimulator() -> activated=\(activated) raisedWindow=\(raisedWindow) pid=\(simPID)")
+    }
+
+    public func focusForPeerJoin() {
+        captureQueue.async {
+            _ = self.focusForPeerJoinSync()
         }
     }
 
@@ -287,9 +315,9 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
 
     private func _injectClick(button: String, clickCount: Int) {
         guard simPID > 0, !windowBounds.isEmpty else { return }
+        guard ensureSimulatorFrontmostForInput(reason: "click") else { return }
         let point = currentCursorPoint ?? CGPoint(x: windowBounds.midX, y: windowBounds.midY)
 
-        activateSimulator()
         CGWarpMouseCursorPosition(point)
 
         guard let eventSpec = mouseEventSpec(for: button) else { return }
@@ -309,8 +337,8 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     public func injectScroll(dx: Double, dy: Double) {
         captureQueue.async {
             guard self.simPID > 0, !self.windowBounds.isEmpty else { return }
+            guard self.ensureSimulatorFrontmostForInput(reason: "scroll") else { return }
             let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
-            self.activateSimulator()
             self.currentCursorPoint = point
             CGWarpMouseCursorPosition(point)
 
@@ -332,8 +360,8 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
     public func injectDragBegin() {
         captureQueue.async {
             guard self.simPID > 0, !self.windowBounds.isEmpty else { return }
+            guard self.ensureSimulatorFrontmostForInput(reason: "dragBegin") else { return }
             let point = self.currentCursorPoint ?? CGPoint(x: self.windowBounds.midX, y: self.windowBounds.midY)
-            self.activateSimulator()
             self.isDragging = true
             self.currentCursorPoint = point
             CGWarpMouseCursorPosition(point)
@@ -373,6 +401,7 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
                 self.logger.error("injectButton(\(action)) skipped — simulator target not ready (capture not started?)")
                 return
             }
+            guard self.ensureSimulatorFrontmostForInput(reason: "button:\(action)") else { return }
             self.logger.info("injectButton: \(action) → simPID \(self.simPID)")
 
             let keyEvents: (keyCode: CGKeyCode, flags: CGEventFlags)?
@@ -529,14 +558,15 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
             x: windowBounds.midX,
             y: windowBounds.midY
         )
-        let speed = 1.5
+        let speed = 1.0
+        let dim = min(windowBounds.width, windowBounds.height)
         let newX = max(
             windowBounds.minX,
-            min(windowBounds.maxX, current.x + dx * windowBounds.width * speed)
+            min(windowBounds.maxX, current.x + dx * dim * speed)
         )
         let newY = max(
             windowBounds.minY,
-            min(windowBounds.maxY, current.y + dy * windowBounds.height * speed)
+            min(windowBounds.maxY, current.y + dy * dim * speed)
         )
         return CGPoint(x: newX, y: newY)
     }
@@ -560,6 +590,92 @@ public final class SimulatorBridge: NSObject, SCStreamDelegate, SCStreamOutput, 
         default:
             return nil
         }
+    }
+
+    @discardableResult
+    private func focusForPeerJoinSync() -> Bool {
+        activateSimulator()
+        guard !windowBounds.isEmpty else { return isSimulatorFrontmost() }
+        usleep(80_000)
+        let focusPoint = windowChromeFocusPoint()
+        postLeftClick(at: focusPoint)
+        usleep(40_000)
+        activateSimulator()
+        let frontmost = isSimulatorFrontmost()
+        logger.info("focusForPeerJoin() -> clicked title bar at \(focusPoint), frontmost=\(frontmost)")
+        return frontmost
+    }
+
+    private func ensureSimulatorFrontmostForInput(reason: String) -> Bool {
+        if isSimulatorFrontmost() { return true }
+        let frontmost = focusForPeerJoinSync()
+        if !frontmost {
+            logger.info("Suppressed simulator input (\(reason)) because Simulator is not frontmost")
+        }
+        return frontmost
+    }
+
+    private func isSimulatorFrontmost() -> Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier == simPID
+    }
+
+    private func activateApplicationViaAppleScript(bundleIdentifier: String) -> Bool {
+        let source = """
+        tell application id "\(bundleIdentifier)"
+            activate
+        end tell
+        """
+        var error: NSDictionary?
+        let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
+        if let error {
+            logger.info("AppleScript activate failed for \(bundleIdentifier): \(error)")
+        }
+        return result != nil
+    }
+
+    private func windowChromeFocusPoint() -> CGPoint {
+        let insetY = min(14, max(windowBounds.height * 0.02, 10))
+        return CGPoint(x: windowBounds.midX, y: max(windowBounds.minY + 1, windowBounds.maxY - insetY))
+    }
+
+    private func postLeftClick(at point: CGPoint) {
+        CGWarpMouseCursorPosition(point)
+        if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown,
+                              mouseCursorPosition: point, mouseButton: .left) {
+            down.post(tap: .cghidEventTap)
+        }
+        if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
+                            mouseCursorPosition: point, mouseButton: .left) {
+            up.post(tap: .cghidEventTap)
+        }
+    }
+
+    private func raiseSimulatorWindow(pid: pid_t) -> Bool {
+        let appElement = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        let windowsResult = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
+        guard windowsResult == .success, let windows = windowsRef as? [AXUIElement] else {
+            return false
+        }
+
+        for window in windows {
+            var titleRef: CFTypeRef?
+            let titleResult = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
+            guard titleResult == .success else { continue }
+            let title = titleRef as? String ?? ""
+            guard !title.isEmpty else { continue }
+
+            let matchesUDID = !simUDID.isEmpty && title.localizedCaseInsensitiveContains(simUDID)
+            let matchesName = !simName.isEmpty && title.localizedCaseInsensitiveContains(simName)
+            let matchesGenericSimulator = title.localizedCaseInsensitiveContains("simulator")
+            guard matchesUDID || matchesName || (!needsWindowDisambiguation && matchesGenericSimulator) else { continue }
+
+            _ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            return AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
+        }
+
+        return false
     }
 }
 

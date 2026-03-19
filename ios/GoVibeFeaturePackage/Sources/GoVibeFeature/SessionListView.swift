@@ -1,7 +1,5 @@
 import SwiftUI
-#if canImport(UIKit)
 import UIKit
-#endif
 
 struct SessionListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -12,6 +10,8 @@ struct SessionListView: View {
     @State private var showingAddHost = false
     @State private var showingSettings = false
     @State private var createSessionForHost: HostInfo?
+    @State private var userDeletingIds: Set<String> = []
+    @State private var externallyDeletedRoomId: String? = nil
 
     var body: some View {
         Group {
@@ -27,11 +27,9 @@ struct SessionListView: View {
                             onKindDiscovered: { kind in store.update(roomId: selectedSession.roomId, kind: kind) },
                             onStatusChanged: { status in store.update(roomId: selectedSession.roomId, relayStatus: status) }
                         )
-#if canImport(UIKit)
                         .withSnapshot { image, date in
                             saveSnapshot(image: image, date: date, roomId: selectedSession.roomId)
                         }
-#endif
                     } else {
                         SessionPlaceholderView()
                     }
@@ -48,11 +46,9 @@ struct SessionListView: View {
                                 onKindDiscovered: { kind in store.update(roomId: session.roomId, kind: kind) },
                                 onStatusChanged: { status in store.update(roomId: session.roomId, relayStatus: status) }
                             )
-#if canImport(UIKit)
                             .withSnapshot { image, date in
                                 saveSnapshot(image: image, date: date, roomId: session.roomId)
                             }
-#endif
                         }
                 }
             }
@@ -70,36 +66,62 @@ struct SessionListView: View {
         .sheet(item: $createSessionForHost) { host in
             SessionCreateView(host: host, store: store)
         }
-        .overlay(alignment: .top) {
-            if let banner = foregroundNotifications.banner {
-                InAppNotificationBannerView(
-                    banner: banner,
-                    onTap: { openSession(for: banner) },
-                    onDismiss: { foregroundNotifications.dismissBanner() }
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
         .accessibilityIdentifier("session_list_view")
         .task {
             await store.refresh()
+            consumePendingDeepLink()
             syncActiveRoomSelection()
         }
+        .onAppear {
+            Task { await store.refresh() }
+        }
+        .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, _ in
+            // Only navigate directly when no detail view is pushed.
+            // When a detail view is active, SessionDetailView.onChange handles the exit
+            // and onChange(of: navigationPath) handles the subsequent navigation.
+            guard navigationPath.isEmpty else { return }
+            consumePendingDeepLink()
+        }
         .onChange(of: store.sessions) { _, sessions in
+            let sessionIds = Set(sessions.map(\.roomId))
+
+            // Detect external deletion of the currently displayed session.
+            let activeRoomId = selectedSession?.roomId ?? navigationPath.last?.roomId
+            if let roomId = activeRoomId,
+               !sessionIds.contains(roomId),
+               !userDeletingIds.contains(roomId) {
+                externallyDeletedRoomId = roomId
+            }
+
             if let selectedSession, !sessions.contains(selectedSession) {
                 self.selectedSession = nil
             }
+            navigationPath.removeAll { !sessionIds.contains($0.roomId) }
             syncActiveRoomSelection()
+        }
+        .alert("Session Deleted", isPresented: Binding(
+            get: { externallyDeletedRoomId != nil },
+            set: { if !$0 { externallyDeletedRoomId = nil } }
+        )) {
+            Button("OK") { externallyDeletedRoomId = nil }
+        } message: {
+            if let roomId = externallyDeletedRoomId {
+                Text("\"\(roomId)\" was deleted by the host.")
+            }
         }
         .onChange(of: selectedSession) { _, _ in
             syncActiveRoomSelection()
         }
-        .onChange(of: navigationPath) { _, _ in
+        .onChange(of: navigationPath) { oldPath, newPath in
+            // After a pop, wait for the animation to finish before pushing the deep-link destination.
+            if newPath.count < oldPath.count, foregroundNotifications.pendingDeepLinkRoomId != nil {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    consumePendingDeepLink()
+                }
+            }
             syncActiveRoomSelection()
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: foregroundNotifications.banner)
     }
 
     private var usesSplitView: Bool {
@@ -122,11 +144,12 @@ struct SessionListView: View {
     }
 
     private func deleteSession(_ session: SavedSession) {
+        userDeletingIds.insert(session.roomId)
         Task {
             await store.deleteSession(session)
-            if selectedSession == session {
-                selectedSession = nil
-            }
+            userDeletingIds.remove(session.roomId)
+            if selectedSession == session { selectedSession = nil }
+            navigationPath.removeAll { $0.roomId == session.roomId }
         }
     }
 
@@ -142,11 +165,10 @@ struct SessionListView: View {
         foregroundNotifications.setActiveRoomId(activeRoomId)
     }
 
-    private func openSession(for banner: InAppNotificationBanner) {
-        foregroundNotifications.dismissBanner()
-        guard let roomId = banner.roomId,
+    private func consumePendingDeepLink() {
+        guard let roomId = foregroundNotifications.pendingDeepLinkRoomId,
               let session = store.sessions.first(where: { $0.roomId == roomId }) else { return }
-
+        foregroundNotifications.pendingDeepLinkRoomId = nil
         if usesSplitView {
             selectedSession = session
         } else {
@@ -158,7 +180,6 @@ struct SessionListView: View {
 
     @ViewBuilder
     private func sessionSectionedList() -> some View {
-#if canImport(UIKit)
         ScrollView {
             LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                 if let errorMessage = store.errorMessage {
@@ -218,66 +239,8 @@ struct SessionListView: View {
             .padding(.bottom, 40)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-#else
-        List {
-            if let errorMessage = store.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(.footnote)
-                }
-            }
-
-            // One section per registered host
-            ForEach(store.hosts) { host in
-                Section {
-                    let hostSessions = store.sessions(for: host.id)
-                    ForEach(hostSessions) { session in
-                        sessionRowButton(session)
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    deleteSession(session)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                            .accessibilityIdentifier("session_row_\(session.roomId)")
-                    }
-                    .onDelete { offsets in
-                        let sessions = store.sessions(for: host.id)
-                        for index in offsets {
-                            deleteSession(sessions[index])
-                        }
-                    }
-
-                    Button {
-                        createSessionForHost = host
-                    } label: {
-                        Label("New Terminal Session", systemImage: "plus")
-                            .foregroundStyle(.secondary)
-                            .font(.subheadline)
-                    }
-                    .accessibilityIdentifier("new_session_\(host.id)")
-                } header: {
-                    Text(host.name)
-                        .textCase(nil)
-                        .contextMenu {
-                            Button(role: .destructive) {
-                                store.removeHost(id: host.id)
-                                if let selected = selectedSession, selected.hostId == host.id {
-                                    selectedSession = nil
-                                }
-                            } label: {
-                                Label("Remove Host", systemImage: "trash")
-                            }
-                        }
-                }
-            }
-        }
-#endif
     }
-    
-    #if canImport(UIKit)
+
     private func iosSectionHeader(title: String, hostId: String) -> some View {
         HStack {
             Text(title)
@@ -305,7 +268,6 @@ struct SessionListView: View {
         .background(.ultraThinMaterial) // sticky header effect
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    #endif
 
     @ViewBuilder
     private func sessionRowButton(_ session: SavedSession) -> some View {
@@ -405,7 +367,7 @@ struct SessionListView: View {
                 .foregroundStyle(session.kind == nil ? Color.secondary : Color.primary)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.roomId)
+                Text(session.sessionId)
                     .font(.body)
                 Text(session.lastRelayStatus ?? "Never connected")
                     .font(.caption)
@@ -424,7 +386,6 @@ struct SessionListView: View {
 
     // MARK: - Snapshot helpers
 
-#if canImport(UIKit)
     private func saveSnapshot(image: UIImage, date: Date, roomId: String) {
         let url = SessionStore.thumbnailURL(for: roomId)
         if let data = image.jpegData(compressionQuality: 0.7) {
@@ -432,7 +393,6 @@ struct SessionListView: View {
         }
         store.update(roomId: roomId, lastActiveAt: date)
     }
-#endif
 }
 
 // MARK: - Helpers
@@ -448,7 +408,6 @@ private struct SessionPlaceholderView: View {
     }
 }
 
-#if canImport(UIKit)
 private struct SessionCardItem: View {
     let session: SavedSession
     let isSelected: Bool
@@ -516,7 +475,7 @@ private struct SessionCardView: View {
                         Circle()
                             .fill(statusDotColor(session.lastRelayStatus))
                             .frame(width: 8, height: 8)
-                        Text(session.roomId)
+                        Text(session.sessionId)
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundStyle(.white)
@@ -548,4 +507,3 @@ private struct SessionCardView: View {
         }
     }
 }
-#endif

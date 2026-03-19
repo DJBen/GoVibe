@@ -23,9 +23,7 @@ struct SessionCreateView: View {
                 Section {
                     TextField("e.g. ios-dev", text: $sessionId)
                         .autocorrectionDisabled()
-#if canImport(UIKit)
                         .textInputAutocapitalization(.never)
-#endif
                         .focused($focusedField, equals: .sessionId)
                 } header: {
                     Text("Session ID")
@@ -36,9 +34,7 @@ struct SessionCreateView: View {
                 Section {
                     TextField("Optional tmux session name", text: $tmuxSession)
                         .autocorrectionDisabled()
-#if canImport(UIKit)
                         .textInputAutocapitalization(.never)
-#endif
                         .focused($focusedField, equals: .tmuxSession)
                 } header: {
                     Text("tmux Session")
@@ -54,9 +50,7 @@ struct SessionCreateView: View {
                 }
             }
             .navigationTitle("New Terminal Session")
-#if canImport(UIKit)
             .navigationBarTitleDisplayMode(.inline)
-#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -94,7 +88,7 @@ struct SessionCreateView: View {
                 sessionId: trimmedId,
                 tmuxSession: trimmedTmux.isEmpty ? nil : trimmedTmux
             )
-            store.add(roomId: trimmedId, hostId: host.id)
+            store.add(sessionId: trimmedId, hostId: host.id)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

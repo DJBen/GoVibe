@@ -5,6 +5,9 @@ struct HostOnboardingView: View {
     @State var manager: HostSessionManager
     @State private var relayBase: String = ""
     @State private var shellPath: String = ""
+    @State private var relayVerificationError: String? = nil
+
+    private let selfHostingURL = URL(string: "https://github.com/DJBen/GoVibe/blob/main/README.md#self-hosting-production")!
 
     var body: some View {
         ScrollView {
@@ -25,9 +28,29 @@ struct HostOnboardingView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         TextField("wss://relay.example.com/relay", text: $relayBase)
                             .textFieldStyle(.roundedBorder)
+                            .onChange(of: relayBase) {
+                                relayVerificationError = nil
+                            }
                         Text("Set the relay WebSocket URL here. This value is stored locally after setup and is not committed to the repo.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        if let error = relayVerificationError {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .foregroundStyle(.red)
+                                    .font(.subheadline)
+                                    .padding(.top, 1)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(error)
+                                        .foregroundStyle(.red)
+                                        .font(.subheadline)
+                                    Link("Refer to Self-Hosting", destination: selfHostingURL)
+                                        .font(.subheadline)
+                                }
+                            }
+                            .padding(.top, 2)
+                        }
                     }
                 }
 
@@ -50,17 +73,26 @@ struct HostOnboardingView: View {
                     }
                 }
 
-                GroupBox("4. Terminal Defaults") {
+                GroupBox("4. Dependencies") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        dependencyRow(
+                            title: "tmux",
+                            detail: "Required for terminal sessions",
+                            installed: manager.permissionState.tmuxInstalled,
+                            isInstalling: manager.isTmuxInstalling
+                        ) {
+                            Task { await manager.installTmux() }
+                        }
+                    }
+                }
+
+                GroupBox("5. Terminal Defaults") {
                     TextField("Shell Path", text: $shellPath)
                         .textFieldStyle(.roundedBorder)
                 }
 
                 Button("Finish Setup") {
-                    manager.completeOnboarding(
-                        relayBase: relayBase,
-                        defaultShellPath: shellPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? manager.settings.defaultShellPath : shellPath,
-                        preferredSimulatorUDID: manager.settings.preferredSimulatorUDID
-                    )
+                    finishSetup()
                 }
                 .disabled(relayBase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .buttonStyle(.borderedProminent)
@@ -72,6 +104,51 @@ struct HostOnboardingView: View {
             relayBase = manager.settings.relayBase
             shellPath = manager.settings.defaultShellPath
             manager.refreshEnvironment()
+        }
+    }
+
+    // MARK: - Actions
+
+    private func finishSetup() {
+        let trimmed = relayBase.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard HostConfig.normalizedRelayHost(from: trimmed) != nil else {
+            relayVerificationError = "Invalid relay host format. Expected: wss://your-relay-host/relay"
+            return
+        }
+
+        manager.completeOnboarding(
+            relayBase: trimmed,
+            defaultShellPath: shellPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? manager.settings.defaultShellPath
+                : shellPath,
+            preferredSimulatorUDID: manager.settings.preferredSimulatorUDID
+        )
+    }
+
+    // MARK: - Row Helpers
+
+    private func dependencyRow(
+        title: String,
+        detail: String,
+        installed: Bool,
+        isInstalling: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                Text(isInstalling ? "Installing via Homebrew…" : (installed ? "Installed" : detail))
+                    .font(.caption)
+                    .foregroundStyle(installed ? .green : .secondary)
+            }
+            Spacer()
+            if isInstalling {
+                ProgressView()
+                    .controlSize(.small)
+            } else if !installed {
+                Button("Install via Homebrew", action: action)
+            }
         }
     }
 

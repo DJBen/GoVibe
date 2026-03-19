@@ -3,7 +3,8 @@ import CoreGraphics
 enum SimulatorGestureMath {
     static func normalizedTranslation(_ translation: CGPoint, in bounds: CGRect) -> CGPoint? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
-        return CGPoint(x: translation.x / bounds.width, y: translation.y / bounds.height)
+        let dim = min(bounds.width, bounds.height)
+        return CGPoint(x: translation.x / dim, y: translation.y / dim)
     }
 
     static func normalizedDelta(from start: CGPoint, to end: CGPoint, in bounds: CGRect) -> CGPoint? {

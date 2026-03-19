@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import SwiftUI
 
 struct SimulatorQuickActionsMenu: View {
@@ -37,4 +36,3 @@ struct SimulatorQuickActionsMenu: View {
         .accessibilityIdentifier("sim_quick_actions_menu")
     }
 }
-#endif

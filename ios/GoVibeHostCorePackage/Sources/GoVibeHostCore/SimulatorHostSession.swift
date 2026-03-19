@@ -27,7 +27,7 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
-        self.macDeviceId = config.sessionId
+        self.macDeviceId = "\(hostId)-\(config.sessionId)"
         self.logger = logger
         self.bridge = RelayTransport(logger: logger)
         self.simulatorBridge = SimulatorBridge(logger: logger)
@@ -103,6 +103,9 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
             self.logger.info("Peer joined — sending sim_info")
             if let info = self.latestSimInfo {
                 self.bridge.sendSimInfo(info)
+            }
+            DispatchQueue.main.async {
+                self.simulatorBridge.focusForPeerJoin()
             }
             Task { await self.simulatorBridge.startCapture(preferredUDID: self.preferredUDID ?? self.latestSimInfo?.udid) }
         }

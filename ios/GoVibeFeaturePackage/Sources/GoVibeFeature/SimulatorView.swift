@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import AVFoundation
 import SwiftUI
 import UIKit
@@ -418,8 +417,47 @@ struct SimulatorView: View {
     @State private var isZoomed = false
     @State private var showInteractionModeHint = !GoVibeBootstrap.hasSeenSimulatorInteractionModeHint
 
+    private var interactionHintContext: SimulatorInteractionHintContext {
+        if !isZoomed { return .unzoomed }
+        return interactionMode == .viewport ? .zoomedViewport : .zoomedMouse
+    }
+
+    private var interactionHintItems: [SimulatorInteractionHintItem] {
+        switch interactionHintContext {
+        case .unzoomed:
+            [
+                .init(iconName: "Tap", gesture: "Single tap", meaning: "Click"),
+                .init(iconName: "Tap", gesture: "Single tap-move", meaning: "Move the cursor"),
+                .init(iconName: "Zoom", gesture: "Pinch", meaning: "Zoom"),
+                .init(iconName: "Press-and-Drag-1", gesture: "Double-tap and drag", meaning: "Press and drag for selection and dragging"),
+                .init(iconName: "Scroll-Vertical", gesture: "Swipe with two fingers", meaning: "Mouse scroll")
+            ]
+        case .zoomedViewport:
+            [
+                .init(iconName: "Tap", gesture: "Single tap-move", meaning: "Move the cursor"),
+                .init(iconName: "Zoom", gesture: "Pinch", meaning: "Zoom")
+            ]
+        case .zoomedMouse:
+            [
+                .init(iconName: "Tap", gesture: "Single tap", meaning: "Click"),
+                .init(iconName: "Zoom", gesture: "Pinch", meaning: "Zoom"),
+                .init(iconName: "Press-and-Drag-1", gesture: "Double-tap and drag", meaning: "Press and drag for selection and dragging"),
+                .init(iconName: "Scroll-Vertical", gesture: "Swipe with two fingers", meaning: "Mouse scroll")
+            ]
+        }
+    }
+
+    private var resolvedSimInfo: SimInfo? {
+        if let info = viewModel.simInfo { return info }
+        if let w = viewModel.appWindowInfo {
+            return SimInfo(deviceName: w.appName, udid: "", screenWidth: w.screenWidth,
+                           screenHeight: w.screenHeight, scale: w.scale, fps: w.fps)
+        }
+        return nil
+    }
+
     var body: some View {
-        if let simInfo = viewModel.simInfo {
+        if let simInfo = resolvedSimInfo {
             SimulatorScrollView(
                 simInfo: simInfo,
                 interactionMode: interactionMode,
@@ -433,7 +471,12 @@ struct SimulatorView: View {
                     case .ended:                       viewModel.sendSimDragEndAsync()
                     }
                 },
-                onScroll:       { viewModel.sendSimScrollAsync(dx: $0.x, dy: $0.y) },
+                onScroll: { delta in
+                    let scrollDelta = interactionMode == .mouse
+                        ? CGPoint(x: -delta.x, y: -delta.y)
+                        : delta
+                    viewModel.sendSimScrollAsync(dx: scrollDelta.x, dy: scrollDelta.y)
+                },
                 onZoomStateChange: { zoomed in
                     let wasZoomed = isZoomed
                     isZoomed = zoomed
@@ -452,62 +495,236 @@ struct SimulatorView: View {
                 }
             }
             .ignoresSafeArea()
-            .overlay(alignment: .topLeading) {
-                if isZoomed {
-                    HStack(alignment: .center, spacing: 12) {
-                        Button {
-                            interactionMode = interactionMode == .viewport ? .mouse : .viewport
-                        } label: {
-                            Image(systemName: interactionMode == .viewport
-                                  ? "arrow.up.and.down.and.arrow.left.and.right"
-                                  : "cursorarrow")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        }
-                        .accessibilityIdentifier("simulator_interaction_mode_toggle")
-
-                        if showInteractionModeHint {
-                            HStack(alignment: .center, spacing: 12) {
-                                Text("Toggle between viewport control and mouse control.")
-                                    .font(.footnote.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                    .fixedSize(horizontal: false, vertical: true)
-
-                                Button("OK") {
-                                    GoVibeBootstrap.hasSeenSimulatorInteractionModeHint = true
-                                    showInteractionModeHint = false
-                                }
-                                .font(.footnote.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.accentColor, in: Capsule())
-                                .foregroundStyle(.white)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .strokeBorder(Color.primary.opacity(0.08))
-                            }
-                            .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
-                            .accessibilityIdentifier("simulator_interaction_mode_hint")
-                        }
+            .overlay(alignment: .bottom) {
+                HStack(alignment: .bottom, spacing: 12) {
+                    if isZoomed {
+                        simulatorInteractionModeToggle
+                            .accessibilityIdentifier("simulator_interaction_mode_toggle")
                     }
-                    .padding(.leading, 16)
-                    .padding(.trailing, 48) // Avoid overlap with top-right floating controls
-                    .padding(.top, 20)
+
+                    Spacer(minLength: 12)
+
+                    VStack(alignment: .trailing, spacing: 12) {
+                        if showInteractionModeHint {
+                            simulatorInteractionHintTooltip
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .accessibilityIdentifier("simulator_interaction_mode_hint")
+                        }
+
+                        simulatorInteractionHintToggle
+                    }
                 }
+                .padding(.leading, 16)
+                .padding(.trailing, 16)
+                .padding(.bottom, 20)
+                .allowsHitTesting(true)
+                .zIndex(1)
             }
             .accessibilityIdentifier("simulator_view")
         } else {
             Color.black
                 .ignoresSafeArea()
+                .overlay(alignment: .bottomTrailing) {
+                    simulatorInteractionHintToggle
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 20)
+                }
                 .accessibilityIdentifier("simulator_view")
+        }
+    }
+
+    private var simulatorInteractionHintTooltip: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let title = interactionHintContext.title {
+                HStack(alignment: .center, spacing: 8) {
+                    Image(systemName: title.iconName)
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.primary)
+
+                    Text(title.text)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(interactionHintItems) { item in
+                    HStack(alignment: .center, spacing: 12) {
+                        Image(item.iconName)
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .foregroundStyle(.primary)
+                            .frame(width: 28, height: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.gesture)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.primary)
+
+                            Text(item.meaning)
+                                .font(.footnote)
+                                .foregroundStyle(.primary.opacity(0.82))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    if item.id != interactionHintItems.last?.id {
+                        Divider()
+                            .overlay(.white.opacity(0.12))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: min(UIScreen.main.bounds.width - 32, 360), alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .modifier(SimulatorLiquidGlassBannerStyle())
+    }
+
+    private var simulatorInteractionModeToggle: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
+        return Image(systemName: interactionMode == .viewport
+                     ? "arrow.up.and.down.and.arrow.left.and.right"
+                     : "cursorarrow")
+            .symbolRenderingMode(.hierarchical)
+            .font(.system(size: 18, weight: .bold))
+            .foregroundStyle(.black.opacity(0.92))
+            .frame(width: 50, height: 50)
+            .background {
+                Circle()
+                    .fill(.black.opacity(0.16))
+                    .blur(radius: 8)
+            }
+            .modifier(SimulatorLiquidGlassButtonStyle(isActive: interactionMode == .mouse))
+            .contentShape(shape)
+            .onTapGesture {
+                interactionMode = interactionMode == .viewport ? .mouse : .viewport
+            }
+            .accessibilityAddTraits(.isButton)
+    }
+
+    private var simulatorInteractionHintToggle: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
+        return Text("?")
+            .font(.system(size: 20, weight: .bold, design: .rounded))
+            .foregroundStyle(.black.opacity(0.92))
+            .frame(width: 50, height: 50)
+            .background {
+                Circle()
+                    .fill(.black.opacity(0.16))
+                    .blur(radius: 8)
+            }
+            .modifier(SimulatorLiquidGlassButtonStyle(isActive: showInteractionModeHint))
+            .contentShape(shape)
+            .onTapGesture {
+                let isShowing = showInteractionModeHint
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    showInteractionModeHint.toggle()
+                }
+                if isShowing {
+                    GoVibeBootstrap.hasSeenSimulatorInteractionModeHint = true
+                }
+            }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("simulator_interaction_mode_hint_toggle")
+    }
+}
+
+private enum SimulatorInteractionHintContext {
+    case unzoomed
+    case zoomedViewport
+    case zoomedMouse
+
+    var title: (iconName: String, text: String)? {
+        switch self {
+        case .unzoomed:
+            nil
+        case .zoomedViewport:
+            ("arrow.up.and.down.and.arrow.left.and.right", "View Mode")
+        case .zoomedMouse:
+            ("cursorarrow", "Mouse Mode")
         }
     }
 }
 
-#endif
+private struct SimulatorInteractionHintItem: Identifiable, Equatable {
+    let iconName: String
+    let gesture: String
+    let meaning: String
+
+    var id: String { "\(iconName)|\(gesture)|\(meaning)" }
+}
+
+private struct SimulatorLiquidGlassButtonStyle: ViewModifier {
+    let isActive: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .background {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.clear)
+                        .glassEffect(
+                            .regular.tint(.white.opacity(0.92)),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(isActive ? 0.3 : 0.18), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.32), radius: 20, y: 10)
+        } else {
+            content
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(isActive ? .white.opacity(0.65) : .white.opacity(0.08))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.32), radius: 20, y: 10)
+        }
+    }
+}
+
+private struct SimulatorLiquidGlassBannerStyle: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+                .background {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.clear)
+                        .glassEffect(
+                            .regular.tint(.white.opacity(0.92)),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.28), radius: 20, y: 12)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.white.opacity(0.06))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.28), radius: 20, y: 12)
+        }
+    }
+}

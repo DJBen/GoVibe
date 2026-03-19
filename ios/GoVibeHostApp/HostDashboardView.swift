@@ -100,9 +100,6 @@ struct HostDashboardView: View {
                     .foregroundStyle(.secondary)
                 Button("Add Session") { showingWizard = true }
                     .buttonStyle(.borderedProminent)
-
-                Divider()
-                    .padding(.vertical, 8)
             }
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -151,16 +148,21 @@ private struct SessionCreationWizard: View {
     @FocusState private var focusedField: Field?
 
     enum Step { case typeSelection, configure }
-    enum SessionKind { case terminal, simulator }
+    enum SessionKind { case terminal, simulator, appWindow }
     enum Field: Hashable { case sessionID, tmuxID }
 
     @State private var step: Step = .typeSelection
     @State private var selectedKind: SessionKind? = nil
     @State private var sessionID = ""
+    @State private var sessionIDPrompt = ""
     @State private var tmuxID = ""
     @State private var simulatorUDID = ""
     @State private var pickerSimulators: [BootedSimulatorDevice] = []
     @State private var isLoadingSimulators = false
+    @State private var availableWindows: [AvailableWindow] = []
+    @State private var selectedWindow: AvailableWindow? = nil
+    @State private var isLoadingWindows = false
+    @State private var windowSearchText = ""
 
     var body: some View {
         NavigationStack {
@@ -200,7 +202,12 @@ private struct SessionCreationWizard: View {
         switch step {
         case .typeSelection: "New Session"
         case .configure:
-            selectedKind == .terminal ? "Terminal Relay" : "Simulator Relay"
+            switch selectedKind {
+            case .terminal: "Terminal Relay"
+            case .simulator: "Simulator Relay"
+            case .appWindow: "Application Window"
+            case nil: "Configure"
+            }
         }
     }
 
@@ -224,6 +231,12 @@ private struct SessionCreationWizard: View {
                     icon: "iphone",
                     title: "Simulator Relay",
                     description: "Mirror an iOS Simulator screen to remote peers in real time."
+                )
+                typeCard(
+                    kind: .appWindow,
+                    icon: "macwindow",
+                    title: "Application Window",
+                    description: "Mirror any macOS application window to remote peers in real time."
                 )
             }
             Spacer()
@@ -272,6 +285,7 @@ private struct SessionCreationWizard: View {
         switch selectedKind {
         case .terminal: terminalConfigStep
         case .simulator: simulatorConfigStep
+        case .appWindow: appWindowConfigStep
         case nil: EmptyView()
         }
     }
@@ -319,7 +333,7 @@ private struct SessionCreationWizard: View {
                     title: "Session ID",
                     help: "A unique identifier peers will use to connect to this relay."
                 ) {
-                    TextField("", text: $sessionID, prompt: Text("e.g. sim-ios-18"))
+                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. sim-ios-18" : sessionIDPrompt).foregroundColor(.secondary))
                         .textFieldStyle(.plain)
                         .focused($focusedField, equals: .sessionID)
                 }
@@ -377,14 +391,20 @@ private struct SessionCreationWizard: View {
 
     // MARK: Helpers
 
+    private var effectiveSessionID: String {
+        let trimmed = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? sessionIDPrompt : trimmed
+    }
+
     private var canCreate: Bool {
-        guard !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !effectiveSessionID.isEmpty else { return false }
         if selectedKind == .simulator { return !simulatorUDID.isEmpty }
+        if selectedKind == .appWindow { return selectedWindow != nil }
         return true
     }
 
     private func createSession() {
-        let normalizedID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedID = effectiveSessionID
         switch selectedKind {
         case .terminal:
             let tmux = tmuxID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -402,6 +422,16 @@ private struct SessionCreationWizard: View {
                     preferredUDID: simulatorUDID
                 )
             )
+        case .appWindow:
+            if let window = selectedWindow {
+                manager.createAppWindowSession(
+                    config: AppWindowSessionConfig(
+                        sessionId: normalizedID,
+                        windowTitle: window.title,
+                        bundleIdentifier: window.bundleIdentifier
+                    )
+                )
+            }
         case nil:
             break
         }
@@ -423,7 +453,177 @@ private struct SessionCreationWizard: View {
         } else if !simulators.contains(where: { $0.udid == simulatorUDID }) {
             simulatorUDID = simulators.first?.udid ?? ""
         }
+        if let selected = simulators.first(where: { $0.udid == simulatorUDID }) ?? simulators.first {
+            sessionIDPrompt = selected.name
+        }
         isLoadingSimulators = false
+    }
+
+    private var appWindowConfigStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                formIntro(
+                    title: "Choose a relay name, then pick a window to mirror.",
+                    subtitle: "Any visible macOS application window can be mirrored. Grant screen recording permission if prompted."
+                )
+
+                inputBlock(
+                    title: "Session ID",
+                    help: "A unique identifier peers will use to connect to this relay."
+                ) {
+                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. safari-window" : sessionIDPrompt).foregroundColor(.secondary))
+                        .textFieldStyle(.plain)
+                        .focused($focusedField, equals: .sessionID)
+                }
+
+                inputBlock(
+                    title: "Target Window",
+                    help: "Pick one of the currently visible application windows."
+                ) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text(windowSelectionSummary)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                Task { await refreshWindows() }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(isLoadingWindows)
+                            .help("Refresh available windows")
+                        }
+
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                                .font(.callout)
+                            TextField("Search apps or windows…", text: $windowSearchText)
+                                .textFieldStyle(.plain)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.06))
+                        }
+
+                        if isLoadingWindows {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Scanning for application windows…")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 6)
+                        } else if filteredWindowsByApp.isEmpty {
+                            Text(availableWindows.isEmpty
+                                 ? "No application windows found. Make sure other apps are open and visible, then refresh."
+                                 : "No windows match your search.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 6)
+                        } else {
+                            VStack(alignment: .leading, spacing: 16) {
+                                ForEach(filteredWindowsByApp, id: \.appName) { group in
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(group.appName)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 4)
+                                        VStack(spacing: 6) {
+                                            ForEach(group.windows) { window in
+                                                windowOptionRow(window)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(28)
+        }
+        .task { await refreshWindows() }
+        .onAppear { focusedField = .sessionID }
+    }
+
+    private func refreshWindows() async {
+        isLoadingWindows = true
+        let windows: [AvailableWindow]
+        do {
+            windows = try await AppWindowBridge.listWindows()
+        } catch {
+            windows = []
+        }
+        availableWindows = windows
+        if let selected = selectedWindow, !windows.contains(where: { $0.id == selected.id }) {
+            selectedWindow = windows.first
+        } else if selectedWindow == nil {
+            selectedWindow = windows.first
+        }
+        if let selected = selectedWindow {
+            sessionIDPrompt = selected.appName
+        }
+        isLoadingWindows = false
+    }
+
+    private var windowSelectionSummary: String {
+        guard let selected = selectedWindow else {
+            return "Choose one of the visible windows below."
+        }
+        return "Selected: \(selected.appName) – \(selected.title)"
+    }
+
+    private var filteredWindowsByApp: [(appName: String, windows: [AvailableWindow])] {
+        let filtered = windowSearchText.isEmpty
+            ? availableWindows
+            : availableWindows.filter {
+                $0.appName.localizedCaseInsensitiveContains(windowSearchText) ||
+                $0.title.localizedCaseInsensitiveContains(windowSearchText)
+            }
+        var appOrder: [String] = []
+        var groupMap: [String: [AvailableWindow]] = [:]
+        for window in filtered {
+            if groupMap[window.appName] == nil {
+                appOrder.append(window.appName)
+                groupMap[window.appName] = []
+            }
+            groupMap[window.appName]!.append(window)
+        }
+        return appOrder.map { (appName: $0, windows: groupMap[$0]!) }
+    }
+
+    private func windowOptionRow(_ window: AvailableWindow) -> some View {
+        let isSelected = selectedWindow?.id == window.id
+        return Button {
+            selectedWindow = window
+            sessionIDPrompt = window.appName
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                Text(window.title)
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.08), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func formIntro(title: String, subtitle: String) -> some View {
@@ -474,6 +674,7 @@ private struct SessionCreationWizard: View {
         let isSelected = simulator.udid == simulatorUDID
         return Button {
             simulatorUDID = simulator.udid
+            sessionIDPrompt = simulator.name
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")

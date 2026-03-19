@@ -38,7 +38,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
-        self.macDeviceId = config.sessionId
+        self.macDeviceId = "\(hostId)-\(config.sessionId)"
         self.pty = PtySession(shellPath: config.shellPath, tmuxSessionName: config.tmuxSessionName, logger: logger)
         self.logger = logger
         self.bridge = RelayTransport(logger: logger)
@@ -137,6 +137,16 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         pty.stop()
         eventHandler(.stateChanged(.stopped, lastPeerActivityAt, nil))
         signalStopIfNeeded()
+    }
+
+    public func remove() {
+        stop()
+        if let sessionName = pty.tmuxSessionName, let tmuxPath = PtySession.resolveTmux() {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: tmuxPath)
+            p.arguments = ["kill-session", "-t", sessionName]
+            try? p.run()
+        }
     }
 
     private func signalStopIfNeeded() {

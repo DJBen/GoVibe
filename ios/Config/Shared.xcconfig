@@ -38,3 +38,9 @@ INFOPLIST_FILE = Config/GoVibe-Info.plist
 // ==========================================
 // AI agents can modify Config/GoVibe.entitlements to add capabilities
 CODE_SIGN_ENTITLEMENTS = Config/GoVibe.entitlements
+
+// ==========================================
+// Local overrides (git-ignored)
+// ==========================================
+// Create ios/Config/Shared.xcconfig.local that contains the key above.
+#include? "Shared.xcconfig.local"

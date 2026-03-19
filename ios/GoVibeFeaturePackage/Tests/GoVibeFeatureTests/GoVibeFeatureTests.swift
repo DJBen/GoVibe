@@ -1,7 +1,24 @@
 import Testing
 @testable import GoVibeFeature
 
-@Test func simulatorGestureMathNormalizesTranslationsByBounds() async throws {
+@MainActor
+@Test func appConfigPersistsSavedRelayHost() async throws {
+    let suiteName = "GoVibeFeatureTests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defaults.removePersistentDomain(forName: suiteName)
+
+    let config = AppConfig(defaults: defaults, bundle: .main)
+    config.save(relay: " govibe-relay.run.app ")
+
+    let reloadedConfig = AppConfig(defaults: defaults, bundle: .main)
+
+    #expect(reloadedConfig.relayHost == "govibe-relay.run.app")
+}
+
+// Both axes normalized by min(width, height) so equal finger movements
+// produce equal cursor deltas regardless of direction.
+@Test func simulatorGestureMathNormalizesTranslationsByMinDimension() async throws {
+    // bounds 180×120 → min = 120
     let delta = try #require(
         SimulatorGestureMath.normalizedTranslation(
             CGPoint(x: 45, y: -30),
@@ -9,11 +26,25 @@ import Testing
         )
     )
 
-    #expect(delta.x == 0.25)
-    #expect(delta.y == -0.25)
+    #expect(delta.x == 45.0 / 120.0)   // 0.375
+    #expect(delta.y == -30.0 / 120.0)  // -0.25
+}
+
+@Test func simulatorGestureMathIsotropic() async throws {
+    // Equal displacement in x and y should produce equal normalized deltas.
+    // bounds 200×400 → min = 200
+    let delta = try #require(
+        SimulatorGestureMath.normalizedTranslation(
+            CGPoint(x: 50, y: 50),
+            in: CGRect(x: 0, y: 0, width: 200, height: 400)
+        )
+    )
+
+    #expect(delta.x == delta.y)
 }
 
 @Test func simulatorGestureMathBuildsDeltaFromTwoPoints() async throws {
+    // bounds 120×60 → min = 60
     let delta = try #require(
         SimulatorGestureMath.normalizedDelta(
             from: CGPoint(x: 10, y: 50),
@@ -22,8 +53,8 @@ import Testing
         )
     )
 
-    #expect(delta.x == 0.5)
-    #expect(delta.y == -0.5)
+    #expect(delta.x == 60.0 / 60.0)   // 1.0
+    #expect(delta.y == -30.0 / 60.0)  // -0.5
 }
 
 @Test func swipeUpMapsToNegativeVisibleRows() async throws {

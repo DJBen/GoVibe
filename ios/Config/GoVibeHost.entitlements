@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hardened Runtime: allow outbound network connections (relay to simulator) -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Hardened Runtime: allow inbound connections (iPhone connects to host) -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>

@@ -1,5 +1,8 @@
 #include "Shared.xcconfig"
 
+
+CODE_SIGN_ENTITLEMENTS = Config/GoVibeHost.entitlements
+
 PRODUCT_NAME = GoVibeHost
 PRODUCT_DISPLAY_NAME = GoVibe Host
 PRODUCT_BUNDLE_IDENTIFIER = dev.govibe.host.debug

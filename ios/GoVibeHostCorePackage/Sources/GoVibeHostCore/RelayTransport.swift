@@ -158,6 +158,27 @@ public final class RelayTransport: @unchecked Sendable {
         }
     }
 
+    public func sendAppWindowInfo(_ payload: AppWindowInfoPayload) {
+        let dict: [String: Any] = [
+            "type": "app_window_info",
+            "windowTitle": payload.windowTitle,
+            "appName": payload.appName,
+            "screenWidth": payload.screenWidth,
+            "screenHeight": payload.screenHeight,
+            "scale": payload.scale,
+            "fps": payload.fps,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+              let json = String(data: data, encoding: .utf8) else {
+            logger.error("sendAppWindowInfo: JSON serialization failed")
+            return
+        }
+        queue.async {
+            self.outboundQueue.append(json)
+            self.flushOutboundQueueLocked()
+        }
+    }
+
     public func sendBinaryFrame(_ data: Data) {
         queue.async {
             guard let task = self.wsTask else { return }

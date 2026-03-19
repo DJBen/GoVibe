@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GoVibe Host — Control your iOS Simulator from your iPhone</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --success: #3fb950;
+      --danger: #f85149;
+      --radius: 12px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 64px 24px;
+      text-align: center;
+      gap: 0;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(88, 166, 255, 0.1);
+      border: 1px solid rgba(88, 166, 255, 0.3);
+      border-radius: 100px;
+      padding: 4px 14px;
+      font-size: 13px;
+      color: var(--accent);
+      margin-bottom: 28px;
+    }
+
+    .hero-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    h2 {
+      font-size: clamp(32px, 6vw, 56px);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 20px;
+    }
+
+    h2 span {
+      background: linear-gradient(135deg, var(--accent), #a371f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .tagline {
+      font-size: 18px;
+      color: var(--muted);
+      max-width: 480px;
+      line-height: 1.6;
+      margin-bottom: 48px;
+    }
+
+    .download-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 48px;
+    }
+
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 14px 32px;
+      border-radius: var(--radius);
+      text-decoration: none;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .btn-download:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-download:active {
+      transform: translateY(0);
+    }
+
+    .btn-download svg {
+      flex-shrink: 0;
+    }
+
+    .btn-download.disabled {
+      background: var(--border);
+      color: var(--muted);
+      pointer-events: none;
+      cursor: default;
+    }
+
+    .meta {
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .meta .version {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .version-tag {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 2px 10px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--text);
+    }
+
+    .checksum {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      word-break: break-all;
+      max-width: 560px;
+      color: var(--muted);
+    }
+
+    .error-msg {
+      color: var(--danger);
+      font-size: 13px;
+    }
+
+    .requirements {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px 32px;
+      max-width: 420px;
+      width: 100%;
+      text-align: left;
+    }
+
+    .requirements h3 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    .requirements ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .requirements li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+    }
+
+    .requirements li::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 20px 24px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    footer a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      color: var(--accent);
+    }
+
+    @media (max-width: 600px) {
+      .requirements { padding: 20px; }
+      .btn-download { font-size: 15px; padding: 12px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">G</div>
+  <h1>GoVibe Host</h1>
+</header>
+
+<main>
+  <div class="hero-badge">
+    <span class="dot"></span>
+    macOS App
+  </div>
+
+  <h2>Control your <span>iOS Simulator</span><br>from your iPhone</h2>
+  <p class="tagline">GoVibe Host turns your Mac into a relay — letting your iPhone control the iOS Simulator with real touch gestures, no cables needed.</p>
+
+  <div class="download-wrap">
+    <a id="btn-download" class="btn-download disabled" href="#" download>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      <span id="btn-label">Loading…</span>
+    </a>
+
+    <div class="meta">
+      <div class="version">
+        <span id="version-tag" class="version-tag">—</span>
+        <span id="release-date"></span>
+      </div>
+      <div id="checksum-wrap" class="checksum" style="display:none">
+        SHA-256: <span id="checksum"></span>
+      </div>
+      <div id="error-msg" class="error-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="requirements">
+    <h3>System Requirements</h3>
+    <ul>
+      <li>macOS 15.0 Sequoia or later</li>
+      <li>Apple Silicon or Intel Mac</li>
+      <li>Xcode with iOS Simulator installed</li>
+      <li>iPhone running GoVibe on the same Wi-Fi</li>
+    </ul>
+  </div>
+</main>
+
+<footer>
+  <span>© 2026 GoVibe</span>
+  <a href="https://github.com/sihaolu/GoVibe" target="_blank" rel="noopener">GitHub</a>
+</footer>
+
+<script>
+  const LATEST_URL = 'https://storage.googleapis.com/govibe-host-releases/latest.json';
+
+  async function loadRelease() {
+    const btn = document.getElementById('btn-download');
+    const btnLabel = document.getElementById('btn-label');
+    const versionTag = document.getElementById('version-tag');
+    const releaseDate = document.getElementById('release-date');
+    const checksumWrap = document.getElementById('checksum-wrap');
+    const checksumEl = document.getElementById('checksum');
+    const errorMsg = document.getElementById('error-msg');
+
+    try {
+      const res = await fetch(LATEST_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      btn.href = data.dmgUrl;
+      btn.classList.remove('disabled');
+      btnLabel.textContent = `Download GoVibe Host ${data.version}`;
+      versionTag.textContent = `v${data.version} (${data.build})`;
+
+      if (data.releaseDate) {
+        releaseDate.textContent = `· Released ${data.releaseDate}`;
+      }
+
+      if (data.sha256) {
+        checksumEl.textContent = data.sha256;
+        checksumWrap.style.display = 'block';
+      }
+    } catch (err) {
+      btnLabel.textContent = 'Download unavailable';
+      errorMsg.textContent = 'Could not fetch release info. Please try again later.';
+      errorMsg.style.display = 'block';
+      console.error('Failed to load release:', err);
+    }
+  }
+
+  loadRelease();
+</script>
+
+</body>
+</html>

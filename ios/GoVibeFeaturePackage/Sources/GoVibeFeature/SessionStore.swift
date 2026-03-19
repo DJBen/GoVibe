@@ -15,8 +15,12 @@ final class SessionStore {
     var errorMessage: String?
     var currentUserId: String?
 
+    // Persistent per-host control-channel listeners for real-time session updates.
+    private var listenerTasks: [String: Task<Void, Never>] = [:]
+
     private struct PersistedSavedSession: Decodable {
         let roomId: String
+        let sessionId: String?   // nil in data persisted before the host-scoped room fix
         let hostId: String?
         let kind: SessionKind?
         let lastRelayStatus: String?
@@ -43,6 +47,7 @@ final class SessionStore {
         sessions = []
         hosts = []
         errorMessage = nil
+        stopAllListeners()
         // Also clear persisted data if we want a full wipe, but maybe just memory is enough for now?
         // The requirement said "reset and clear all hosts and all the sessions".
         // To be safe, we should probably clear persistence too, or at least reload.
@@ -79,15 +84,16 @@ final class SessionStore {
             return
         }
 
-        // Pull the latest session list from each known host.
+        // Pull the latest session list from each known host, then start persistent listeners.
         let hostsSnapshot = hosts
         for host in hostsSnapshot {
             await syncSessions(for: host)
         }
+        reconcileListeners()
     }
 
-    /// Queries `<hostId>-ctl` for the host's current sessions and merges any
-    /// unknown sessions into the local store. Silently no-ops if the host is offline.
+    /// Queries `<hostId>-ctl` for the host's current sessions and merges into the local store.
+    /// Silently no-ops if the host is offline.
     func syncSessions(for host: HostInfo) async {
         guard AppConfig.shared.isValid else { return }
         let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
@@ -96,26 +102,120 @@ final class SessionStore {
         let client = HostControlClient(relayWebSocketBase: relayBase)
         do {
             let remote = try await client.listSessions(hostId: host.id)
-            var changed = false
-            for summary in remote {
-                if let index = sessions.firstIndex(where: { $0.roomId == summary.sessionId }) {
-                    // Update kind if we didn't know it before
-                    if sessions[index].kind == nil, let kind = summary.kind {
-                        sessions[index].kind = kind
-                        changed = true
-                    }
-                } else {
-                    var s = SavedSession(roomId: summary.sessionId, hostId: host.id)
-                    s.kind = summary.kind
-                    sessions.append(s)
-                    changed = true
-                }
-            }
-            if changed, let userId = currentUserId {
-                save(for: userId)
-            }
+            applyRemoteSessions(remote, hostId: host.id)
         } catch {
             // Host is offline or unreachable — silently skip.
+        }
+    }
+
+    /// Merges a remote session list into the local store, adding new sessions and
+    /// removing ones that no longer exist on the host.
+    private func applyRemoteSessions(_ remote: [HostSessionSummary], hostId: String) {
+        var changed = false
+        let remoteIds = Set(remote.map(\.sessionId))
+
+        for summary in remote {
+            if let index = sessions.firstIndex(where: { $0.sessionId == summary.sessionId && $0.hostId == hostId }) {
+                if sessions[index].kind == nil, let kind = summary.kind {
+                    sessions[index].kind = kind
+                    changed = true
+                }
+            } else {
+                var s = SavedSession(sessionId: summary.sessionId, hostId: hostId)
+                s.kind = summary.kind
+                sessions.append(s)
+                changed = true
+            }
+        }
+
+        let before = sessions.count
+        sessions.removeAll { $0.hostId == hostId && !remoteIds.contains($0.sessionId) }
+        if sessions.count != before { changed = true }
+
+        if changed, let userId = currentUserId {
+            save(for: userId)
+        }
+    }
+
+    // MARK: - Persistent Listeners
+
+    /// Starts or stops per-host listeners so each host has exactly one live WebSocket
+    /// connection to its control channel. Unsolicited `sessions_list` messages are
+    /// applied immediately without any polling delay.
+    private func reconcileListeners() {
+        guard AppConfig.shared.isValid,
+              let relayBase = AppConfig.shared.relayWebSocketBase,
+              !relayBase.isEmpty else {
+            stopAllListeners()
+            return
+        }
+
+        let activeIds = Set(hosts.map(\.id))
+
+        // Start listeners for newly added hosts.
+        for host in hosts where listenerTasks[host.id] == nil {
+            let hostId = host.id
+            listenerTasks[hostId] = Task { [weak self] in
+                await self?.runListener(hostId: hostId, relayBase: relayBase)
+            }
+        }
+
+        // Cancel listeners for removed hosts.
+        for (hostId, task) in listenerTasks where !activeIds.contains(hostId) {
+            task.cancel()
+            listenerTasks.removeValue(forKey: hostId)
+        }
+    }
+
+    private func stopAllListeners() {
+        listenerTasks.values.forEach { $0.cancel() }
+        listenerTasks.removeAll()
+    }
+
+    private func runListener(hostId: String, relayBase: String) async {
+        while !Task.isCancelled {
+            await connectAndListen(hostId: hostId, relayBase: relayBase)
+            guard !Task.isCancelled else { break }
+            try? await Task.sleep(for: .seconds(5))
+        }
+    }
+
+    private func connectAndListen(hostId: String, relayBase: String) async {
+        guard var components = URLComponents(string: relayBase) else { return }
+        components.queryItems = [URLQueryItem(name: "room", value: "\(hostId)-ctl")]
+        guard let url = components.url else { return }
+
+        let wsTask = URLSession.shared.webSocketTask(with: url)
+        wsTask.resume()
+        defer { wsTask.cancel(with: .goingAway, reason: nil) }
+
+        // Ask for the current list immediately on connect.
+        if let data = try? JSONSerialization.data(withJSONObject: ["type": "list_sessions"]),
+           let json = String(data: data, encoding: .utf8) {
+            try? await wsTask.send(.string(json))
+        }
+
+        while !Task.isCancelled {
+            do {
+                let message = try await wsTask.receive()
+                let text: String
+                switch message {
+                case .string(let s): text = s
+                case .data(let d): text = String(data: d, encoding: .utf8) ?? ""
+                @unknown default: continue
+                }
+                guard let data = text.data(using: .utf8),
+                      let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      parsed["type"] as? String == "sessions_list",
+                      let array = parsed["sessions"] as? [[String: String]] else { continue }
+                let summaries = array.compactMap { entry -> HostSessionSummary? in
+                    guard let sessionId = entry["sessionId"], !sessionId.isEmpty else { return nil }
+                    return HostSessionSummary(sessionId: sessionId, kind: entry["kind"].flatMap { SessionKind(rawValue: $0) })
+                }
+                applyRemoteSessions(summaries, hostId: hostId)
+            } catch {
+                break
+            }
         }
     }
 
@@ -150,7 +250,7 @@ final class SessionStore {
 
     // MARK: - Session Management
 
-    func add(roomId: String, hostId: String) {
+    func add(sessionId: String, hostId: String) {
         guard AppConfig.shared.isValid else {
             errorMessage = "Configuration required."
             return
@@ -159,10 +259,11 @@ final class SessionStore {
             errorMessage = APIError.notAuthenticated.localizedDescription
             return
         }
-        let trimmedRoomId = roomId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedRoomId.isEmpty else { return }
-        if sessions.contains(where: { $0.roomId == trimmedRoomId }) { return }
-        sessions.append(SavedSession(roomId: trimmedRoomId, hostId: hostId))
+        let trimmedId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedId.isEmpty else { return }
+        let newSession = SavedSession(sessionId: trimmedId, hostId: hostId)
+        if sessions.contains(where: { $0.roomId == newSession.roomId }) { return }
+        sessions.append(newSession)
         save(for: userId)
     }
 
@@ -201,7 +302,7 @@ final class SessionStore {
         if !relayBase.isEmpty {
             let client = HostControlClient(relayWebSocketBase: relayBase)
             do {
-                try await client.deleteSession(hostId: session.hostId, sessionId: session.roomId)
+                try await client.deleteSession(hostId: session.hostId, sessionId: session.sessionId)
             } catch {
                 // If remote delete fails, we log it but proceed to delete locally
                 // so the user isn't stuck with a zombie session in their UI.
@@ -257,7 +358,10 @@ final class SessionStore {
             let persisted = try JSONDecoder().decode([PersistedSavedSession].self, from: data)
             sessions = persisted.compactMap { session in
                 guard let hostId = session.hostId, !hostId.isEmpty else { return nil }
-                var saved = SavedSession(roomId: session.roomId, hostId: hostId)
+                // sessionId is nil in data persisted before the host-scoped room fix.
+                // Fall back to the old roomId value, which was the bare session name.
+                let sid = session.sessionId ?? session.roomId
+                var saved = SavedSession(sessionId: sid, hostId: hostId)
                 saved.kind = session.kind
                 saved.lastRelayStatus = session.lastRelayStatus
                 saved.lastActiveAt = session.lastActiveAt

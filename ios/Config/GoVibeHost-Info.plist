@@ -27,7 +27,7 @@
 	<key>GOVIBE_GCP_RELAY_HOST</key>
 	<string>$(GOVIBE_GCP_RELAY_HOST)</string>
 	<key>LSUIElement</key>
-	<true/>
+	<false/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>GoVibe Host uses automation to keep the selected simulator ready for remote control.</string>
 </dict>
