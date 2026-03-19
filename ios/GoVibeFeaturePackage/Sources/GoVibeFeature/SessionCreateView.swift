@@ -88,7 +88,7 @@ struct SessionCreateView: View {
                 sessionId: trimmedId,
                 tmuxSession: trimmedTmux.isEmpty ? nil : trimmedTmux
             )
-            store.add(roomId: trimmedId, hostId: host.id)
+            store.add(sessionId: trimmedId, hostId: host.id)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

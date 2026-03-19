@@ -367,7 +367,7 @@ struct SessionListView: View {
                 .foregroundStyle(session.kind == nil ? Color.secondary : Color.primary)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.roomId)
+                Text(session.sessionId)
                     .font(.body)
                 Text(session.lastRelayStatus ?? "Never connected")
                     .font(.caption)
@@ -475,7 +475,7 @@ private struct SessionCardView: View {
                         Circle()
                             .fill(statusDotColor(session.lastRelayStatus))
                             .frame(width: 8, height: 8)
-                        Text(session.roomId)
+                        Text(session.sessionId)
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundStyle(.white)

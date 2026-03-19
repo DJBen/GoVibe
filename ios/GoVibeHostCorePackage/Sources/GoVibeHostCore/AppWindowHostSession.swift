@@ -26,7 +26,7 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
-        self.macDeviceId = config.sessionId
+        self.macDeviceId = "\(hostId)-\(config.sessionId)"
         self.logger = logger
         self.transport = RelayTransport(logger: logger)
         self.bridge = AppWindowBridge(

@@ -27,7 +27,7 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
-        self.macDeviceId = config.sessionId
+        self.macDeviceId = "\(hostId)-\(config.sessionId)"
         self.logger = logger
         self.bridge = RelayTransport(logger: logger)
         self.simulatorBridge = SimulatorBridge(logger: logger)

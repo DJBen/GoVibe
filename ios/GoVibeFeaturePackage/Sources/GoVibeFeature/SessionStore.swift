@@ -20,6 +20,7 @@ final class SessionStore {
 
     private struct PersistedSavedSession: Decodable {
         let roomId: String
+        let sessionId: String?   // nil in data persisted before the host-scoped room fix
         let hostId: String?
         let kind: SessionKind?
         let lastRelayStatus: String?
@@ -114,13 +115,13 @@ final class SessionStore {
         let remoteIds = Set(remote.map(\.sessionId))
 
         for summary in remote {
-            if let index = sessions.firstIndex(where: { $0.roomId == summary.sessionId }) {
+            if let index = sessions.firstIndex(where: { $0.sessionId == summary.sessionId && $0.hostId == hostId }) {
                 if sessions[index].kind == nil, let kind = summary.kind {
                     sessions[index].kind = kind
                     changed = true
                 }
             } else {
-                var s = SavedSession(roomId: summary.sessionId, hostId: hostId)
+                var s = SavedSession(sessionId: summary.sessionId, hostId: hostId)
                 s.kind = summary.kind
                 sessions.append(s)
                 changed = true
@@ -128,7 +129,7 @@ final class SessionStore {
         }
 
         let before = sessions.count
-        sessions.removeAll { $0.hostId == hostId && !remoteIds.contains($0.roomId) }
+        sessions.removeAll { $0.hostId == hostId && !remoteIds.contains($0.sessionId) }
         if sessions.count != before { changed = true }
 
         if changed, let userId = currentUserId {
@@ -249,7 +250,7 @@ final class SessionStore {
 
     // MARK: - Session Management
 
-    func add(roomId: String, hostId: String) {
+    func add(sessionId: String, hostId: String) {
         guard AppConfig.shared.isValid else {
             errorMessage = "Configuration required."
             return
@@ -258,10 +259,11 @@ final class SessionStore {
             errorMessage = APIError.notAuthenticated.localizedDescription
             return
         }
-        let trimmedRoomId = roomId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedRoomId.isEmpty else { return }
-        if sessions.contains(where: { $0.roomId == trimmedRoomId }) { return }
-        sessions.append(SavedSession(roomId: trimmedRoomId, hostId: hostId))
+        let trimmedId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedId.isEmpty else { return }
+        let newSession = SavedSession(sessionId: trimmedId, hostId: hostId)
+        if sessions.contains(where: { $0.roomId == newSession.roomId }) { return }
+        sessions.append(newSession)
         save(for: userId)
     }
 
@@ -300,7 +302,7 @@ final class SessionStore {
         if !relayBase.isEmpty {
             let client = HostControlClient(relayWebSocketBase: relayBase)
             do {
-                try await client.deleteSession(hostId: session.hostId, sessionId: session.roomId)
+                try await client.deleteSession(hostId: session.hostId, sessionId: session.sessionId)
             } catch {
                 // If remote delete fails, we log it but proceed to delete locally
                 // so the user isn't stuck with a zombie session in their UI.
@@ -356,7 +358,10 @@ final class SessionStore {
             let persisted = try JSONDecoder().decode([PersistedSavedSession].self, from: data)
             sessions = persisted.compactMap { session in
                 guard let hostId = session.hostId, !hostId.isEmpty else { return nil }
-                var saved = SavedSession(roomId: session.roomId, hostId: hostId)
+                // sessionId is nil in data persisted before the host-scoped room fix.
+                // Fall back to the old roomId value, which was the bare session name.
+                let sid = session.sessionId ?? session.roomId
+                var saved = SavedSession(sessionId: sid, hostId: hostId)
                 saved.kind = session.kind
                 saved.lastRelayStatus = session.lastRelayStatus
                 saved.lastActiveAt = session.lastActiveAt

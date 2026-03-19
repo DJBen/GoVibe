@@ -63,7 +63,12 @@ struct HostInfo: Identifiable, Codable, Hashable {
 }
 
 struct SavedSession: Identifiable, Codable, Hashable {
+    /// Relay room key — always `"\(hostId)-\(sessionId)"`.
+    /// Scoped to the host so two hosts with identically-named sessions
+    /// never share a relay room.
     var roomId: String
+    /// The user-visible session name (e.g. "ios-dev").
+    var sessionId: String
     var hostId: String
     var kind: SessionKind?
     var lastRelayStatus: String?
@@ -71,9 +76,10 @@ struct SavedSession: Identifiable, Codable, Hashable {
 
     var id: String { roomId }
 
-    init(roomId: String, hostId: String) {
-        self.roomId = roomId
+    init(sessionId: String, hostId: String) {
+        self.sessionId = sessionId
         self.hostId = hostId
+        self.roomId = "\(hostId)-\(sessionId)"
     }
 }
 
