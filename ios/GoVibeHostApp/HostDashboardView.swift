@@ -100,9 +100,6 @@ struct HostDashboardView: View {
                     .foregroundStyle(.secondary)
                 Button("Add Session") { showingWizard = true }
                     .buttonStyle(.borderedProminent)
-
-                Divider()
-                    .padding(.vertical, 8)
             }
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
