@@ -52,7 +52,7 @@ struct GoVibeHostApp: App {
         }
         .windowResizability(.contentSize)
 
-        MenuBarExtra("GoVibe Host", systemImage: "desktopcomputer.and.macbook") {
+        MenuBarExtra {
             HostMenuBarView(manager: manager)
             Divider()
             if auth.isAuthenticated {
@@ -66,6 +66,9 @@ struct GoVibeHostApp: App {
             Button("Quit GoVibe Host") {
                 NSApp.terminate(nil)
             }
+        } label: {
+            Image("HostMenuBarIcon")
+                .renderingMode(.template)
         }
     }
 
