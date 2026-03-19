@@ -69,7 +69,7 @@ struct GoVibeHostApp: App {
                 }
                 Divider()
             }
-            ConfigureRelayButton()
+            SetupGoVibeButton(manager: manager)
             Divider()
             Button("Quit GoVibe Host") {
                 NSApp.terminate(nil)
@@ -90,13 +90,15 @@ struct GoVibeHostApp: App {
     }
 }
 
-private struct ConfigureRelayButton: View {
-    @Environment(\.openSettings) private var openSettings
+private struct SetupGoVibeButton: View {
+    @Environment(\.openWindow) private var openWindow
+    @State var manager: HostSessionManager
 
     var body: some View {
-        Button("Configure Relay...") {
+        Button("Set up GoVibe") {
+            manager.restartSetup()
             NSApp.activate(ignoringOtherApps: true)
-            openSettings()
+            openWindow(id: "main")
         }
     }
 }

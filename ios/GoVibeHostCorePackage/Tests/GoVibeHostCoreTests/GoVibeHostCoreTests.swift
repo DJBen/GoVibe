@@ -44,6 +44,23 @@ final class GoVibeHostCoreTests: XCTestCase {
         manager.stopSession(id: "session-1")
     }
 
+    @MainActor
+    func testRestartSetupClearsOnboardingCompletion() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let manager = HostSessionManager(defaults: defaults)
+
+        manager.completeOnboarding(
+            relayBase: "ws://localhost:8080/relay",
+            defaultShellPath: "/bin/zsh",
+            preferredSimulatorUDID: nil
+        )
+        manager.restartSetup()
+
+        XCTAssertFalse(manager.settings.onboardingCompleted)
+        XCTAssertEqual(manager.settings.relayBase, "ws://localhost:8080/relay")
+        XCTAssertEqual(manager.settings.defaultShellPath, "/bin/zsh")
+    }
+
     func testPlanParserExtractsSingleBlock() {
         let text = """
         before

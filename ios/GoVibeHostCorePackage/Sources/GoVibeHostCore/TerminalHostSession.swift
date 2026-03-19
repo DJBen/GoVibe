@@ -353,16 +353,20 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         ) {
             let tty = URL(fileURLWithPath: paneTTY).lastPathComponent
             let ttyCommandLines = ttyProcessCommandLines(tty: tty)
+            let foregroundLine = foregroundCommandLine(onTTY: tty)
+            // Check the foreground process alone first — it takes priority over background
+            // TTY processes. This prevents a lingering background process (e.g. a previous
+            // Gemini node process) from shadowing the actual foreground program (e.g. Claude).
             if let special = specialProgramDisplayName(
                 currentCommand: currentRaw,
                 startCommand: startCommandRaw,
-                foregroundCommandLine: nil,
+                foregroundCommandLine: foregroundLine,
                 panePidCommandLine: nil,
-                ttyCommandLines: ttyCommandLines
+                ttyCommandLines: []
             ) {
                 return special
             }
-            let foregroundLine = foregroundCommandLine(onTTY: tty)
+            // Fall back to all TTY processes if foreground alone didn't match.
             if let special = specialProgramDisplayName(
                 currentCommand: currentRaw,
                 startCommand: startCommandRaw,
@@ -428,12 +432,15 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             return "Codex"
         }
 
-        if allValues.contains(where: { $0.contains("gemini") || $0.contains("@google/gemini-cli") || $0.contains("gemini-cli") || $0.contains("google gemini") }) {
-            return "Gemini"
-        }
-
+        // Claude is checked before Gemini because "gemini" can appear as a substring in
+        // claude CLI arguments (e.g. --resume gemini-cli-notification-parity), causing a
+        // false-positive Gemini match. "claude" is a stronger signal and should win.
         if allValues.contains(where: { $0.contains("claude") || $0.contains("anthropic") || $0.contains("claude-code") }) {
             return "Claude"
+        }
+
+        if allValues.contains(where: { $0.contains("gemini") || $0.contains("@google/gemini-cli") || $0.contains("gemini-cli") || $0.contains("google gemini") }) {
+            return "Gemini"
         }
 
         if isVersionLikeLabel(currentCommand),

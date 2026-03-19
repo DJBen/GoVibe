@@ -110,9 +110,9 @@ struct ForegroundNotificationPayload {
     private static func defaultTitle(for event: String?) -> String {
         let assistant = assistantName(for: event)
         switch event {
-        case "claude_approval_required", "codex_approval_required":
+        case "claude_approval_required", "codex_approval_required", "gemini_approval_required":
             return "Unblock \(assistant) now"
-        case "claude_turn_complete", "codex_turn_complete":
+        case "claude_turn_complete", "codex_turn_complete", "gemini_turn_complete":
             return "\(assistant) finished"
         default:
             return "\(assistant) update"
@@ -122,9 +122,9 @@ struct ForegroundNotificationPayload {
     private static func defaultBody(for event: String?) -> String {
         let assistant = assistantName(for: event)
         switch event {
-        case "claude_approval_required", "codex_approval_required":
+        case "claude_approval_required", "codex_approval_required", "gemini_approval_required":
             return "\(assistant) requires your decision before proceeding"
-        case "claude_turn_complete", "codex_turn_complete":
+        case "claude_turn_complete", "codex_turn_complete", "gemini_turn_complete":
             return "\(assistant) is waiting for your next prompt."
         default:
             return "\(assistant) is waiting for your input."
@@ -132,9 +132,8 @@ struct ForegroundNotificationPayload {
     }
 
     private static func assistantName(for event: String?) -> String {
-        if event?.starts(with: "codex_") == true {
-            return "Codex"
-        }
+        if event?.starts(with: "codex_") == true { return "Codex" }
+        if event?.starts(with: "gemini_") == true { return "Gemini" }
         return "Claude"
     }
 }

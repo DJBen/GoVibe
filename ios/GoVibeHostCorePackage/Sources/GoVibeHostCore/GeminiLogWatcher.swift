@@ -88,7 +88,7 @@ final class GeminiLogWatcher {
         lastSeenMessageCount = messages.count
 
         for message in newMessages {
-            if (message["role"] as? String) == "user" {
+            if (message["type"] as? String) == "user" {
                 if awaitingNextTurn {
                     logger.info("GeminiLogWatcher: user turn detected, clearing awaitingNextTurn")
                 }

@@ -36,6 +36,11 @@ struct QuickAction: Identifiable {
 
     private static let geminiActions: [QuickAction] = [
         QuickAction(
+            title: "Cycle Mode",
+            systemImage: "arrow.triangle.2.circlepath",
+            payloads: [Data([0x1B, 0x5B, 0x5A])]  // Shift+Tab (ESC[Z)
+        ),
+        QuickAction(
             title: "Exit Gemini",
             systemImage: "xmark.circle",
             payloads: [Data([0x03]), Data([0x03])],  // Ctrl+C × 2

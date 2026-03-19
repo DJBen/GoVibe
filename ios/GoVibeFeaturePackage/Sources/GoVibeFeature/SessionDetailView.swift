@@ -86,7 +86,7 @@ struct SessionDetailView: View {
         .accessibilityIdentifier("govibe_root_view")
         .onChange(of: viewModel.paneProgram) { _, newProgram in
             guard let program = newProgram,
-                  (program == "Claude" || program == "Codex"),
+                  (program == "Claude" || program == "Codex" || program == "Gemini"),
                   viewModel.relayStatus == "Connected",
                   !GoVibeBootstrap.hasSeenNotificationOnboarding,
                   !showNotificationOnboarding else { return }
