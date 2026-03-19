@@ -98,7 +98,7 @@ node index.js
 2. Open `ios/GoVibe.xcodeproj` or `ios/GoVibe.xcworkspace` in Xcode.
 3. Build and run the `GoVibeHost` macOS target.
 4. In the host onboarding flow:
-   - confirm the generated Host ID
+   - confirm the host appears under your signed-in account
    - set the relay WebSocket URL to `ws://localhost:8080/relay`
    - grant Accessibility and Screen Recording
    - keep the default shell path unless you need a custom shell
@@ -112,7 +112,7 @@ node index.js
    - `GOVIBE_GCP_PROJECT_ID = <project-id>`
    - `GOVIBE_GCP_RELAY_HOST = localhost:8080`
 3. Run the iOS app.
-4. Add your Mac host in the app using the Host ID shown by `GoVibeHost`.
+4. Sign in to the iOS app with the same account; your Mac host should appear automatically.
 5. Refresh sessions if needed. Available sessions are discovered automatically from the host control channel.
 
 ---
@@ -176,7 +176,7 @@ Note the service URL printed at the end, then copy only its host into `GOVIBE_GC
 1. Open `ios/GoVibe.xcodeproj` or `ios/GoVibe.xcworkspace` in Xcode.
 2. Build and run the `GoVibeHost` macOS target.
 3. In the onboarding flow:
-   - keep the generated Host ID or copy it for later pairing
+   - keep the host signed in and online for automatic discovery
    - set Relay to `wss://<your-cloud-run-host>/relay`
    - grant Accessibility and Screen Recording
    - optionally change the default shell path
@@ -193,7 +193,7 @@ The app assembles:
 - API base: `https://<region>-<project>.cloudfunctions.net/api`
 - Relay WS base: `wss://<relay-host>/relay`
 
-After signing in, add your Mac host using the Host ID shown in the macOS host app, then the app discovers and syncs available sessions automatically.
+After signing in on both devices with the same account, the app discovers your Mac host automatically and syncs available sessions.
 
 ---
 
@@ -204,7 +204,7 @@ After signing in, add your Mac host using the Host ID shown in the macOS host ap
 | `GOVIBE_GCP_REGION` | iOS app | GCP region used to assemble Functions URL, e.g. `us-west1`. |
 | `GOVIBE_GCP_PROJECT_ID` | iOS app | Firebase/GCP project ID used to assemble Functions URL. |
 | `GOVIBE_GCP_RELAY_HOST` | iOS app | Cloud Run host only (no scheme/path), e.g. `govibe-relay-xxxxx-uw.a.run.app`. |
-| Host ID | macOS Host app | Generated locally by `GoVibeHost`; used by the iOS app to pair with a specific Mac. |
+| Host ID | macOS Host app | Stable machine identifier used internally for discovery, ownership, and relay room scoping. |
 | Relay URL | macOS Host app | Full relay WebSocket URL, e.g. `wss://<service>.<region>.run.app/relay`, configured in host onboarding. |
 | Shell Path | macOS Host app | Default shell launched for new terminal sessions on the host. |
 

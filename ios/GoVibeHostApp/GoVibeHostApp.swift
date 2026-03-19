@@ -20,8 +20,8 @@ struct GoVibeHostApp: App {
                     HostAppRootView(manager: manager)
                         .frame(minWidth: 980, minHeight: 680)
                         .onAppear {
-                            manager.updateFromConfig()
                             syncHostRegistration()
+                            manager.updateFromConfig()
                         }
                 } else {
                     HostConfigSetupView()
@@ -31,11 +31,12 @@ struct GoVibeHostApp: App {
             .task {
                 await auth.restoreSessionIfPossible()
                 syncHostRegistration()
+                manager.updateFromConfig()
             }
             .onChange(of: config.relayHost) { _, _ in
-                manager.updateFromConfig()
                 auth.refreshConfig()
                 syncHostRegistration()
+                manager.updateFromConfig()
             }
         }
         .windowResizability(.contentSize)
@@ -45,7 +46,7 @@ struct GoVibeHostApp: App {
                 .frame(minWidth: 400, minHeight: 300)
         }
 
-        Window("Host ID", id: "host-id") {
+        Window("Device ID", id: "host-id") {
             HostIDView(hostId: manager.settings.hostId)
                 .frame(minWidth: 360, minHeight: 160)
         }

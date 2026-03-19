@@ -6,10 +6,8 @@ public enum HostRuntimeDefaults {
         bundle: Bundle = .main,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> HostSettings {
-        let hostId = environment["GOVIBE_HOST_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let defaultHostID = hostId?.isEmpty == false ? hostId! : UUID().uuidString
         return HostSettings(
-            hostId: defaultHostID,
+            hostId: HostMachineIdentity.resolveHostID(environment: environment),
             relayBase: HostConfig.shared.relayWebSocketBase ?? "",
             defaultShellPath: environment["GOVIBE_SHELL"] ?? environment["SHELL"] ?? "/bin/zsh"
         )

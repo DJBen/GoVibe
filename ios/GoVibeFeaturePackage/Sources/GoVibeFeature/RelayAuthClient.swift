@@ -26,6 +26,8 @@ struct RelayAuthClient {
             throw RelayAuthError.apiUnavailable
         }
 
+        try await GoVibeAuthController.shared.ensureCurrentIOSDeviceRegistered()
+
         let apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
         let tokenResponse = try await apiClient.issueRelayToken(
             deviceId: LocalDevice.iosDeviceID,

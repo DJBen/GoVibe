@@ -15,7 +15,7 @@ struct HostMenuBarView: View {
                 }
                 .buttonStyle(.plain)
 
-                Button("Show Host ID") {
+                Button("Show Device ID") {
                     presentHostIDWindow()
                 }
                 .buttonStyle(.plain)
@@ -73,7 +73,7 @@ struct HostMenuBarView: View {
         openWindow(id: "host-id")
 
         DispatchQueue.main.async {
-            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "host-id" || $0.title == "Host ID" }) else { return }
+            guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "host-id" || $0.title == "Device ID" }) else { return }
             if window.isMiniaturized {
                 window.deminiaturize(nil)
             }

@@ -82,12 +82,12 @@ Host discovery and relay token enforcement are both now expected parts of the pr
 - `POST /device/heartbeat`
 - `POST /hosts/discover`
 - Firestore device schema support for host metadata
-- iOS client models and store merging for discovered hosts
+- iOS client models and store updates for discovered hosts
 
 ## Recommended Next Implementation Steps
 
 1. Replace iOS anonymous auth with Google sign-in.
 2. Add macOS Google/Firebase sign-in.
 3. Register the macOS host on sign-in and heartbeat periodically.
-4. Update the iOS host picker UI to prefer discovered hosts over manual host entry.
+4. Update the iOS host/session UI to rely on discovered hosts instead of manual host entry.
 5. Lock down the relay with signed join tokens.

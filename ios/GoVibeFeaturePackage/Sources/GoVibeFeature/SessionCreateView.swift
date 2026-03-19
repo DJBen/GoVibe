@@ -81,7 +81,10 @@ struct SessionCreateView: View {
         errorMessage = nil
         defer { isCreating = false }
 
-        let client = HostControlClient(relayWebSocketBase: AppRuntimeConfig.relayWebSocketBase)
+        let client = HostControlClient(
+            relayWebSocketBase: AppRuntimeConfig.relayWebSocketBase,
+            apiBaseURL: AppRuntimeConfig.apiBaseURL
+        )
         do {
             try await client.createSession(
                 hostId: host.id,

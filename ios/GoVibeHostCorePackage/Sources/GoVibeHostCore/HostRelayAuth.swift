@@ -26,6 +26,8 @@ struct HostRelayAuth {
             throw HostRelayAuthError.apiUnavailable
         }
 
+        try await HostAuthController.shared.ensureHostRegistrationReady()
+
         let apiClient = HostAPIClient(baseURL: apiBaseURL)
         let tokenResponse = try await apiClient.issueRelayToken(
             deviceId: deviceId,

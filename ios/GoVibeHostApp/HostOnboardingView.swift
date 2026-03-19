@@ -20,7 +20,7 @@ struct HostOnboardingView: View {
 
                 GroupBox("1. Host Identity") {
                     VStack(alignment: .leading, spacing: 10) {
-                        identityRow(label: "Host ID", value: manager.settings.hostId)
+                        identityRow(label: "Device ID", value: manager.settings.hostId)
                     }
                 }
 

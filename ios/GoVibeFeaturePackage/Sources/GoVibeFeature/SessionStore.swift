@@ -6,7 +6,7 @@ import Observation
 @Observable
 final class SessionStore {
     private let sessionsBaseKey = "saved_sessions"
-    private let hostsBaseKey = "saved_hosts"
+    private let legacyHostsBaseKey = "saved_hosts"
     private var apiClient: GoVibeAPIClient
 
     var sessions: [SavedSession] = []
@@ -44,15 +44,13 @@ final class SessionStore {
     }
     
     func reset() {
+        if let userId = currentUserId {
+            clearPersistedState(for: userId)
+        }
         sessions = []
         hosts = []
         errorMessage = nil
         stopAllListeners()
-        // Also clear persisted data if we want a full wipe, but maybe just memory is enough for now?
-        // The requirement said "reset and clear all hosts and all the sessions".
-        // To be safe, we should probably clear persistence too, or at least reload.
-        // But since we are changing config (potentially to a new project), the old data is invalid.
-        // So clearing memory is good start.
     }
 
     func sessions(for hostId: String) -> [SavedSession] {
@@ -62,6 +60,7 @@ final class SessionStore {
     // MARK: - Lifecycle
 
     func refresh() async {
+        guard !isLoading else { return }
         guard AppConfig.shared.isValid else {
             errorMessage = "Configuration required."
             isLoading = false
@@ -76,7 +75,6 @@ final class SessionStore {
             let user = try await ensureAuthenticated()
             currentUserId = user.uid
             load(for: user.uid)
-            loadHosts(for: user.uid)
             try await refreshDiscoveredHosts()
         } catch {
             sessions = []
@@ -85,24 +83,29 @@ final class SessionStore {
             return
         }
 
-        // Pull the latest session list from each known host, then start persistent listeners.
+        // Pull the latest session list from each known host in parallel so one stale
+        // host cannot block the entire refresh spinner for multiple sequential timeouts.
         let hostsSnapshot = hosts
-        for host in hostsSnapshot {
-            await syncSessions(for: host)
+        await withTaskGroup(of: Void.self) { group in
+            for host in hostsSnapshot {
+                group.addTask { [weak self] in
+                    await self?.syncSessions(for: host, timeout: .seconds(3))
+                }
+            }
         }
         reconcileListeners()
     }
 
     /// Queries `<hostId>-ctl` for the host's current sessions and merges into the local store.
     /// Silently no-ops if the host is offline.
-    func syncSessions(for host: HostInfo) async {
+    func syncSessions(for host: HostInfo, timeout: Duration = .seconds(10)) async {
         guard AppConfig.shared.isValid else { return }
         let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
         guard !relayBase.isEmpty else { return }
 
-        let client = HostControlClient(relayWebSocketBase: relayBase)
+        let client = HostControlClient(relayWebSocketBase: relayBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
         do {
-            let remote = try await client.listSessions(hostId: host.id)
+            let remote = try await client.listSessions(hostId: host.id, timeout: timeout)
             applyRemoteSessions(remote, hostId: host.id)
         } catch {
             // Host is offline or unreachable — silently skip.
@@ -222,37 +225,6 @@ final class SessionStore {
         }
     }
 
-    // MARK: - Host Management
-
-    func addHost(id: String, name: String) {
-        guard AppConfig.shared.isValid else {
-            errorMessage = "Configuration required."
-            return
-        }
-        guard let userId = currentUserId else {
-            errorMessage = APIError.notAuthenticated.localizedDescription
-            return
-        }
-        let trimmedId = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedId.isEmpty, !trimmedName.isEmpty else { return }
-        guard !hosts.contains(where: { $0.id == trimmedId }) else { return }
-        hosts.append(HostInfo(id: trimmedId, name: trimmedName))
-        saveHosts(for: userId)
-        save(for: userId)
-        reconcileListeners()
-    }
-
-    func removeHost(id: String) {
-        // Removal doesn't strictly need config, but better safe.
-        guard let userId = currentUserId else { return }
-        hosts.removeAll { $0.id == id }
-        sessions.removeAll { $0.hostId == id }
-        saveHosts(for: userId)
-        save(for: userId)
-        reconcileListeners()
-    }
-
     // MARK: - Session Management
 
     func add(sessionId: String, hostId: String) {
@@ -305,7 +277,7 @@ final class SessionStore {
     func deleteSession(_ session: SavedSession) async {
         let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
         if !relayBase.isEmpty {
-            let client = HostControlClient(relayWebSocketBase: relayBase)
+            let client = HostControlClient(relayWebSocketBase: relayBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
             do {
                 try await client.deleteSession(hostId: session.hostId, sessionId: session.sessionId)
             } catch {
@@ -342,7 +314,7 @@ final class SessionStore {
     }
 
     private func hostsStorageKey(for userId: String) -> String {
-        "\(hostsBaseKey)_\(userId)"
+        "\(legacyHostsBaseKey)_\(userId)"
     }
 
     private func save(for userId: String) {
@@ -378,63 +350,33 @@ final class SessionStore {
         }
     }
 
-    private func saveHosts(for userId: String) {
-        do {
-            let persisted = hosts.filter { !$0.isDiscovered }
-            let data = try JSONEncoder().encode(persisted)
-            UserDefaults.standard.set(data, forKey: hostsStorageKey(for: userId))
-        } catch {
-            errorMessage = "Failed to persist host list."
-        }
-    }
-
-    private func loadHosts(for userId: String) {
-        guard let data = UserDefaults.standard.data(forKey: hostsStorageKey(for: userId)) else {
-            hosts = []
-            return
-        }
-        do {
-            hosts = try JSONDecoder().decode([HostInfo].self, from: data)
-        } catch {
-            hosts = []
-        }
-    }
-
     private func refreshDiscoveredHosts() async throws {
         let result = try await apiClient.discoverHosts()
-        mergeDiscoveredHosts(result.hosts)
+        applyDiscoveredHosts(result.hosts)
     }
 
-    private func mergeDiscoveredHosts(_ discoveredHosts: [DiscoveredHost]) {
-        let manualHosts = hosts.filter { !$0.isDiscovered }
-        var merged = manualHosts
+    private func clearPersistedState(for userId: String) {
+        UserDefaults.standard.removeObject(forKey: storageKey(for: userId))
+        UserDefaults.standard.removeObject(forKey: hostsStorageKey(for: userId))
 
-        for discovered in discoveredHosts {
-            if let index = merged.firstIndex(where: { $0.id == discovered.deviceId }) {
-                merged[index].isDiscovered = true
-                merged[index].capabilities = discovered.capabilities
-                merged[index].isOnline = discovered.isOnline
-                merged[index].lastSeenAt = discovered.lastSeenAt
-                merged[index].lastOnlineAt = discovered.lastOnlineAt
-                if merged[index].name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    merged[index].name = discovered.displayName
-                }
-            } else {
-                merged.append(
-                    HostInfo(
-                        id: discovered.deviceId,
-                        name: discovered.displayName,
-                        isDiscovered: true,
-                        capabilities: discovered.capabilities,
-                        isOnline: discovered.isOnline,
-                        lastSeenAt: discovered.lastSeenAt,
-                        lastOnlineAt: discovered.lastOnlineAt
-                    )
-                )
-            }
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+        if let cachesDir = caches.first?.appendingPathComponent("govibe_thumbs", isDirectory: true) {
+            try? FileManager.default.removeItem(at: cachesDir)
         }
+    }
 
-        hosts = merged.sorted { lhs, rhs in
+    private func applyDiscoveredHosts(_ discoveredHosts: [DiscoveredHost]) {
+        hosts = discoveredHosts.map { discovered in
+            HostInfo(
+                id: discovered.deviceId,
+                name: discovered.displayName,
+                capabilities: discovered.capabilities,
+                isOnline: discovered.isOnline,
+                lastSeenAt: discovered.lastSeenAt,
+                lastOnlineAt: discovered.lastOnlineAt
+            )
+        }
+        .sorted { lhs, rhs in
             switch ((lhs.isOnline ?? false), (rhs.isOnline ?? false)) {
             case (true, false):
                 return true
@@ -443,6 +385,13 @@ final class SessionStore {
             default:
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
+        }
+
+        let activeHostIDs = Set(hosts.map(\.id))
+        let originalCount = sessions.count
+        sessions.removeAll { !activeHostIDs.contains($0.hostId) }
+        if sessions.count != originalCount, let userId = currentUserId {
+            save(for: userId)
         }
     }
 

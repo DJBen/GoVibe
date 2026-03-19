@@ -70,6 +70,13 @@ final class SessionViewModel {
             return
         }
 
+        do {
+            try await GoVibeAuthController.shared.ensureCurrentIOSDeviceRegistered()
+        } catch {
+            logs.append(TerminalLine(text: "Device registration failed: \(error.localizedDescription)"))
+            return
+        }
+
         // Register whatever FCM token is already available, then stay subscribed to refreshes.
         GoVibeAppDelegate.onFCMTokenRefresh = { [weak self] token in
             Task { @MainActor [weak self] in
@@ -88,6 +95,7 @@ final class SessionViewModel {
         defer { isBusy = false }
 
         do {
+            try await GoVibeAuthController.shared.ensureCurrentIOSDeviceRegistered()
             let response = try await apiClient.sessionCreate(ownerDeviceId: iosDeviceId, peerDeviceId: hostId)
             sessionId = response.sessionId
             logs.append(TerminalLine(text: "Session created: \(response.sessionId)"))

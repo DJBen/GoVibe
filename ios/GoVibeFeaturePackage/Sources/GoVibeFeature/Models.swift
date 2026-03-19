@@ -78,9 +78,8 @@ enum SessionKind: String, Codable {
 }
 
 struct HostInfo: Identifiable, Codable, Hashable {
-    var id: String       // hostId UUID string from the macOS GoVibe Host app
-    var name: String     // user-given display label
-    var isDiscovered: Bool
+    var id: String       // stable host device ID from the authenticated macOS GoVibe Host app
+    var name: String     // display name reported by the host
     var capabilities: [String]
     var isOnline: Bool?
     var lastSeenAt: Date?
@@ -89,7 +88,6 @@ struct HostInfo: Identifiable, Codable, Hashable {
     init(
         id: String,
         name: String,
-        isDiscovered: Bool = false,
         capabilities: [String] = [],
         isOnline: Bool? = nil,
         lastSeenAt: Date? = nil,
@@ -97,7 +95,6 @@ struct HostInfo: Identifiable, Codable, Hashable {
     ) {
         self.id = id
         self.name = name
-        self.isDiscovered = isDiscovered
         self.capabilities = capabilities
         self.isOnline = isOnline
         self.lastSeenAt = lastSeenAt

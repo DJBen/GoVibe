@@ -119,6 +119,9 @@ wss.on("connection", (ws, req) => {
         peer.send(msg);
       }
     }
+    if (ws.readyState === ws.OPEN) {
+      ws.send(msg);
+    }
   }
 
   ws.on("message", (data, isBinary) => {

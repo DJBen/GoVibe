@@ -27,6 +27,10 @@ public final class HostAuthController {
     private var heartbeatTask: Task<Void, Never>?
     @ObservationIgnored
     private var apiClient: HostAPIClient?
+    @ObservationIgnored
+    private var registrationTask: Task<Void, Error>?
+    @ObservationIgnored
+    private var latestRegistrationPayload: HostRegistrationPayload?
 
     public var isAuthenticated: Bool {
         currentUser != nil
@@ -92,6 +96,8 @@ public final class HostAuthController {
     public func signOut() {
         heartbeatTask?.cancel()
         heartbeatTask = nil
+        registrationTask?.cancel()
+        registrationTask = nil
         do {
             try Auth.auth().signOut()
         } catch {
@@ -118,21 +124,51 @@ public final class HostAuthController {
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString
         )
+        latestRegistrationPayload = payload
+        registrationTask = nil
 
         heartbeatTask = Task { [weak self] in
             guard let self else { return }
-            await self.runHostRegistrationLoop(payload: payload)
+            await self.runHostRegistrationLoop()
         }
     }
 
-    private func runHostRegistrationLoop(payload: HostRegistrationPayload) async {
+    public func ensureHostRegistrationReady() async throws {
+        guard let apiClient else {
+            throw HostAuthError.apiUnavailable
+        }
+        guard Auth.auth().currentUser != nil else {
+            throw HostAuthError.notAuthenticated
+        }
+        guard let payload = latestRegistrationPayload else {
+            throw HostAuthError.registrationNotConfigured
+        }
+        if let task = registrationTask {
+            try await task.value
+            return
+        }
+
+        let task = Task {
+            try await apiClient.registerHost(payload)
+        }
+        registrationTask = task
+
+        do {
+            try await task.value
+        } catch {
+            registrationTask = nil
+            throw error
+        }
+    }
+
+    private func runHostRegistrationLoop() async {
         guard let apiClient else {
             errorMessage = "Host API base URL is not configured."
             return
         }
 
         do {
-            try await apiClient.registerHost(payload)
+            try await ensureHostRegistrationReady()
             errorMessage = nil
         } catch {
             errorMessage = "Host registration failed: \(error.localizedDescription)"
@@ -142,6 +178,7 @@ public final class HostAuthController {
         while !Task.isCancelled {
             do {
                 try await Task.sleep(for: .seconds(30))
+                guard let payload = latestRegistrationPayload else { continue }
                 try await apiClient.heartbeat(payload)
             } catch is CancellationError {
                 break
@@ -185,11 +222,20 @@ public final class HostAuthController {
 
 private enum HostAuthError: LocalizedError {
     case missingIDToken
+    case apiUnavailable
+    case notAuthenticated
+    case registrationNotConfigured
 
     var errorDescription: String? {
         switch self {
         case .missingIDToken:
             return "Google sign-in returned no ID token."
+        case .apiUnavailable:
+            return "Host API base URL is not configured."
+        case .notAuthenticated:
+            return "Authentication required. Sign in and try again."
+        case .registrationNotConfigured:
+            return "Host registration is not configured yet."
         }
     }
 }

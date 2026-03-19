@@ -118,7 +118,16 @@ public final class HostControlChannel: @unchecked Sendable {
                     self.logger.error("HostControl receive error: \(error.localizedDescription)")
                     self.scheduleReconnect()
                 case .success(let message):
-                    if case .string(let text) = message {
+                    let text: String?
+                    switch message {
+                    case .string(let raw):
+                        text = raw
+                    case .data(let data):
+                        text = String(data: data, encoding: .utf8)
+                    @unknown default:
+                        text = nil
+                    }
+                    if let text {
                         self.handleMessage(text)
                     }
                     self.receiveLoop(generation: generation)

@@ -36,7 +36,7 @@ struct HostDashboardView: View {
                 Button {
                     showingHostIDPopover = true
                 } label: {
-                    Label("Show Host ID", systemImage: "number")
+                    Label("Show Device ID", systemImage: "number")
                 }
                 .popover(isPresented: $showingHostIDPopover, arrowEdge: .top) {
                     HostIDView(hostId: manager.settings.hostId)

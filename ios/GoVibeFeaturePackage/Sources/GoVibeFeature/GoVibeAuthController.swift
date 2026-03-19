@@ -21,6 +21,8 @@ public final class GoVibeAuthController {
 
     @ObservationIgnored
     private var authStateHandle: AuthStateDidChangeListenerHandle?
+    @ObservationIgnored
+    private var deviceRegistrationTask: Task<Void, Error>?
 
     public var isAuthenticated: Bool {
         currentUser != nil
@@ -29,10 +31,12 @@ public final class GoVibeAuthController {
     public init() {
         authStateHandle = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
-                self?.updateCurrentUser(user)
+                await self?.handleAuthStateChange(user)
             }
         }
-        updateCurrentUser(Auth.auth().currentUser)
+        Task { @MainActor in
+            await handleAuthStateChange(Auth.auth().currentUser)
+        }
     }
 
     public func restoreSessionIfPossible() async {
@@ -40,7 +44,7 @@ public final class GoVibeAuthController {
         hasAttemptedRestore = true
 
         if Auth.auth().currentUser != nil {
-            updateCurrentUser(Auth.auth().currentUser)
+            await handleAuthStateChange(Auth.auth().currentUser)
             return
         }
 
@@ -78,6 +82,8 @@ public final class GoVibeAuthController {
     }
 
     public func signOut() {
+        deviceRegistrationTask?.cancel()
+        deviceRegistrationTask = nil
         do {
             try Auth.auth().signOut()
         } catch {
@@ -95,14 +101,47 @@ public final class GoVibeAuthController {
         let accessToken = googleUser.accessToken.tokenString
         let credential = GoogleAuthProvider.credential(withIDToken: idToken, accessToken: accessToken)
         let result = try await Auth.auth().signIn(with: credential)
-        try await registerCurrentIOSDeviceIfPossible()
-        updateCurrentUser(result.user)
+        try await ensureCurrentIOSDeviceRegistered()
+        await handleAuthStateChange(result.user)
+    }
+
+    public func ensureCurrentIOSDeviceRegistered() async throws {
+        guard Auth.auth().currentUser != nil else { return }
+
+        if let task = deviceRegistrationTask {
+            try await task.value
+            return
+        }
+
+        let task = Task {
+            try await self.registerCurrentIOSDeviceIfPossible()
+        }
+        deviceRegistrationTask = task
+
+        do {
+            try await task.value
+        } catch {
+            deviceRegistrationTask = nil
+            throw error
+        }
     }
 
     private func registerCurrentIOSDeviceIfPossible() async throws {
         guard let apiBaseURL = AppRuntimeConfig.apiBaseURL else { return }
         let apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
         try await apiClient.registerIOSDevice(deviceId: LocalDevice.iosDeviceID, displayName: UIDevice.current.name)
+    }
+
+    private func handleAuthStateChange(_ user: User?) async {
+        if user != nil {
+            do {
+                try await ensureCurrentIOSDeviceRegistered()
+                errorMessage = nil
+            } catch {
+                errorMessage = "iPhone registration failed: \(error.localizedDescription)"
+            }
+        }
+        updateCurrentUser(user)
     }
 
     private func updateCurrentUser(_ user: User?) {

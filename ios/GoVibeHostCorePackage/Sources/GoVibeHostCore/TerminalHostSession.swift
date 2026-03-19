@@ -176,9 +176,13 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
     }
 
     private func replayViaTmux() {
-        guard let tmuxSessionName = pty.tmuxSessionName,
-              let tmuxPath = PtySession.resolveTmux() else {
-            logger.info("Skipping tmux replay: tmux not configured or not found")
+        guard let tmuxSessionName = pty.tmuxSessionName else {
+            logger.info("Skipping tmux replay: tmuxSessionName is nil")
+            return
+        }
+
+        guard let tmuxPath = PtySession.resolveTmux() else {
+            logger.info("Skipping tmux replay: tmux binary not found in known paths")
             return
         }
 
@@ -190,8 +194,15 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         process.standardError = Pipe()
 
         do {
+            logger.info("Running tmux capture-pane for session '\(tmuxSessionName)' via \(tmuxPath)")
             try process.run()
             process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                let stderrData = (process.standardError as? Pipe)?.fileHandleForReading.readDataToEndOfFile() ?? Data()
+                let stderrText = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                logger.error("tmux capture-pane exited \(process.terminationStatus)\(stderrText.isEmpty ? "" : ": \(stderrText)")")
+                return
+            }
             let captured = pipe.fileHandleForReading.readDataToEndOfFile()
             guard !captured.isEmpty else {
                 logger.info("tmux capture-pane returned empty output, skipping snapshot")

@@ -56,6 +56,12 @@ function timestampToISOString(value?: Timestamp): string | null {
   return value ? value.toDate().toISOString() : null;
 }
 
+function omitUndefined<T extends object>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  ) as T;
+}
+
 function isControlRoom(room: string, hostId: string): boolean {
   return room == `${hostId}-ctl`;
 }
@@ -376,7 +382,7 @@ app.post("/device/register", async (req: Request, res: Response) => {
       return;
     }
 
-    const device: DeviceDoc = {
+    const device = omitUndefined<DeviceDoc>({
       ownerUid: uid,
       platform: body.platform,
       pubKey: body.pubKey ?? existing?.pubKey ?? "",
@@ -390,7 +396,7 @@ app.post("/device/register", async (req: Request, res: Response) => {
       capabilities: body.capabilities,
       appVersion: body.appVersion,
       osVersion: body.osVersion
-    };
+    });
 
     await deviceRef.set(device, { merge: true });
 
@@ -438,10 +444,10 @@ app.post("/device/heartbeat", async (req: Request, res: Response) => {
     }
 
     const now = Timestamp.now();
-    const update: Partial<DeviceDoc> = {
+    const update = omitUndefined<Partial<DeviceDoc>>({
       lastSeenAt: now,
       lastOnlineAt: now
-    };
+    });
     if (body.discoveryVisible !== undefined) {
       update.discoveryVisible = body.discoveryVisible;
     }

@@ -23,9 +23,14 @@ enum HostControlError: LocalizedError {
 }
 
 /// Connects to a host's control relay room and sends a create_session command.
-@MainActor
 struct HostControlClient {
     let relayWebSocketBase: String
+    let apiBaseURL: URL?
+
+    init(relayWebSocketBase: String, apiBaseURL: URL? = nil) {
+        self.relayWebSocketBase = relayWebSocketBase
+        self.apiBaseURL = apiBaseURL
+    }
 
     /// Connects to `<hostId>-ctl` relay room, sends create_session, and awaits confirmation.
     func createSession(
@@ -34,7 +39,7 @@ struct HostControlClient {
         tmuxSession: String?
     ) async throws {
         let roomId = "\(hostId)-ctl"
-        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: apiBaseURL)
         let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
@@ -106,7 +111,7 @@ struct HostControlClient {
     /// Connects to `<hostId>-ctl` and requests deletion of a session.
     func deleteSession(hostId: String, sessionId: String) async throws {
         let roomId = "\(hostId)-ctl"
-        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: apiBaseURL)
         let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
@@ -167,9 +172,9 @@ struct HostControlClient {
     }
 
     /// Connects to `<hostId>-ctl`, sends `list_sessions`, and returns the host's session list.
-    func listSessions(hostId: String) async throws -> [HostSessionSummary] {
+    func listSessions(hostId: String, timeout: Duration = .seconds(10)) async throws -> [HostSessionSummary] {
         let roomId = "\(hostId)-ctl"
-        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: apiBaseURL)
         let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
@@ -208,7 +213,7 @@ struct HostControlClient {
                 throw HostControlError.connectionFailed("Connection closed without response")
             }
             group.addTask {
-                try await Task.sleep(for: .seconds(10))
+                try await Task.sleep(for: timeout)
                 throw HostControlError.timeout
             }
             let result = try await group.next()!
