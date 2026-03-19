@@ -27,6 +27,7 @@ public final class HostSessionManager {
     public var selectedSessionID: String?
     public private(set) var isTmuxInstalling: Bool = false
     public private(set) var isClaudeHookInstalling: Bool = false
+    public private(set) var isGeminiHookInstalling: Bool = false
 
     private let defaults: UserDefaults
     private var logsBySessionID: [String: [HostLogEntry]] = [:]
@@ -74,7 +75,8 @@ public final class HostSessionManager {
             accessibilityGranted: AXIsProcessTrusted(),
             screenRecordingGranted: CGPreflightScreenCaptureAccess(),
             tmuxInstalled: Self.detectTmux(),
-            claudeHookInstalled: Self.detectClaudeHook()
+            claudeHookInstalled: Self.detectClaudeHook(),
+            geminiHookInstalled: Self.detectGeminiHook()
         )
         self.selectedSessionID = sessions.first?.sessionId
         refreshPermissions()
@@ -104,7 +106,8 @@ public final class HostSessionManager {
             accessibilityGranted: AXIsProcessTrusted(),
             screenRecordingGranted: CGPreflightScreenCaptureAccess(),
             tmuxInstalled: Self.detectTmux(),
-            claudeHookInstalled: Self.detectClaudeHook()
+            claudeHookInstalled: Self.detectClaudeHook(),
+            geminiHookInstalled: Self.detectGeminiHook()
         )
     }
 
@@ -193,6 +196,93 @@ public final class HostSessionManager {
         // Ensure the ~/.claude directory exists.
         let claudeDir = settingsURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+        try? data.write(to: settingsURL, options: .atomic)
+        refreshPermissions()
+    }
+
+    /// Returns true if ~/.gemini/settings.json has both the AfterAgent and
+    /// ToolPermission Notification hooks that write GoVibe's sentinel files.
+    private static func detectGeminiHook() -> Bool {
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".gemini/settings.json")
+        guard let data = try? Data(contentsOf: settingsURL),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = obj["hooks"] as? [String: Any] else {
+            return false
+        }
+
+        // Check AfterAgent hook for turn-complete sentinel.
+        var hasAfterAgent = false
+        if let afterAgentHooks = hooks["AfterAgent"] as? [[String: Any]] {
+            for hook in afterAgentHooks {
+                if let cmd = hook["command"] as? String,
+                   cmd.contains("govibe-turn-complete-pending") {
+                    hasAfterAgent = true
+                    break
+                }
+            }
+        }
+        guard hasAfterAgent else { return false }
+
+        // Check Notification / ToolPermission hook for permission sentinel.
+        guard let notificationHooks = hooks["Notification"] as? [[String: Any]] else {
+            return false
+        }
+        for entry in notificationHooks {
+            guard (entry["matcher"] as? String) == "ToolPermission",
+                  let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
+            for hook in innerHooks {
+                if let cmd = hook["command"] as? String,
+                   cmd.contains("govibe-permission-pending") {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    public func installGeminiHook() async {
+        isGeminiHookInstalling = true
+        defer { isGeminiHookInstalling = false }
+
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".gemini/settings.json")
+
+        var root: [String: Any] = (
+            (try? Data(contentsOf: settingsURL))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        ) ?? [:]
+
+        var hooks = root["hooks"] as? [String: Any] ?? [:]
+
+        // AfterAgent hook — fires when Gemini finishes a turn.
+        var afterAgentHooks = hooks["AfterAgent"] as? [[String: Any]] ?? []
+        let afterAgentEntry: [String: Any] = [
+            "type": "command",
+            "command": "touch ~/.gemini/govibe-turn-complete-pending"
+        ]
+        afterAgentHooks.append(afterAgentEntry)
+        hooks["AfterAgent"] = afterAgentHooks
+
+        // Notification / ToolPermission hook — fires when Gemini needs tool approval.
+        var notificationHooks = hooks["Notification"] as? [[String: Any]] ?? []
+        let notificationEntry: [String: Any] = [
+            "matcher": "ToolPermission",
+            "hooks": [
+                ["type": "command", "command": "touch ~/.gemini/govibe-permission-pending"]
+            ]
+        ]
+        notificationHooks.append(notificationEntry)
+        hooks["Notification"] = notificationHooks
+
+        root["hooks"] = hooks
+
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
+            return
+        }
+
+        let geminiDir = settingsURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: geminiDir, withIntermediateDirectories: true)
         try? data.write(to: settingsURL, options: .atomic)
         refreshPermissions()
     }
@@ -423,6 +513,19 @@ public final class HostSessionManager {
         updateSession(id: id) { descriptor in
             descriptor.state = .stopped
         }
+    }
+
+    public func stopAllSessions() {
+        didAutoStartPersistedSessions = false
+        for id in runtimes.keys {
+            runtimes[id]?.stop()
+        }
+        runtimes.removeAll()
+        for index in sessions.indices {
+            sessions[index].state = .stopped
+        }
+        stopControlChannel()
+        persistSessions()
     }
 
     public func removeSession(id: String) {

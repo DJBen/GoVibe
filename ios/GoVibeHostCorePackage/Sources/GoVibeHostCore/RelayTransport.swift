@@ -9,6 +9,7 @@ public final class RelayTransport: @unchecked Sendable {
     private var isSending = false
     private var reconnectScheduled = false
     private var socketGeneration: UInt64 = 0
+    private var isActive = false
     private var room: String?
     private var hostId: String?
     private var relayBase: String?
@@ -35,14 +36,18 @@ public final class RelayTransport: @unchecked Sendable {
     }
 
     public func start(room: String, hostId: String, relayBase: String) {
-        self.room = room
-        self.hostId = hostId
-        self.relayBase = relayBase
-        connect()
+        queue.sync {
+            self.room = room
+            self.hostId = hostId
+            self.relayBase = relayBase
+            self.isActive = true
+            connect()
+        }
     }
 
     public func stop() {
         queue.sync {
+            isActive = false
             socketGeneration &+= 1
             outboundQueue.removeAll()
             isSending = false
@@ -53,19 +58,19 @@ public final class RelayTransport: @unchecked Sendable {
     }
 
     private func connect() {
-        guard let room, let relayBase, let hostId else { return }
+        guard isActive, let room, let relayBase, let hostId else { return }
         let generation = socketGeneration &+ 1
         socketGeneration = generation
 
         Task { [weak self] in
-            guard let self else { return }
+            guard let self, await self.checkActive() else { return }
             do {
                 let apiBaseURL = await MainActor.run { HostConfig.shared.apiBaseURL }
                 let auth = HostRelayAuth(relayWebSocketBase: relayBase, apiBaseURL: apiBaseURL)
                 let url = try await auth.authorizedURL(deviceId: hostId, hostId: hostId, room: room, role: "host-session")
                 self.logger.info("Connecting relay socket: \(url.absoluteString)")
                 self.queue.async {
-                    guard generation == self.socketGeneration else { return }
+                    guard self.isActive, generation == self.socketGeneration else { return }
                     let task = self.session.webSocketTask(with: url)
                     task.resume()
                     self.wsTask = task
@@ -75,9 +80,17 @@ public final class RelayTransport: @unchecked Sendable {
             } catch {
                 self.logger.error("Failed to authorize relay socket: \(error.localizedDescription)")
                 self.queue.async {
-                    guard generation == self.socketGeneration else { return }
+                    guard self.isActive, generation == self.socketGeneration else { return }
                     self.scheduleReconnectLocked()
                 }
+            }
+        }
+    }
+
+    private func checkActive() async -> Bool {
+        return await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.isActive)
             }
         }
     }

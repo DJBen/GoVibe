@@ -13,6 +13,8 @@ struct QuickAction: Identifiable {
             return claudeActions
         case "Codex":
             return codexActions
+        case "Gemini":
+            return geminiActions
         default:
             return []
         }
@@ -26,6 +28,15 @@ struct QuickAction: Identifiable {
         ),
         QuickAction(
             title: "Exit Codex",
+            systemImage: "xmark.circle",
+            payloads: [Data([0x03]), Data([0x03])],  // Ctrl+C × 2
+            isDestructive: true
+        ),
+    ]
+
+    private static let geminiActions: [QuickAction] = [
+        QuickAction(
+            title: "Exit Gemini",
             systemImage: "xmark.circle",
             payloads: [Data([0x03]), Data([0x03])],  // Ctrl+C × 2
             isDestructive: true

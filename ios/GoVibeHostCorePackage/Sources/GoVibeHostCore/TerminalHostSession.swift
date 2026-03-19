@@ -30,6 +30,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
 
     private var claudeLogWatcher: ClaudeLogWatcher?
     private var codexLogWatcher: CodexLogWatcher?
+    private var geminiLogWatcher: GeminiLogWatcher?
     private var currentPlanArtifact: TerminalPlanArtifact?
 
     public init(
@@ -103,6 +104,15 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         )
         codexLogWatcher = CodexLogWatcher(
             cwd: NSHomeDirectory(),
+            logger: logger,
+            onTurnComplete: { [weak self] event in
+                self?.bridge.sendPushNotify(event: event.rawValue)
+            },
+            onPlanStateChanged: { [weak self] artifact in
+                self?.setPlanArtifact(artifact)
+            }
+        )
+        geminiLogWatcher = GeminiLogWatcher(
             logger: logger,
             onTurnComplete: { [weak self] event in
                 self?.bridge.sendPushNotify(event: event.rawValue)
@@ -273,6 +283,9 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             if name != "Codex" {
                 codexLogWatcher?.reset()
             }
+            if name != "Gemini" {
+                geminiLogWatcher?.reset()
+            }
             if name == "Claude" || name == "Codex" {
                 // Claude/Codex just became active — update the watcher's cwd from the tmux pane.
                 if let paneCwd = runProcessCaptureOutput(
@@ -291,6 +304,8 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             claudeLogWatcher?.poll()
         } else if lastPaneProgram == "Codex" {
             codexLogWatcher?.poll()
+        } else if lastPaneProgram == "Gemini" {
+            geminiLogWatcher?.poll()
         }
     }
 

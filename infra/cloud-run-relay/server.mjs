@@ -187,17 +187,21 @@ async function sendFCMForRoom(room, event) {
 }
 
 function notificationCopyForEvent(event) {
-  const assistant = event?.startsWith("codex_") ? "Codex" : "Claude";
+  const assistant = event?.startsWith("codex_") ? "Codex"
+                  : event?.startsWith("gemini_") ? "Gemini"
+                  : "Claude";
 
   switch (event) {
     case "claude_approval_required":
     case "codex_approval_required":
+    case "gemini_approval_required":
       return {
         title: `Unblock ${assistant} now`,
         body: `${assistant} requires your decision before proceeding`,
       };
     case "claude_turn_complete":
     case "codex_turn_complete":
+    case "gemini_turn_complete":
       return {
         title: `${assistant} finished`,
         body: `${assistant} is waiting for your next prompt.`,

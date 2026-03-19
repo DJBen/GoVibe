@@ -107,6 +107,22 @@ struct HostOnboardingView: View {
                     }
                 }
 
+                GroupBox("7. Gemini CLI Hook") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        dependencyRow(
+                            title: "AfterAgent + ToolPermission Hooks",
+                            detail: "Enables 'Gemini finished' and 'Unblock Gemini' push notifications",
+                            installed: manager.permissionState.geminiHookInstalled,
+                            isInstalling: manager.isGeminiHookInstalling
+                        ) {
+                            Task { await manager.installGeminiHook() }
+                        }
+                        Text("Adds AfterAgent and Notification hooks to ~/.gemini/settings.json for precise push notifications.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Button("Finish Setup") {
                     finishSetup()
                 }

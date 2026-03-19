@@ -28,6 +28,13 @@ struct GoVibeHostApp: App {
                         .frame(minWidth: 400, minHeight: 300)
                 }
             }
+            .onChange(of: auth.isAuthenticated) { _, isAuthenticated in
+                if isAuthenticated {
+                    manager.updateFromConfig()
+                } else {
+                    manager.stopAllSessions()
+                }
+            }
             .task {
                 await auth.restoreSessionIfPossible()
                 syncHostRegistration()
@@ -57,6 +64,7 @@ struct GoVibeHostApp: App {
             Divider()
             if auth.isAuthenticated {
                 Button("Sign Out") {
+                    manager.stopAllSessions()
                     auth.signOut()
                 }
                 Divider()

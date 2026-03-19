@@ -248,17 +248,17 @@ struct SessionDetailView: View {
             showPlanSheet = true
         } label: {
             Label("View Plan", systemImage: "doc.text")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .background(.black.opacity(0.78))
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .background(.white)
                 .overlay {
                     Capsule()
-                        .strokeBorder(.white.opacity(0.16))
+                        .strokeBorder(.black.opacity(0.12), lineWidth: 1)
                 }
                 .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+                .shadow(color: .black.opacity(0.35), radius: 15, y: 8)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("view_plan_button")
