@@ -22,6 +22,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
     private var heartbeatTimer: DispatchSourceTimer?
     private var lastPaneProgram: String = ""
     private var retirementSent = false
+    private var activePeerCount = 0
     private var lastPeerActivityAt: Date?
     private var started = false
     private var running = false
@@ -76,12 +77,12 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.scheduleSnapshotReplay()
         }
         bridge.onPeerJoined = { [weak self] in
-            self?.recordPeerActivity()
+            self?.recordPeerJoin()
             self?.scheduleSnapshotReplay()
             self?.sendCurrentPlanState()
         }
         bridge.onPeerLeft = { [weak self] in
-            self?.eventHandler(.stateChanged(.waitingForPeer, self?.lastPeerActivityAt, nil))
+            self?.recordPeerLeave()
         }
         bridge.onPeerHeartbeat = { [weak self] in
             self?.recordPeerActivity()
@@ -171,6 +172,20 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         eventHandler(.stateChanged(.running, lastPeerActivityAt, nil))
     }
 
+    private func recordPeerJoin() {
+        activePeerCount += 1
+        recordPeerActivity()
+    }
+
+    private func recordPeerLeave() {
+        activePeerCount = max(0, activePeerCount - 1)
+        if activePeerCount == 0 {
+            eventHandler(.stateChanged(.waitingForPeer, lastPeerActivityAt, nil))
+        } else {
+            eventHandler(.stateChanged(.running, lastPeerActivityAt, nil))
+        }
+    }
+
     private func scheduleSnapshotReplay() {
         snapshotLock.lock()
         snapshotWorkItem?.cancel()
@@ -258,6 +273,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self.bridge.sendPeerHeartbeat(origin: "mac")
             if let lastPeerActivityAt = self.lastPeerActivityAt,
                Date().timeIntervalSince(lastPeerActivityAt) > Self.peerStaleTimeout {
+                self.activePeerCount = 0
                 self.eventHandler(.stateChanged(.stale, lastPeerActivityAt, nil))
             }
         }

@@ -14,7 +14,7 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
 
     private var heartbeatTimer: DispatchSourceTimer?
     private var retirementSent = false
-    private var hasPeer = false
+    private var activePeerCount = 0
     private var lastPeerActivityAt: Date?
     private var latestSimInfo: SimInfoPayload?
     private let preferredUDID: String?
@@ -60,7 +60,7 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
             self?.bridge.sendSimInfo(info)
         }
         simulatorBridge.onBinaryFrame = { [weak self] data in
-            guard let self, self.hasPeer else { return }
+            guard let self, self.activePeerCount > 0 else { return }
             self.bridge.sendBinaryFrame(data)
         }
 
@@ -101,18 +101,20 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
         }
         bridge.onPeerJoined = { [weak self] in
             guard let self else { return }
-            self.recordPeerActivity()
+            let becameActive = self.recordPeerJoin()
             self.logger.info("Peer joined — sending sim_info")
             if let info = self.latestSimInfo {
                 self.bridge.sendSimInfo(info)
             }
-            DispatchQueue.main.async {
-                self.simulatorBridge.focusForPeerJoin()
+            if becameActive {
+                DispatchQueue.main.async {
+                    self.simulatorBridge.focusForPeerJoin()
+                }
+                Task { await self.simulatorBridge.startCapture(preferredUDID: self.preferredUDID ?? self.latestSimInfo?.udid) }
             }
-            Task { await self.simulatorBridge.startCapture(preferredUDID: self.preferredUDID ?? self.latestSimInfo?.udid) }
         }
         bridge.onPeerLeft = { [weak self] in
-            self?.markPeerOffline(reason: "Peer left")
+            self?.recordPeerLeave()
         }
 
         bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
@@ -169,10 +171,15 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
     }
 
     private func recordPeerActivity() {
-        let wasOffline = !hasPeer
-        hasPeer = true
         lastPeerActivityAt = Date()
         eventHandler(.stateChanged(.running, lastPeerActivityAt, nil))
+    }
+
+    @discardableResult
+    private func recordPeerJoin() -> Bool {
+        let wasOffline = activePeerCount == 0
+        activePeerCount += 1
+        recordPeerActivity()
         if wasOffline {
             logger.info("Peer activity detected — resuming frame forwarding")
             simulatorBridge.forceKeyframe()
@@ -180,10 +187,22 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
                 bridge.sendSimInfo(info)
             }
         }
+        return wasOffline
+    }
+
+    private func recordPeerLeave() {
+        activePeerCount = max(0, activePeerCount - 1)
+        guard activePeerCount == 0 else {
+            eventHandler(.stateChanged(.running, lastPeerActivityAt, nil))
+            return
+        }
+        lastPeerActivityAt = nil
+        logger.info("Last peer left")
+        eventHandler(.stateChanged(.waitingForPeer, nil, nil))
     }
 
     private func checkPeerFreshness() {
-        guard hasPeer, let lastPeerActivityAt else { return }
+        guard activePeerCount > 0, let lastPeerActivityAt else { return }
         let staleSeconds = Date().timeIntervalSince(lastPeerActivityAt)
         if staleSeconds > Self.peerStaleTimeout {
             markPeerOffline(reason: "Peer heartbeat timed out (\(Int(staleSeconds))s)")
@@ -191,8 +210,8 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
     }
 
     private func markPeerOffline(reason: String) {
-        guard hasPeer || lastPeerActivityAt != nil else { return }
-        hasPeer = false
+        guard activePeerCount > 0 || lastPeerActivityAt != nil else { return }
+        activePeerCount = 0
         lastPeerActivityAt = nil
         logger.info("\(reason)")
         eventHandler(.stateChanged(.stale, nil, nil))
