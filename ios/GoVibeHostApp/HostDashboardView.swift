@@ -5,6 +5,7 @@ struct HostDashboardView: View {
     @State var manager: HostSessionManager
     @State private var showingWizard = false
     @State private var showingHostIDPopover = false
+    @State private var sessionPendingRemoval: HostedSessionDescriptor?
     private let relativeDateFormatter = RelativeDateTimeFormatter()
     private static let logTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -55,6 +56,30 @@ struct HostDashboardView: View {
             manager.refreshPermissions()
             manager.startControlChannel()
         }
+        .confirmationDialog(
+            "Remove Session",
+            isPresented: Binding(
+                get: { sessionPendingRemoval != nil },
+                set: { if !$0 { sessionPendingRemoval = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let session = sessionPendingRemoval {
+                Button("Kill Session", role: .destructive) {
+                    manager.removeSession(id: session.sessionId)
+                    sessionPendingRemoval = nil
+                }
+                Button("Detach Only") {
+                    manager.detachSession(id: session.sessionId)
+                    sessionPendingRemoval = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    sessionPendingRemoval = nil
+                }
+            }
+        } message: {
+            Text("Kill the tmux session, or just detach from it? Detaching keeps the session running so you can reattach later.")
+        }
     }
 
     @ViewBuilder
@@ -72,7 +97,7 @@ struct HostDashboardView: View {
                     HStack {
                         Button(toggleTitle(for: session.state)) { toggleSession(session) }
                             .buttonStyle(.borderedProminent)
-                        Button("Remove", role: .destructive) { manager.removeSession(id: session.sessionId) }
+                        Button("Remove", role: .destructive) { sessionPendingRemoval = session }
                     }
 
                     Divider()

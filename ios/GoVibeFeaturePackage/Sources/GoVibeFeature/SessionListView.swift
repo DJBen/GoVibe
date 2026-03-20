@@ -12,6 +12,7 @@ struct SessionListView: View {
     @State private var createSessionForHost: HostInfo?
     @State private var userDeletingIds: Set<String> = []
     @State private var externallyDeletedRoomId: String? = nil
+    @State private var sessionPendingDeletion: SavedSession?
 
     var body: some View {
         Group {
@@ -107,6 +108,30 @@ struct SessionListView: View {
                 Text("\"\(roomId)\" was deleted by the host.")
             }
         }
+        .confirmationDialog(
+            "Remove Session",
+            isPresented: Binding(
+                get: { sessionPendingDeletion != nil },
+                set: { if !$0 { sessionPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let session = sessionPendingDeletion {
+                Button("Kill Session", role: .destructive) {
+                    deleteSession(session, killTmux: true)
+                    sessionPendingDeletion = nil
+                }
+                Button("Detach Only") {
+                    deleteSession(session, killTmux: false)
+                    sessionPendingDeletion = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    sessionPendingDeletion = nil
+                }
+            }
+        } message: {
+            Text("Kill the tmux session on the host, or just detach from it? Detaching keeps the session running so you can reattach later.")
+        }
         .onChange(of: selectedSession) { _, _ in
             syncActiveRoomSelection()
         }
@@ -141,10 +166,10 @@ struct SessionListView: View {
         }
     }
 
-    private func deleteSession(_ session: SavedSession) {
+    private func deleteSession(_ session: SavedSession, killTmux: Bool) {
         userDeletingIds.insert(session.roomId)
         Task {
-            await store.deleteSession(session)
+            await store.deleteSession(session, killTmux: killTmux)
             userDeletingIds.remove(session.roomId)
             if selectedSession == session { selectedSession = nil }
             navigationPath.removeAll { $0.roomId == session.roomId }
@@ -197,7 +222,7 @@ struct SessionListView: View {
                                         session: session,
                                         isSelected: session == selectedSession,
                                         onTap: { handleTap(session) },
-                                        onDelete: { deleteSession(session) }
+                                        onDelete: { sessionPendingDeletion = session }
                                     )
                                 }
                             }

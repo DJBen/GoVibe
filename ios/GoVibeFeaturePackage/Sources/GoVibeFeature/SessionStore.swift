@@ -210,12 +210,13 @@ final class SessionStore {
     }
 
     /// Deletes a session, attempting to remove it from the remote host first if applicable.
-    func deleteSession(_ session: SavedSession) async {
+    /// - Parameter killTmux: If `true`, the host kills the underlying tmux session. If `false`, GoVibe detaches without killing tmux.
+    func deleteSession(_ session: SavedSession, killTmux: Bool = true) async {
         let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
         if !relayBase.isEmpty {
             let client = HostControlClient(relayWebSocketBase: relayBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
             do {
-                try await client.deleteSession(hostId: session.hostId, sessionId: session.sessionId)
+                try await client.deleteSession(hostId: session.hostId, sessionId: session.sessionId, killTmux: killTmux)
             } catch {
                 // If remote delete fails, we log it but proceed to delete locally
                 // so the user isn't stuck with a zombie session in their UI.

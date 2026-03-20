@@ -393,12 +393,16 @@ public final class HostSessionManager {
                 channel.sendSessionCreated(sessionId: trimmed)
             }
         }
-        channel.onDeleteSession = { [weak self, weak channel] sessionId in
+        channel.onDeleteSession = { [weak self, weak channel] sessionId, killTmux in
             Task { @MainActor in
                 guard let self, let channel else { return }
                 let trimmed = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
                 if self.sessions.contains(where: { $0.sessionId == trimmed }) {
-                    self.removeSession(id: trimmed)
+                    if killTmux {
+                        self.removeSession(id: trimmed)
+                    } else {
+                        self.detachSession(id: trimmed)
+                    }
                     channel.sendSessionDeleted(sessionId: trimmed)
                 } else {
                     channel.sendSessionError(sessionId: trimmed, error: "Session not found")
@@ -572,6 +576,22 @@ public final class HostSessionManager {
 
     public func removeSession(id: String) {
         runtimes[id]?.remove()
+        runtimes[id] = nil
+        updateSession(id: id) { descriptor in
+            descriptor.state = .stopped
+        }
+        sessions.removeAll { $0.sessionId == id }
+        logsBySessionID[id] = nil
+        if selectedSessionID == id {
+            selectedSessionID = sessions.first?.sessionId
+        }
+        persistSessions()
+        Task.detached { [sessionSync] in await sessionSync.remove(sessionId: id) }
+    }
+
+    /// Removes the session from GoVibe tracking without killing the underlying tmux session.
+    public func detachSession(id: String) {
+        runtimes[id]?.stop()
         runtimes[id] = nil
         updateSession(id: id) { descriptor in
             descriptor.state = .stopped

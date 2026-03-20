@@ -109,7 +109,8 @@ struct HostControlClient {
     }
 
     /// Connects to `<hostId>-ctl` and requests deletion of a session.
-    func deleteSession(hostId: String, sessionId: String) async throws {
+    /// - Parameter killTmux: If `true`, the host kills the underlying tmux session. If `false`, GoVibe detaches without killing tmux.
+    func deleteSession(hostId: String, sessionId: String, killTmux: Bool = true) async throws {
         let roomId = "\(hostId)-ctl"
         let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: apiBaseURL)
         let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
@@ -121,8 +122,9 @@ struct HostControlClient {
 
         guard let data = try? JSONSerialization.data(withJSONObject: [
             "type": "delete_session",
-            "sessionId": sessionId
-        ]), let json = String(data: data, encoding: .utf8) else {
+            "sessionId": sessionId,
+            "killTmux": killTmux
+        ] as [String: Any]), let json = String(data: data, encoding: .utf8) else {
             throw HostControlError.connectionFailed("Failed to encode message")
         }
 

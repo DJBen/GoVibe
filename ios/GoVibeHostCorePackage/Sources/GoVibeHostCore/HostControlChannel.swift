@@ -19,8 +19,8 @@ public final class HostControlChannel: @unchecked Sendable {
     public var onCreateSession: ((String, String?) -> Void)?
 
     /// Called when an iOS peer requests to delete a session.
-    /// Parameter: sessionId.
-    public var onDeleteSession: ((String) -> Void)?
+    /// Parameters: sessionId, killTmux (true = kill tmux session, false = detach only).
+    public var onDeleteSession: ((String, Bool) -> Void)?
 
     /// Called when an iOS peer requests the list of running tmux sessions on the host.
     /// Respond by calling `sendTmuxSessionsList(_:)`.
@@ -148,8 +148,9 @@ public final class HostControlChannel: @unchecked Sendable {
                 logger.error("HostControl: delete_session missing sessionId")
                 return
             }
-            logger.info("HostControl: delete_session '\(sessionId)' requested")
-            onDeleteSession?(sessionId)
+            let killTmux = json["killTmux"] as? Bool ?? true
+            logger.info("HostControl: delete_session '\(sessionId)' requested (killTmux=\(killTmux))")
+            onDeleteSession?(sessionId, killTmux)
         case "list_tmux_sessions":
             logger.info("HostControl: list_tmux_sessions requested")
             onListTmuxSessions?()
