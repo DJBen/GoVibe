@@ -630,10 +630,15 @@ public final class HostSessionManager {
 
         let persistedSettings = defaults.data(forKey: scopedKey(Keys.settings, userID: userID))
             .flatMap { try? JSONDecoder().decode(HostSettings.self, from: $0) }
-        let defaultsSettings = HostRuntimeDefaults.makeSettings(userID: userID, bundle: bundle)
-        let resolvedSettings = persistedSettings ?? defaultsSettings
-
         let configRelay = HostConfig.shared.relayWebSocketBase ?? ""
+        var defaultsSettings = HostRuntimeDefaults.makeSettings(userID: userID, bundle: bundle)
+        // If no persisted settings for this user but a relay is already configured
+        // (e.g. switching from Apple to Google sign-in), auto-onboard so the host
+        // registers as discoverable immediately without requiring the setup flow again.
+        if persistedSettings == nil, !configRelay.isEmpty {
+            defaultsSettings.onboardingCompleted = true
+        }
+        let resolvedSettings = persistedSettings ?? defaultsSettings
         let effectiveRelay: String
         if resolvedSettings.onboardingCompleted || configRelay.isEmpty {
             effectiveRelay = resolvedSettings.relayBase
