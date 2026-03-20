@@ -285,6 +285,7 @@ struct SessionListView: View {
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
         .padding(.vertical, 24)
         .listRowBackground(Color.clear)
     }

@@ -1,8 +1,10 @@
+import AuthenticationServices
 import GoVibeHostCore
 import SwiftUI
 
 struct HostSignInView: View {
     @State var auth: HostAuthController
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 20) {
@@ -15,7 +17,7 @@ struct HostSignInView: View {
             Text("Sign In Required")
                 .font(.largeTitle.bold())
 
-            Text("Sign in to make Claude, Codex and Gemini CLI available to your phone. Vibe code anywhere you go.")
+            Text("Sign in with Google or Apple to make Claude, Codex and Gemini CLI available to your phone. Vibe code anywhere you go.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -28,25 +30,33 @@ struct HostSignInView: View {
                     .frame(maxWidth: 420)
             }
 
-            Button {
-                Task { await auth.signIn() }
-            } label: {
-                ZStack {
-                    Image("ContinueWithGoogle")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .opacity(auth.isBusy ? 0.7 : 1)
-
-                    if auth.isBusy {
-                        ProgressView()
-                            .controlSize(.small)
+            if auth.isBusy {
+                ProgressView().controlSize(.extraLarge)
+            } else {
+                VStack(spacing: 12) {
+                    Button {
+                        Task { await auth.signIn() }
+                    } label: {
+                        Color("GoogleBackgroundColor").overlay {
+                            Image("ContinueWithGoogle")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .opacity(auth.isBusy ? 0.7 : 1)
+                        }
+                        .frame(width: 240, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
+                    .buttonStyle(.plain)
+
+                    SignInWithAppleButton(.continue) { request in
+                        auth.prepareAppleSignIn(request)
+                    } onCompletion: { result in
+                        Task { await auth.completeAppleSignIn(result) }
+                    }
+                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                    .frame(width: 240)
                 }
-                .frame(width: 240)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(auth.isBusy)
 
             Spacer()
         }

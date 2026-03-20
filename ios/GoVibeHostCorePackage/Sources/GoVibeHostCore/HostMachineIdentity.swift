@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Security
 
@@ -5,19 +6,31 @@ enum HostMachineIdentity {
     private static let service = "dev.govibe.host.machine-identity"
     private static let account = "default-host-id"
 
-    static func resolveHostID(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+    static func resolveHostID(
+        userID: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
         if let hostId = environment["GOVIBE_HOST_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !hostId.isEmpty {
             return hostId
         }
 
+        let baseID: String
         if let existing = loadHostID(), !existing.isEmpty {
-            return existing
+            baseID = existing
+        } else {
+            let generated = UUID().uuidString
+            saveHostID(generated)
+            baseID = generated
         }
 
-        let generated = UUID().uuidString
-        saveHostID(generated)
-        return generated
+        guard let userID, !userID.isEmpty else {
+            return baseID
+        }
+
+        let digest = SHA256.hash(data: Data("\(userID)|\(baseID)".utf8))
+        let scopedSuffix = digest.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return "host-\(scopedSuffix)"
     }
 
     private static func loadHostID() -> String? {

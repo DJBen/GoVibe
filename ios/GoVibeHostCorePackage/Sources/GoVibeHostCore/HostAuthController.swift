@@ -1,4 +1,6 @@
 import AppKit
+import AuthenticationServices
+import CryptoKit
 import FirebaseAuth
 import FirebaseCore
 import Foundation
@@ -31,6 +33,8 @@ public final class HostAuthController {
     private var registrationTask: Task<Void, Error>?
     @ObservationIgnored
     private var latestRegistrationPayload: HostRegistrationPayload?
+    @ObservationIgnored
+    private var currentAppleNonce: String?
 
     public var isAuthenticated: Bool {
         currentUser != nil
@@ -93,11 +97,39 @@ public final class HostAuthController {
         }
     }
 
+    public func prepareAppleSignIn(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = Self.randomNonceString()
+        currentAppleNonce = nonce
+        errorMessage = nil
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = Self.sha256(nonce)
+    }
+
+    public func completeAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
+        isBusy = true
+        defer {
+            isBusy = false
+            currentAppleNonce = nil
+        }
+
+        do {
+            let credential = try appleCredential(from: result)
+            let authResult = try await Auth.auth().signIn(with: credential)
+            updateCurrentUser(authResult.user)
+            errorMessage = nil
+        } catch HostAuthError.userCancelled {
+            errorMessage = nil
+        } catch {
+            errorMessage = "Apple sign-in failed: \(error.localizedDescription)"
+        }
+    }
+
     public func signOut() {
         heartbeatTask?.cancel()
         heartbeatTask = nil
         registrationTask?.cancel()
         registrationTask = nil
+        currentAppleNonce = nil
         do {
             try Auth.auth().signOut()
         } catch {
@@ -192,7 +224,7 @@ public final class HostAuthController {
 
     private func signInToFirebase(with googleUser: GIDGoogleUser) async throws {
         guard let idToken = googleUser.idToken?.tokenString else {
-            throw HostAuthError.missingIDToken
+            throw HostAuthError.missingGoogleIDToken
         }
 
         let accessToken = googleUser.accessToken.tokenString
@@ -218,24 +250,94 @@ public final class HostAuthController {
             currentUser = nil
         }
     }
+
+    private func appleCredential(from result: Result<ASAuthorization, Error>) throws -> OAuthCredential {
+        switch result {
+        case .failure(let error):
+            if let appleError = error as? ASAuthorizationError, appleError.code == .canceled {
+                throw HostAuthError.userCancelled
+            }
+            throw error
+        case .success(let authorization):
+            guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
+                throw HostAuthError.missingAppleCredential
+            }
+            guard let nonce = currentAppleNonce else {
+                throw HostAuthError.missingAppleNonce
+            }
+            guard let identityToken = appleIDCredential.identityToken,
+                  let idTokenString = String(data: identityToken, encoding: .utf8) else {
+                throw HostAuthError.missingAppleIdentityToken
+            }
+            return OAuthProvider.appleCredential(
+                withIDToken: idTokenString,
+                rawNonce: nonce,
+                fullName: appleIDCredential.fullName
+            )
+        }
+    }
+
+    private static func sha256(_ input: String) -> String {
+        let digest = SHA256.hash(data: Data(input.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
+
+        while remainingLength > 0 {
+            let randoms: [UInt8] = (0..<16).map { _ in
+                var random: UInt8 = 0
+                let status = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
+                if status != errSecSuccess {
+                    fatalError("Unable to generate nonce. OSStatus \(status)")
+                }
+                return random
+            }
+
+            for random in randoms where remainingLength > 0 {
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remainingLength -= 1
+                }
+            }
+        }
+
+        return result
+    }
 }
 
 private enum HostAuthError: LocalizedError {
-    case missingIDToken
+    case missingGoogleIDToken
+    case missingAppleCredential
+    case missingAppleIdentityToken
+    case missingAppleNonce
     case apiUnavailable
     case notAuthenticated
     case registrationNotConfigured
+    case userCancelled
 
     var errorDescription: String? {
         switch self {
-        case .missingIDToken:
+        case .missingGoogleIDToken:
             return "Google sign-in returned no ID token."
+        case .missingAppleCredential:
+            return "Apple sign-in did not return a valid credential."
+        case .missingAppleIdentityToken:
+            return "Apple sign-in returned no identity token."
+        case .missingAppleNonce:
+            return "Apple sign-in nonce was missing."
         case .apiUnavailable:
             return "Host API base URL is not configured."
         case .notAuthenticated:
             return "Authentication required. Sign in and try again."
         case .registrationNotConfigured:
             return "Host registration is not configured yet."
+        case .userCancelled:
+            return "Apple sign-in was cancelled."
         }
     }
 }

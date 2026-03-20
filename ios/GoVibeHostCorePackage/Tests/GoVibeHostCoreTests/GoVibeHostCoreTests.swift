@@ -61,6 +61,26 @@ final class GoVibeHostCoreTests: XCTestCase {
         XCTAssertEqual(manager.settings.defaultShellPath, "/bin/zsh")
     }
 
+    @MainActor
+    func testManagerScopesHostIdentityAndSessionsByUser() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let firstUserManager = HostSessionManager(defaults: defaults, userID: "google-user")
+        firstUserManager.completeOnboarding(
+            relayBase: "ws://localhost:8080/relay",
+            defaultShellPath: "/bin/zsh",
+            preferredSimulatorUDID: nil
+        )
+        firstUserManager.createTerminalSession(
+            config: TerminalSessionConfig(sessionId: "session-1", shellPath: "/bin/zsh", tmuxSessionName: "session-1")
+        )
+        let firstUserHostID = firstUserManager.settings.hostId
+        firstUserManager.stopSession(id: "session-1")
+
+        let secondUserManager = HostSessionManager(defaults: defaults, userID: "apple-user")
+        XCTAssertNotEqual(secondUserManager.settings.hostId, firstUserHostID)
+        XCTAssertTrue(secondUserManager.listSessions().isEmpty)
+    }
+
     func testPlanParserExtractsSingleBlock() {
         let text = """
         before

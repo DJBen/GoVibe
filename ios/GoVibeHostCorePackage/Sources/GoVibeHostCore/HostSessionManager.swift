@@ -34,43 +34,14 @@ public final class HostSessionManager {
     private var runtimes: [String: ManagedHostRuntime] = [:]
     private var controlChannel: HostControlChannel?
     private var didAutoStartPersistedSessions = false
+    private var currentUserID: String?
 
-    public init(defaults: UserDefaults = .standard, bundle: Bundle = .main) {
+    public init(defaults: UserDefaults = .standard, bundle: Bundle = .main, userID: String? = nil) {
         self.defaults = defaults
-        let persistedSettings = defaults.data(forKey: Keys.settings)
-            .flatMap { try? JSONDecoder().decode(HostSettings.self, from: $0) }
-        let defaultsSettings = HostRuntimeDefaults.makeSettings(bundle: bundle)
-        let resolvedSettings = persistedSettings ?? defaultsSettings
-        // If onboarding hasn't been completed, always prefer the relay derived from
-        // HostConfig (xcconfig / env var) so that the pre-filled value in the setup
-        // screen is always fresh, even if a stale relay was saved in a prior run.
-        let configRelay = HostConfig.shared.relayWebSocketBase ?? ""
-        let effectiveRelay: String
-        if resolvedSettings.onboardingCompleted || configRelay.isEmpty {
-            effectiveRelay = resolvedSettings.relayBase
-        } else {
-            effectiveRelay = configRelay
-        }
-        self.settings = HostSettings(
-            hostId: resolvedSettings.hostId,
-            relayBase: effectiveRelay,
-            defaultShellPath: resolvedSettings.defaultShellPath,
-            preferredSimulatorUDID: resolvedSettings.preferredSimulatorUDID,
-            onboardingCompleted: resolvedSettings.onboardingCompleted
-        )
-        let loadedSessions = defaults.data(forKey: Keys.sessions)
-            .flatMap { try? JSONDecoder().decode([HostedSessionDescriptor].self, from: $0) } ?? []
-        // Reset any active state — runtimes don't survive across launches.
-        self.sessions = loadedSessions.map { descriptor in
-            var d = descriptor
-            switch d.state {
-            case .stopped, .error:
-                break
-            default:
-                d.state = .stopped
-            }
-            return d
-        }
+        self.currentUserID = userID
+        let loadedState = Self.loadState(defaults: defaults, bundle: bundle, userID: userID)
+        self.settings = loadedState.settings
+        self.sessions = loadedState.sessions
         self.permissionState = HostPermissionState(
             accessibilityGranted: AXIsProcessTrusted(),
             screenRecordingGranted: CGPreflightScreenCaptureAccess(),
@@ -82,8 +53,23 @@ public final class HostSessionManager {
         refreshPermissions()
         // Persist corrected states so UserDefaults stays consistent.
         if let data = try? JSONEncoder().encode(self.sessions) {
-            defaults.set(data, forKey: Keys.sessions)
+            defaults.set(data, forKey: Self.scopedKey(Keys.sessions, userID: userID))
         }
+    }
+
+    public func syncAuthScope(userID: String?) {
+        guard currentUserID != userID else { return }
+
+        stopAllSessions()
+        logsBySessionID.removeAll()
+        currentUserID = userID
+
+        let loadedState = Self.loadState(defaults: defaults, bundle: .main, userID: userID)
+        settings = loadedState.settings
+        sessions = loadedState.sessions
+        selectedSessionID = sessions.first?.sessionId
+        didAutoStartPersistedSessions = false
+        refreshPermissions()
     }
 
     public func updateFromConfig() {
@@ -624,13 +610,81 @@ public final class HostSessionManager {
 
     private func persistSettings() {
         if let data = try? JSONEncoder().encode(settings) {
-            defaults.set(data, forKey: Keys.settings)
+            defaults.set(data, forKey: Self.scopedKey(Keys.settings, userID: currentUserID))
         }
     }
 
     private func persistSessions() {
         if let data = try? JSONEncoder().encode(sessions) {
-            defaults.set(data, forKey: Keys.sessions)
+            defaults.set(data, forKey: Self.scopedKey(Keys.sessions, userID: currentUserID))
+        }
+    }
+
+    private static func scopedKey(_ base: String, userID: String?) -> String {
+        guard let userID, !userID.isEmpty else { return "\(base).guest" }
+        return "\(base).\(userID)"
+    }
+
+    private static func loadState(defaults: UserDefaults, bundle: Bundle, userID: String?) -> (settings: HostSettings, sessions: [HostedSessionDescriptor]) {
+        migrateLegacyStateIfNeeded(defaults: defaults, userID: userID)
+
+        let persistedSettings = defaults.data(forKey: scopedKey(Keys.settings, userID: userID))
+            .flatMap { try? JSONDecoder().decode(HostSettings.self, from: $0) }
+        let defaultsSettings = HostRuntimeDefaults.makeSettings(userID: userID, bundle: bundle)
+        let resolvedSettings = persistedSettings ?? defaultsSettings
+
+        let configRelay = HostConfig.shared.relayWebSocketBase ?? ""
+        let effectiveRelay: String
+        if resolvedSettings.onboardingCompleted || configRelay.isEmpty {
+            effectiveRelay = resolvedSettings.relayBase
+        } else {
+            effectiveRelay = configRelay
+        }
+
+        let settings = HostSettings(
+            hostId: HostMachineIdentity.resolveHostID(userID: userID),
+            relayBase: effectiveRelay,
+            defaultShellPath: resolvedSettings.defaultShellPath,
+            preferredSimulatorUDID: resolvedSettings.preferredSimulatorUDID,
+            onboardingCompleted: resolvedSettings.onboardingCompleted
+        )
+
+        let loadedSessions = defaults.data(forKey: scopedKey(Keys.sessions, userID: userID))
+            .flatMap { try? JSONDecoder().decode([HostedSessionDescriptor].self, from: $0) } ?? []
+        let sessions = loadedSessions.map { descriptor in
+                var d = descriptor
+                switch d.state {
+                case .stopped, .error:
+                    break
+                default:
+                    d.state = .stopped
+                }
+                d.hostId = settings.hostId
+                return d
+            }
+
+        return (settings, sessions)
+    }
+
+    private static func migrateLegacyStateIfNeeded(defaults: UserDefaults, userID: String?) {
+        guard let userID, !userID.isEmpty else { return }
+
+        let scopedSettingsKey = scopedKey(Keys.settings, userID: userID)
+        let scopedSessionsKey = scopedKey(Keys.sessions, userID: userID)
+        let hasScopedSettings = defaults.data(forKey: scopedSettingsKey) != nil
+        let hasScopedSessions = defaults.data(forKey: scopedSessionsKey) != nil
+        if hasScopedSettings || hasScopedSessions {
+            return
+        }
+
+        if let legacySettings = defaults.data(forKey: Keys.settings) {
+            defaults.set(legacySettings, forKey: scopedSettingsKey)
+            defaults.removeObject(forKey: Keys.settings)
+        }
+
+        if let legacySessions = defaults.data(forKey: Keys.sessions) {
+            defaults.set(legacySessions, forKey: scopedSessionsKey)
+            defaults.removeObject(forKey: Keys.sessions)
         }
     }
 }

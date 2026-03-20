@@ -20,6 +20,7 @@ struct GoVibeHostApp: App {
                     HostAppRootView(manager: manager)
                         .frame(minWidth: 980, minHeight: 680)
                         .onAppear {
+                            manager.syncAuthScope(userID: auth.currentUser?.uid)
                             syncHostRegistration()
                             manager.updateFromConfig()
                         }
@@ -28,15 +29,16 @@ struct GoVibeHostApp: App {
                         .frame(minWidth: 400, minHeight: 300)
                 }
             }
-            .onChange(of: auth.isAuthenticated) { _, isAuthenticated in
-                if isAuthenticated {
+            .onChange(of: auth.currentUser?.uid) { _, userID in
+                manager.syncAuthScope(userID: userID)
+                if userID != nil {
                     manager.updateFromConfig()
-                } else {
-                    manager.stopAllSessions()
                 }
+                syncHostRegistration()
             }
             .task {
                 await auth.restoreSessionIfPossible()
+                manager.syncAuthScope(userID: auth.currentUser?.uid)
                 syncHostRegistration()
                 manager.updateFromConfig()
             }
