@@ -104,7 +104,13 @@ struct SessionDetailView: View {
             }
         }
         .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, newRoomId in
-            guard let newRoomId, newRoomId != session.roomId else { return }
+            guard let newRoomId else { return }
+            if newRoomId == session.roomId {
+                // Already in this session — consume the deep link so the session list
+                // doesn't re-push it when the user navigates back.
+                foregroundNotifications.pendingDeepLinkRoomId = nil
+                return
+            }
             exitSession()
         }
         .onChange(of: viewModel.relayStatus) { _, newStatus in
