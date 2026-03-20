@@ -18,10 +18,6 @@ public final class HostControlChannel: @unchecked Sendable {
     /// Call `sendSessionCreated` or `sendSessionError` in response.
     public var onCreateSession: ((String, String?) -> Void)?
 
-    /// Called when an iOS peer requests the list of all sessions.
-    /// Respond by calling `sendSessionsList(_:)`.
-    public var onListSessions: (() -> Void)?
-
     /// Called when an iOS peer requests to delete a session.
     /// Parameter: sessionId.
     public var onDeleteSession: ((String) -> Void)?
@@ -56,13 +52,6 @@ public final class HostControlChannel: @unchecked Sendable {
 
     public func sendSessionError(sessionId: String, error: String) {
         sendJSON(["type": "session_error", "sessionId": sessionId, "error": error])
-    }
-
-    /// Sends the full session list to connected iOS peers.
-    /// Call this in response to `onListSessions`, and after any local session creation.
-    public func sendSessionsList(_ sessions: [(sessionId: String, kind: String)]) {
-        let list = sessions.map { ["sessionId": $0.sessionId, "kind": $0.kind] }
-        sendRawJSON(["type": "sessions_list", "sessions": list] as [String: Any])
     }
 
     // MARK: - Private
@@ -154,9 +143,6 @@ public final class HostControlChannel: @unchecked Sendable {
             let tmuxSession = json["tmuxSession"] as? String
             logger.info("HostControl: create_session '\(sessionId)' tmux=\(tmuxSession ?? "<same>")")
             onCreateSession?(sessionId, tmuxSession)
-        case "list_sessions":
-            logger.info("HostControl: list_sessions requested")
-            onListSessions?()
         case "delete_session":
             guard let sessionId = json["sessionId"] as? String, !sessionId.isEmpty else {
                 logger.error("HostControl: delete_session missing sessionId")

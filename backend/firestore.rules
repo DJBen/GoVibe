@@ -19,6 +19,14 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
       allow update: if ownsResource(resource.data) && request.resource.data.ownerUid == request.auth.uid;
       allow delete: if false;
+
+      match /hostedSessions/{sessionId} {
+        allow read:   if ownsResource(resource.data);
+        allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+        allow update: if ownsResource(resource.data)
+                      && request.resource.data.ownerUid == request.auth.uid;
+        allow delete: if ownsResource(resource.data);
+      }
     }
 
     match /sessions/{sessionId} {

@@ -30,6 +30,7 @@ struct SessionListView: View {
                         .withSnapshot { image, date in
                             saveSnapshot(image: image, date: date, roomId: selectedSession.roomId)
                         }
+                        .id(selectedSession.roomId)
                     } else {
                         SessionPlaceholderView()
                     }
@@ -90,7 +91,7 @@ struct SessionListView: View {
                 externallyDeletedRoomId = roomId
             }
 
-            if let selectedSession, !sessions.contains(selectedSession) {
+            if let selectedSession, !sessionIds.contains(selectedSession.roomId) {
                 self.selectedSession = nil
             }
             navigationPath.removeAll { !sessionIds.contains($0.roomId) }

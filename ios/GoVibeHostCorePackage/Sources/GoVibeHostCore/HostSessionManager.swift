@@ -35,6 +35,7 @@ public final class HostSessionManager {
     private var controlChannel: HostControlChannel?
     private var didAutoStartPersistedSessions = false
     private var currentUserID: String?
+    private let sessionSync = HostSessionSync()
 
     public init(defaults: UserDefaults = .standard, bundle: Bundle = .main, userID: String? = nil) {
         self.defaults = defaults
@@ -70,6 +71,14 @@ public final class HostSessionManager {
         selectedSessionID = sessions.first?.sessionId
         didAutoStartPersistedSessions = false
         refreshPermissions()
+
+        let hostId = settings.hostId
+        let uid = userID ?? ""
+        let snapshot = sessions
+        Task.detached { [sessionSync] in
+            await sessionSync.configure(hostId: hostId, ownerUid: uid)
+            await sessionSync.syncAll(snapshot)
+        }
     }
 
     public func updateFromConfig() {
@@ -384,12 +393,6 @@ public final class HostSessionManager {
                 channel.sendSessionCreated(sessionId: trimmed)
             }
         }
-        channel.onListSessions = { [weak self, weak channel] in
-            Task { @MainActor in
-                guard let self, let channel else { return }
-                channel.sendSessionsList(self.sessions.map { ($0.sessionId, $0.kind.rawValue) })
-            }
-        }
         channel.onDeleteSession = { [weak self, weak channel] sessionId in
             Task { @MainActor in
                 guard let self, let channel else { return }
@@ -437,7 +440,7 @@ public final class HostSessionManager {
         selectedSessionID = descriptor.sessionId
         persistSessions()
         startSession(id: descriptor.sessionId)
-        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
+        Task.detached { [sessionSync] in await sessionSync.upsert(descriptor) }
     }
 
     public func createSimulatorSession(config: SimulatorSessionConfig) {
@@ -456,7 +459,7 @@ public final class HostSessionManager {
         selectedSessionID = descriptor.sessionId
         persistSessions()
         startSession(id: descriptor.sessionId)
-        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
+        Task.detached { [sessionSync] in await sessionSync.upsert(descriptor) }
     }
 
 
@@ -476,7 +479,7 @@ public final class HostSessionManager {
         selectedSessionID = descriptor.sessionId
         persistSessions()
         startSession(id: descriptor.sessionId)
-        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
+        Task.detached { [sessionSync] in await sessionSync.upsert(descriptor) }
     }
 
     public func startSession(id: String) {
@@ -564,6 +567,7 @@ public final class HostSessionManager {
         }
         stopControlChannel()
         persistSessions()
+        Task.detached { [sessionSync] in await sessionSync.removeAll() }
     }
 
     public func removeSession(id: String) {
@@ -578,7 +582,7 @@ public final class HostSessionManager {
             selectedSessionID = sessions.first?.sessionId
         }
         persistSessions()
-        controlChannel?.sendSessionsList(sessions.map { ($0.sessionId, $0.kind.rawValue) })
+        Task.detached { [sessionSync] in await sessionSync.remove(sessionId: id) }
     }
 
     public func sessionLogs(id: String) -> [HostLogEntry] {
@@ -592,6 +596,11 @@ public final class HostSessionManager {
 
         didAutoStartPersistedSessions = true
         startControlChannel()
+
+        let snapshot = sessions
+        Task.detached { [sessionSync] in
+            await sessionSync.syncAll(snapshot)
+        }
 
         for session in sessions where runtimes[session.sessionId] == nil {
             startSession(id: session.sessionId)
@@ -616,6 +625,8 @@ public final class HostSessionManager {
         guard let index = sessions.firstIndex(where: { $0.sessionId == id }) else { return }
         mutate(&sessions[index])
         persistSessions()
+        let updated = sessions[index]
+        Task.detached { [sessionSync] in await sessionSync.upsert(updated) }
     }
 
     private func persistSettings() {

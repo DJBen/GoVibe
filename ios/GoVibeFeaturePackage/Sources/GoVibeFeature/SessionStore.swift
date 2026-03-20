@@ -1,4 +1,5 @@
 import FirebaseAuth
+import FirebaseFirestore
 import Foundation
 import Observation
 
@@ -15,8 +16,8 @@ final class SessionStore {
     var errorMessage: String?
     var currentUserId: String?
 
-    // Persistent per-host control-channel listeners for real-time session updates.
-    private var listenerTasks: [String: Task<Void, Never>] = [:]
+    // Persistent per-host Firestore snapshot listeners for real-time session updates.
+    private var snapshotListeners: [String: ListenerRegistration] = [:]
 
     private struct PersistedSavedSession: Decodable {
         let roomId: String
@@ -83,33 +84,7 @@ final class SessionStore {
             return
         }
 
-        // Pull the latest session list from each known host in parallel so one stale
-        // host cannot block the entire refresh spinner for multiple sequential timeouts.
-        let hostsSnapshot = hosts
-        await withTaskGroup(of: Void.self) { group in
-            for host in hostsSnapshot {
-                group.addTask { [weak self] in
-                    await self?.syncSessions(for: host, timeout: .seconds(3))
-                }
-            }
-        }
-        reconcileListeners()
-    }
-
-    /// Queries `<hostId>-ctl` for the host's current sessions and merges into the local store.
-    /// Silently no-ops if the host is offline.
-    func syncSessions(for host: HostInfo, timeout: Duration = .seconds(10)) async {
-        guard AppConfig.shared.isValid else { return }
-        let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
-        guard !relayBase.isEmpty else { return }
-
-        let client = HostControlClient(relayWebSocketBase: relayBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
-        do {
-            let remote = try await client.listSessions(hostId: host.id, timeout: timeout)
-            applyRemoteSessions(remote, hostId: host.id)
-        } catch {
-            // Host is offline or unreachable — silently skip.
-        }
+        reconcileFirestoreListeners()
     }
 
     /// Merges a remote session list into the local store, adding new sessions and
@@ -141,88 +116,49 @@ final class SessionStore {
         }
     }
 
-    // MARK: - Persistent Listeners
+    // MARK: - Firestore Snapshot Listeners
 
-    /// Starts or stops per-host listeners so each host has exactly one live WebSocket
-    /// connection to its control channel. Unsolicited `sessions_list` messages are
-    /// applied immediately without any polling delay.
-    private func reconcileListeners() {
-        guard AppConfig.shared.isValid,
-              let relayBase = AppConfig.shared.relayWebSocketBase,
-              !relayBase.isEmpty else {
-            stopAllListeners()
-            return
-        }
-
+    /// Starts or stops per-host Firestore snapshot listeners so each host has exactly
+    /// one real-time listener on its `hostedSessions` subcollection.
+    private func reconcileFirestoreListeners() {
+        let db = Firestore.firestore()
         let activeIds = Set(hosts.map(\.id))
+        let uid = currentUserId ?? ""
 
-        // Start listeners for newly added hosts.
-        for host in hosts where listenerTasks[host.id] == nil {
+        for host in hosts where snapshotListeners[host.id] == nil {
             let hostId = host.id
-            listenerTasks[hostId] = Task { [weak self] in
-                await self?.runListener(hostId: hostId, relayBase: relayBase)
+            // Query must filter on ownerUid to satisfy Firestore security rules.
+            let reg = db.collection("devices").document(hostId)
+                        .collection("hostedSessions")
+                        .whereField("ownerUid", isEqualTo: uid)
+                        .addSnapshotListener { [weak self] snap, _ in
+                guard let self, let snap else { return }
+                Task { @MainActor in
+                    self.applyFirestoreSnapshot(snap, hostId: hostId)
+                }
             }
+            snapshotListeners[hostId] = reg
         }
 
-        // Cancel listeners for removed hosts.
-        for (hostId, task) in listenerTasks where !activeIds.contains(hostId) {
-            task.cancel()
-            listenerTasks.removeValue(forKey: hostId)
+        for (hostId, reg) in snapshotListeners where !activeIds.contains(hostId) {
+            reg.remove()
+            snapshotListeners.removeValue(forKey: hostId)
         }
+    }
+
+    private func applyFirestoreSnapshot(_ snapshot: QuerySnapshot, hostId: String) {
+        let summaries: [HostSessionSummary] = snapshot.documents.compactMap { doc in
+            let data = doc.data()
+            guard let sid = data["sessionId"] as? String, !sid.isEmpty else { return nil }
+            let kind = (data["kind"] as? String).flatMap { SessionKind(rawValue: $0) }
+            return HostSessionSummary(sessionId: sid, kind: kind)
+        }
+        applyRemoteSessions(summaries, hostId: hostId)
     }
 
     private func stopAllListeners() {
-        listenerTasks.values.forEach { $0.cancel() }
-        listenerTasks.removeAll()
-    }
-
-    private func runListener(hostId: String, relayBase: String) async {
-        while !Task.isCancelled {
-            await connectAndListen(hostId: hostId, relayBase: relayBase)
-            guard !Task.isCancelled else { break }
-            try? await Task.sleep(for: .seconds(5))
-        }
-    }
-
-    private func connectAndListen(hostId: String, relayBase: String) async {
-        let room = "\(hostId)-ctl"
-        let authClient = RelayAuthClient(relayWebSocketBase: relayBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
-        guard let url = try? await authClient.authorizedURL(hostId: hostId, room: room, role: "client-control") else {
-            return
-        }
-
-        let wsTask = URLSession.shared.webSocketTask(with: url)
-        wsTask.resume()
-        defer { wsTask.cancel(with: .goingAway, reason: nil) }
-
-        // Ask for the current list immediately on connect.
-        if let data = try? JSONSerialization.data(withJSONObject: ["type": "list_sessions"]),
-           let json = String(data: data, encoding: .utf8) {
-            try? await wsTask.send(.string(json))
-        }
-
-        while !Task.isCancelled {
-            do {
-                let message = try await wsTask.receive()
-                let text: String
-                switch message {
-                case .string(let s): text = s
-                case .data(let d): text = String(data: d, encoding: .utf8) ?? ""
-                @unknown default: continue
-                }
-                guard let data = text.data(using: .utf8),
-                      let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      parsed["type"] as? String == "sessions_list",
-                      let array = parsed["sessions"] as? [[String: String]] else { continue }
-                let summaries = array.compactMap { entry -> HostSessionSummary? in
-                    guard let sessionId = entry["sessionId"], !sessionId.isEmpty else { return nil }
-                    return HostSessionSummary(sessionId: sessionId, kind: entry["kind"].flatMap { SessionKind(rawValue: $0) })
-                }
-                applyRemoteSessions(summaries, hostId: hostId)
-            } catch {
-                break
-            }
-        }
+        snapshotListeners.values.forEach { $0.remove() }
+        snapshotListeners.removeAll()
     }
 
     // MARK: - Session Management
