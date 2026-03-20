@@ -22,6 +22,14 @@ public final class PtySession: @unchecked Sendable {
         self.logger = logger
     }
 
+    public static func listTmuxSessions() -> [String] {
+        guard let tmuxPath = resolveTmux() else { return [] }
+        return captureProcessOutput(executable: tmuxPath, arguments: ["list-sessions", "-F", "#{session_name}"])?
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+    }
+
     public static func resolveTmux() -> String? {
         let candidates = [
             "/opt/homebrew/bin/tmux",

@@ -26,6 +26,10 @@ public final class HostControlChannel: @unchecked Sendable {
     /// Parameter: sessionId.
     public var onDeleteSession: ((String) -> Void)?
 
+    /// Called when an iOS peer requests the list of running tmux sessions on the host.
+    /// Respond by calling `sendTmuxSessionsList(_:)`.
+    public var onListTmuxSessions: (() -> Void)?
+
     public init(hostId: String, relayBase: String, logger: HostLogger) {
         self.hostId = hostId
         self.relayBase = relayBase
@@ -160,6 +164,9 @@ public final class HostControlChannel: @unchecked Sendable {
             }
             logger.info("HostControl: delete_session '\(sessionId)' requested")
             onDeleteSession?(sessionId)
+        case "list_tmux_sessions":
+            logger.info("HostControl: list_tmux_sessions requested")
+            onListTmuxSessions?()
         default:
             break
         }
@@ -167,6 +174,11 @@ public final class HostControlChannel: @unchecked Sendable {
 
     public func sendSessionDeleted(sessionId: String) {
         sendJSON(["type": "session_deleted", "sessionId": sessionId])
+    }
+
+    /// Sends the list of running tmux session names to connected iOS peers.
+    public func sendTmuxSessionsList(_ sessions: [String]) {
+        sendRawJSON(["type": "tmux_sessions_list", "sessions": sessions] as [String: Any])
     }
 
     private func sendJSON(_ payload: [String: String]) {

@@ -171,6 +171,51 @@ struct HostControlClient {
         }
     }
 
+    /// Connects to `<hostId>-ctl`, sends `list_tmux_sessions`, and returns running tmux session names.
+    func listTmuxSessions(hostId: String, timeout: Duration = .seconds(8)) async throws -> [String] {
+        let roomId = "\(hostId)-ctl"
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: apiBaseURL)
+        let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
+
+        let urlSession = URLSession(configuration: .default)
+        let task = urlSession.webSocketTask(with: url)
+        task.resume()
+        defer { task.cancel(with: .goingAway, reason: nil) }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: ["type": "list_tmux_sessions"]),
+              let json = String(data: data, encoding: .utf8) else {
+            throw HostControlError.connectionFailed("Failed to encode message")
+        }
+        try await task.send(.string(json))
+
+        return try await withThrowingTaskGroup(of: [String].self) { group in
+            group.addTask {
+                while true {
+                    let message = try await task.receive()
+                    let text: String
+                    switch message {
+                    case .string(let s): text = s
+                    case .data(let d): text = String(data: d, encoding: .utf8) ?? ""
+                    @unknown default: continue
+                    }
+                    guard let responseData = text.data(using: .utf8),
+                          let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                          parsed["type"] as? String == "tmux_sessions_list",
+                          let sessions = parsed["sessions"] as? [String] else { continue }
+                    return sessions
+                }
+                throw HostControlError.connectionFailed("Connection closed without response")
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw HostControlError.timeout
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
+
     /// Connects to `<hostId>-ctl`, sends `list_sessions`, and returns the host's session list.
     func listSessions(hostId: String, timeout: Duration = .seconds(10)) async throws -> [HostSessionSummary] {
         let roomId = "\(hostId)-ctl"

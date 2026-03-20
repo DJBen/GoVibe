@@ -402,6 +402,16 @@ public final class HostSessionManager {
                 }
             }
         }
+        channel.onListTmuxSessions = { [weak channel] in
+            guard let channel else { return }
+            Task { @MainActor [weak channel] in
+                guard let channel else { return }
+                let sessions = await Task.detached(priority: .userInitiated) {
+                    PtySession.listTmuxSessions()
+                }.value
+                channel.sendTmuxSessionsList(sessions)
+            }
+        }
         channel.start()
         controlChannel = channel
     }
