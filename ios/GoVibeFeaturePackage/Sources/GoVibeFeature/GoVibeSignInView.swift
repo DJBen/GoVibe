@@ -4,65 +4,103 @@ import SwiftUI
 struct GoVibeSignInView: View {
     @State private var authController = GoVibeAuthController.shared
     @Environment(\.colorScheme) private var colorScheme
+    private let hostDownloadURL = URL(string: "https://govibe-783119.web.app")!
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 0) {
             Spacer()
 
-            Image(systemName: "person.crop.circle.badge.checkmark")
-                .font(.system(size: 54))
-                .foregroundStyle(.tint)
+            VStack(spacing: 16) {
+                HStack(spacing: 16) {
+                    Image("HostAppIcon")
+                        .resizable()
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            Text("Sign In Required")
-                .font(.title2.bold())
+                    Image(systemName: "chevron.forward.2")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.tint)
 
-            Text("Sign in with Google or Apple to discover and open the Mac hosts owned by your account.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+                    Image(systemName: "macbook")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.tint)
+                }
 
-            if let errorMessage = authController.errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
-            }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Get GoVibe Host on your macOS to get started")
+                        .font(.body.weight(.semibold))
 
-            VStack(spacing: 12) {
-                Button {
-                    Task { await authController.signIn() }
-                } label: {
-                    ZStack {
-                        Image("ContinueWithGoogle", bundle: .main)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .opacity(authController.isBusy ? 0.7 : 1)
-
-                        if authController.isBusy {
-                            ProgressView()
-                                .controlSize(.small)
+                    HStack(spacing: 12) {
+                        Link(destination: hostDownloadURL) {
+                            Label("Open", systemImage: "globe")
+                                .font(.subheadline.weight(.medium))
                         }
-                    }
-                    .frame(width: 240, height: 56)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(authController.isBusy)
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
 
-                SignInWithAppleButton(.continue) { request in
-                    authController.prepareAppleSignIn(request)
-                } onCompletion: { result in
-                    Task { await authController.completeAppleSignIn(result) }
+                        ShareLink(item: hostDownloadURL) {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                    }
                 }
-                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-                .frame(width: 240, height: 56)
-                .disabled(authController.isBusy)
+            }
+            .padding(16)
+            .background {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.regularMaterial)
+            }
+            .padding(16)
+
+            Spacer()
+
+            // Sign-in section
+            VStack(spacing: 16) {
+                if let errorMessage = authController.errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 360)
+                }
+
+                VStack(spacing: 12) {
+                    Button {
+                        Task { await authController.signIn() }
+                    } label: {
+                        ZStack {
+                            Image("ContinueWithGoogle", bundle: .main)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .opacity(authController.isBusy ? 0.7 : 1)
+
+                            if authController.isBusy {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
+                        .frame(width: 240, height: 56)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(authController.isBusy)
+
+                    SignInWithAppleButton(.continue) { request in
+                        authController.prepareAppleSignIn(request)
+                    } onCompletion: { result in
+                        Task { await authController.completeAppleSignIn(result) }
+                    }
+                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                    .frame(width: 240, height: 56)
+                    .disabled(authController.isBusy)
+                }
             }
 
             Spacer()
+                .frame(height: 48)
         }
-        .padding(24)
     }
 }

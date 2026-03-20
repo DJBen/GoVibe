@@ -13,6 +13,7 @@ struct SessionCreateView: View {
     @State private var tmuxMode: TmuxMode = .new
     @State private var existingTmuxSessions: [String] = []
     @State private var isLoadingTmuxSessions = false
+    @State private var tmuxLoadError: String?
     @State private var selectedTmuxSession: String? = nil
 
     private enum Field: Hashable { case sessionId, tmuxSession }
@@ -57,6 +58,10 @@ struct SessionCreateView: View {
                                 Text("Loading sessions…")
                                     .foregroundStyle(.secondary)
                             }
+                        } else if let tmuxLoadError {
+                            Text(tmuxLoadError)
+                                .foregroundStyle(.red)
+                                .font(.footnote)
                         } else if existingTmuxSessions.isEmpty {
                             Text("No running tmux sessions found.")
                                 .foregroundStyle(.secondary)
@@ -160,6 +165,7 @@ struct SessionCreateView: View {
 
     private func loadTmuxSessions() async {
         isLoadingTmuxSessions = true
+        tmuxLoadError = nil
         defer { isLoadingTmuxSessions = false }
         let client = HostControlClient(
             relayWebSocketBase: AppRuntimeConfig.relayWebSocketBase,
@@ -175,6 +181,7 @@ struct SessionCreateView: View {
             }
         } catch {
             existingTmuxSessions = []
+            tmuxLoadError = error.localizedDescription
         }
     }
 

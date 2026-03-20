@@ -60,17 +60,17 @@ struct HostControlClient {
             throw HostControlError.connectionFailed("Failed to encode message")
         }
 
-        try await task.send(.string(json))
-
         // Typed response to satisfy Swift 6 Sendable requirements
         enum ControlResponse: Sendable {
             case created
             case error(String)
         }
 
-        // Receive messages until session_created or session_error for our session ID
+        // Send + receive inside the task group so the timeout covers the entire operation,
+        // including the initial WebSocket connection and send.
         let response: ControlResponse = try await withThrowingTaskGroup(of: ControlResponse.self) { group in
             group.addTask {
+                try await task.send(.string(json))
                 while true {
                     let message = try await task.receive()
                     let text: String
@@ -128,8 +128,6 @@ struct HostControlClient {
             throw HostControlError.connectionFailed("Failed to encode message")
         }
 
-        try await task.send(.string(json))
-
         enum ControlResponse: Sendable {
             case deleted
             case error(String)
@@ -137,6 +135,7 @@ struct HostControlClient {
 
         let response: ControlResponse = try await withThrowingTaskGroup(of: ControlResponse.self) { group in
             group.addTask {
+                try await task.send(.string(json))
                 while true {
                     let message = try await task.receive()
                     let text: String
@@ -188,10 +187,10 @@ struct HostControlClient {
               let json = String(data: data, encoding: .utf8) else {
             throw HostControlError.connectionFailed("Failed to encode message")
         }
-        try await task.send(.string(json))
 
         return try await withThrowingTaskGroup(of: [String].self) { group in
             group.addTask {
+                try await task.send(.string(json))
                 while true {
                     let message = try await task.receive()
                     let text: String
