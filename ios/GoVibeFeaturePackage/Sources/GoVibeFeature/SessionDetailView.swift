@@ -16,6 +16,7 @@ struct SessionDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SessionViewModel
     @State private var showNotificationOnboarding = false
+    @State private var notificationOnboardingProgram = ""
     @State private var showPlanSheet = false
     @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
 
@@ -90,10 +91,11 @@ struct SessionDetailView: View {
                   viewModel.relayStatus == "Connected",
                   !GoVibeBootstrap.hasSeenNotificationOnboarding,
                   !showNotificationOnboarding else { return }
+            notificationOnboardingProgram = program
             showNotificationOnboarding = true
         }
         .sheet(isPresented: $showNotificationOnboarding) {
-            NotificationOnboardingView {
+            NotificationOnboardingView(programName: notificationOnboardingProgram) {
                 showNotificationOnboarding = false
             }
             .presentationDetents([.medium])

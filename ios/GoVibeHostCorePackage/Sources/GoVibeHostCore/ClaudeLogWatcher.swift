@@ -100,9 +100,13 @@ final class ClaudeLogWatcher {
 
             if type == "user", isExternalUserPrompt(message) {
                 // User replied — re-arm notifications for the next turn.
+                // Remove any stale sentinel files from the previous turn so they
+                // don't fire immediately before the new turn's work finishes.
                 if awaitingNextTurn {
                     logger.info("ClaudeLogWatcher: user turn detected, ready for next notification")
                 }
+                try? FileManager.default.removeItem(at: Self.turnCompleteSentinelURL)
+                try? FileManager.default.removeItem(at: Self.permissionSentinelURL)
                 awaitingNextTurn = false
                 updatePlanArtifact(nil)
             }
