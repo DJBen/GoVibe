@@ -1,4 +1,4 @@
-import FirebaseAuth
+@preconcurrency import FirebaseAuth
 import Foundation
 
 public struct HostRegistrationPayload: Sendable {
