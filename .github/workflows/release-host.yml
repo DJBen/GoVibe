@@ -64,14 +64,33 @@ jobs:
           MARKETING_VERSION = ${VERSION}
           EOF
 
+      # ── App Store Connect API key (needed for provisioning + notarization) ──
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_P8_BASE64: ${{ secrets.APPLE_ASC_KEY_P8_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+        run: |
+          KEY_DIR="$RUNNER_TEMP/asc-keys"
+          mkdir -p "$KEY_DIR"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode -o "$KEY_PATH"
+          echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
       # ── Archive ────────────────────────────────────────────────────────────
       - name: Archive GoVibeHost
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project ios/GoVibe.xcodeproj \
             -scheme GoVibeHost \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/GoVibeHost.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Developer ID Application" \
             PROVISIONING_PROFILE_SPECIFIER="" \
@@ -107,17 +126,6 @@ jobs:
           echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_OUTPUT"
 
       # ── Notarize ───────────────────────────────────────────────────────────
-      - name: Write App Store Connect API key
-        env:
-          ASC_KEY_P8_BASE64: ${{ secrets.APPLE_ASC_KEY_P8_BASE64 }}
-          ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
-        run: |
-          KEY_DIR="$RUNNER_TEMP/asc-keys"
-          mkdir -p "$KEY_DIR"
-          KEY_PATH="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
-          echo "$ASC_KEY_P8_BASE64" | base64 --decode -o "$KEY_PATH"
-          echo "ASC_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-
       - name: Notarize DMG
         env:
           ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
