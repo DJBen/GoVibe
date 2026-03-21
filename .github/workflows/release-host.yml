@@ -78,30 +78,31 @@ jobs:
 
       # ── Archive ────────────────────────────────────────────────────────────
       - name: Archive GoVibeHost
-        env:
-          ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project ios/GoVibe.xcodeproj \
             -scheme GoVibeHost \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/GoVibeHost.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM=52RD2GH5DP \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
             ENABLE_HARDENED_RUNTIME=YES
 
       # ── Export ─────────────────────────────────────────────────────────────
       - name: Export Developer ID app
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/GoVibeHost.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist ios/ExportOptions.plist \
-            -allowProvisioningUpdates
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       # ── DMG ────────────────────────────────────────────────────────────────
       - name: Install create-dmg
