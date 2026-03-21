@@ -140,8 +140,16 @@ jobs:
         env:
           DMG_PATH: ${{ steps.dmg.outputs.DMG_PATH }}
         run: |
-          xcrun stapler staple "$DMG_PATH"
-          xcrun stapler validate "$DMG_PATH"
+          for i in 1 2 3 4 5; do
+            if xcrun stapler staple "$DMG_PATH"; then
+              xcrun stapler validate "$DMG_PATH"
+              exit 0
+            fi
+            echo "Staple attempt $i failed, retrying in 15s..."
+            sleep 15
+          done
+          echo "Stapling failed after 5 attempts"
+          exit 1
 
       # ── Checksum ───────────────────────────────────────────────────────────
       - name: Compute SHA-256
