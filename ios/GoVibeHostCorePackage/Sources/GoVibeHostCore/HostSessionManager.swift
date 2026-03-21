@@ -195,7 +195,7 @@ public final class HostSessionManager {
         let permissionEntry: [String: Any] = [
             "matcher": "permission_prompt",
             "hooks": [
-                ["type": "command", "command": "S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-permission-pending"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-permission-pending"]
             ]
         ]
         notificationHooks.append(permissionEntry)
@@ -205,7 +205,7 @@ public final class HostSessionManager {
         var stopHooks = hooks["Stop"] as? [[String: Any]] ?? []
         let stopEntry: [String: Any] = [
             "hooks": [
-                ["type": "command", "command": "S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-turn-complete-pending"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-turn-complete-pending"]
             ]
         ]
         stopHooks.append(stopEntry)
@@ -288,7 +288,7 @@ public final class HostSessionManager {
         var afterAgentHooks = hooks["AfterAgent"] as? [[String: Any]] ?? []
         let afterAgentEntry: [String: Any] = [
             "hooks": [
-                ["type": "command", "command": "S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-turn-complete-pending"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-turn-complete-pending"]
             ]
         ]
         afterAgentHooks.append(afterAgentEntry)
@@ -299,7 +299,7 @@ public final class HostSessionManager {
         let notificationEntry: [String: Any] = [
             "matcher": "ToolPermission",
             "hooks": [
-                ["type": "command", "command": "S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-permission-pending"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-permission-pending"]
             ]
         ]
         notificationHooks.append(notificationEntry)
