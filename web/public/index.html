@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GoVibe Host — Control your iOS Simulator from your iPhone</title>
+  <title>GoVibe Host — Vibe code on the go</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -11,16 +11,20 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0d1117;
-      --surface: #161b22;
-      --border: #30363d;
-      --text: #e6edf3;
-      --muted: #8b949e;
+      --bg: #0a0a0f;
+      --surface: #14141f;
+      --surface-2: #1a1a2a;
+      --border: #2a2a3a;
+      --text: #e8e8f0;
+      --muted: #7a7a8e;
       --accent: #58a6ff;
       --accent-hover: #79c0ff;
-      --success: #3fb950;
+      --purple: #a371f7;
+      --green: #3fb950;
+      --orange: #f0883e;
       --danger: #f85149;
-      --radius: 12px;
+      --radius: 14px;
+      --radius-sm: 10px;
     }
 
     body {
@@ -32,18 +36,20 @@
       flex-direction: column;
     }
 
+    /* Header */
     header {
-      border-bottom: 1px solid var(--border);
       padding: 16px 24px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
+      position: relative;
+      z-index: 10;
     }
 
     .logo {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
       overflow: hidden;
     }
 
@@ -54,104 +60,185 @@
     }
 
     header h1 {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 600;
+      letter-spacing: -0.01em;
     }
 
-    main {
-      flex: 1;
+    /* Hero */
+    .hero {
+      flex: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      padding: 64px 24px;
+      padding: 80px 24px 48px;
       text-align: center;
-      gap: 0;
+      position: relative;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(88,166,255,0.08) 0%, rgba(163,113,247,0.04) 40%, transparent 70%);
+      pointer-events: none;
     }
 
     .hero-badge {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      background: rgba(88, 166, 255, 0.1);
-      border: 1px solid rgba(88, 166, 255, 0.3);
+      background: rgba(88, 166, 255, 0.08);
+      border: 1px solid rgba(88, 166, 255, 0.2);
       border-radius: 100px;
-      padding: 4px 14px;
+      padding: 5px 14px;
       font-size: 13px;
       color: var(--accent);
-      margin-bottom: 28px;
+      margin-bottom: 32px;
+      position: relative;
     }
 
     .hero-badge .dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--accent);
+      background: var(--green);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
     }
 
     h2 {
-      font-size: clamp(32px, 6vw, 56px);
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      line-height: 1.1;
-      margin-bottom: 20px;
+      font-size: clamp(36px, 7vw, 64px);
+      font-weight: 750;
+      letter-spacing: -0.035em;
+      line-height: 1.05;
+      margin-bottom: 8px;
+      position: relative;
     }
 
-    h2 span {
-      background: linear-gradient(135deg, var(--accent), #a371f7);
+    .headline-top {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .headline-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.25em;
+      flex-wrap: wrap;
+    }
+
+    /* Flip text */
+    .flip-wrapper {
+      display: inline-block;
+      height: 1.1em;
+      overflow: hidden;
+      vertical-align: bottom;
+      position: relative;
+      min-width: 3.2em;
+    }
+
+    .flip-track {
+      display: flex;
+      flex-direction: column;
+      animation: flip-scroll 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    .flip-item {
+      height: 1.1em;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+      font-weight: 750;
+      background-clip: text;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      background-clip: text;
+    }
+
+    .flip-item.claude {
+      background-image: linear-gradient(135deg, #d4956a, #c77b4a);
+    }
+
+    .flip-item.codex {
+      background-image: linear-gradient(135deg, #10a37f, #1ed9a4);
+    }
+
+    .flip-item.gemini {
+      background-image: linear-gradient(135deg, #4285f4, #a371f7);
+    }
+
+    @keyframes flip-scroll {
+      0%, 25%   { transform: translateY(0); }
+      33%, 58%  { transform: translateY(-1.1em); }
+      66%, 91%  { transform: translateY(-2.2em); }
+      100%      { transform: translateY(-3.3em); }
+    }
+
+    .headline-static {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.65em;
+      letter-spacing: -0.01em;
     }
 
     .tagline {
-      font-size: 18px;
+      font-size: 17px;
       color: var(--muted);
-      max-width: 480px;
-      line-height: 1.6;
-      margin-bottom: 48px;
+      max-width: 520px;
+      line-height: 1.65;
+      margin-top: 20px;
+      margin-bottom: 40px;
     }
 
+    /* Download */
     .download-wrap {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 48px;
+      gap: 14px;
+      margin-bottom: 0;
     }
 
     .btn-download {
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      background: var(--accent);
+      background: linear-gradient(135deg, var(--accent), var(--purple));
       color: #fff;
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 600;
-      padding: 14px 32px;
-      border-radius: var(--radius);
+      padding: 13px 28px;
+      border-radius: var(--radius-sm);
       text-decoration: none;
-      transition: background 0.15s, transform 0.1s;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 0 24px rgba(88,166,255,0.15);
     }
 
     .btn-download:hover {
-      background: var(--accent-hover);
-      transform: translateY(-1px);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 32px rgba(88,166,255,0.25);
     }
 
     .btn-download:active {
       transform: translateY(0);
     }
 
-    .btn-download svg {
-      flex-shrink: 0;
-    }
+    .btn-download svg { flex-shrink: 0; }
 
     .btn-download.disabled {
       background: var(--border);
       color: var(--muted);
       pointer-events: none;
-      cursor: default;
+      box-shadow: none;
     }
 
     .meta {
@@ -192,6 +279,130 @@
       font-size: 13px;
     }
 
+    /* Features */
+    .features {
+      padding: 64px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .features-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      max-width: 780px;
+      width: 100%;
+    }
+
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      text-align: left;
+      transition: border-color 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: rgba(88,166,255,0.3);
+    }
+
+    .feature-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 14px;
+      font-size: 18px;
+    }
+
+    .feature-icon.terminal { background: rgba(63,185,80,0.12); color: var(--green); }
+    .feature-icon.stream   { background: rgba(163,113,247,0.12); color: var(--purple); }
+    .feature-icon.notify   { background: rgba(240,136,62,0.12); color: var(--orange); }
+
+    .feature-card h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .feature-card p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    /* How it works */
+    .how-it-works {
+      padding: 32px 24px 64px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .arch-diagram {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 28px;
+      max-width: 580px;
+      width: 100%;
+    }
+
+    .arch-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      flex: 1;
+      text-align: center;
+    }
+
+    .arch-node .icon {
+      font-size: 24px;
+      margin-bottom: 2px;
+    }
+
+    .arch-node .label {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .arch-node .sub {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .arch-arrow {
+      color: var(--muted);
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    /* Requirements */
+    .requirements-section {
+      padding: 0 24px 80px;
+      display: flex;
+      justify-content: center;
+    }
+
     .requirements {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -203,7 +414,7 @@
     }
 
     .requirements h3 {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -230,10 +441,11 @@
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--success);
+      background: var(--green);
       flex-shrink: 0;
     }
 
+    /* Footer */
     footer {
       border-top: 1px solid var(--border);
       padding: 20px 24px;
@@ -251,13 +463,24 @@
       text-decoration: none;
     }
 
-    footer a:hover {
-      color: var(--accent);
-    }
+    footer a:hover { color: var(--accent); }
 
-    @media (max-width: 600px) {
+    /* Responsive */
+    @media (max-width: 700px) {
+      .features-grid {
+        grid-template-columns: 1fr;
+        max-width: 400px;
+      }
+      .arch-diagram {
+        flex-direction: column;
+        gap: 8px;
+      }
+      .arch-arrow {
+        transform: rotate(90deg);
+      }
+      .hero { padding: 48px 24px 40px; }
+      .btn-download { font-size: 14px; padding: 12px 24px; }
       .requirements { padding: 20px; }
-      .btn-download { font-size: 15px; padding: 12px 24px; }
     }
   </style>
 </head>
@@ -268,14 +491,28 @@
   <h1>GoVibe Host</h1>
 </header>
 
-<main>
+<section class="hero">
   <div class="hero-badge">
     <span class="dot"></span>
-    macOS App
+    macOS companion app
   </div>
 
-  <h2>Control your <span>iOS Simulator</span><br>from your iPhone</h2>
-  <p class="tagline">GoVibe Host turns your Mac into a relay — letting your iPhone control the iOS Simulator with real touch gestures, no cables needed.</p>
+  <h2>
+    <span class="headline-top">Vibe code with</span>
+    <span class="headline-bottom">
+      <span class="flip-wrapper">
+        <span class="flip-track">
+          <span class="flip-item claude">Claude</span>
+          <span class="flip-item codex">Codex</span>
+          <span class="flip-item gemini">Gemini</span>
+          <span class="flip-item claude">Claude</span>
+        </span>
+      </span>
+      <span class="headline-static">on the go</span>
+    </span>
+  </h2>
+
+  <p class="tagline">GoVibe Host runs on your Mac and streams terminal sessions, simulator views, and AI agent notifications straight to your iPhone — from anywhere.</p>
 
   <div class="download-wrap">
     <a id="btn-download" class="btn-download disabled" href="#" download>
@@ -284,12 +521,12 @@
         <polyline points="7 10 12 15 17 10"/>
         <line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
-      <span id="btn-label">Loading…</span>
+      <span id="btn-label">Loading...</span>
     </a>
 
     <div class="meta">
       <div class="version">
-        <span id="version-tag" class="version-tag">—</span>
+        <span id="version-tag" class="version-tag">&mdash;</span>
         <span id="release-date"></span>
       </div>
       <div id="checksum-wrap" class="checksum" style="display:none">
@@ -298,20 +535,77 @@
       <div id="error-msg" class="error-msg" style="display:none"></div>
     </div>
   </div>
+</section>
 
+<section class="features">
+  <div class="features-label">What you get</div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon terminal">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      </div>
+      <h3>Remote terminal</h3>
+      <p>Control tmux sessions on your Mac from your iPhone. Full keyboard support with modifiers, paste, and ANSI rendering.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon stream">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      </div>
+      <h3>Screen streaming</h3>
+      <p>Stream your iOS Simulator or any Mac app window to your phone with H.264 video and touch gesture support.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon notify">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </div>
+      <h3>AI notifications</h3>
+      <p>Get push alerts when Claude, Codex, or Gemini finish a task or need your approval. Act on them instantly.</p>
+    </div>
+  </div>
+</section>
+
+<section class="how-it-works">
+  <div class="features-label">How it works</div>
+  <div class="arch-diagram">
+    <div class="arch-node">
+      <span class="icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+      </span>
+      <span class="label">Your Mac</span>
+      <span class="sub">GoVibe Host</span>
+    </div>
+    <span class="arch-arrow">&harr;</span>
+    <div class="arch-node">
+      <span class="icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
+      </span>
+      <span class="label">Cloud relay</span>
+      <span class="sub">Encrypted WebSocket</span>
+    </div>
+    <span class="arch-arrow">&harr;</span>
+    <div class="arch-node">
+      <span class="icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="3"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+      </span>
+      <span class="label">Your iPhone</span>
+      <span class="sub">GoVibe app</span>
+    </div>
+  </div>
+</section>
+
+<section class="requirements-section">
   <div class="requirements">
-    <h3>System Requirements</h3>
+    <h3>System requirements</h3>
     <ul>
       <li>macOS 15.0 Sequoia or later</li>
       <li>Apple Silicon or Intel Mac</li>
-      <li>Xcode with iOS Simulator installed</li>
-      <li>iPhone running GoVibe on the same Wi-Fi</li>
+      <li>iPhone running GoVibe (iOS 18+)</li>
     </ul>
   </div>
-</main>
+</section>
 
 <footer>
-  <span>© 2026 GoVibe</span>
+  <span>&copy; 2026 GoVibe</span>
   <a href="https://github.com/sihaolu/GoVibe" target="_blank" rel="noopener">GitHub</a>
 </footer>
 
@@ -338,7 +632,7 @@
       versionTag.textContent = `v${data.version} (${data.build})`;
 
       if (data.releaseDate) {
-        releaseDate.textContent = `· Released ${data.releaseDate}`;
+        releaseDate.textContent = `\u00b7 Released ${data.releaseDate}`;
       }
 
       if (data.sha256) {
