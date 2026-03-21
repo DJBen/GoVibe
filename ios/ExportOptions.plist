@@ -5,5 +5,11 @@
     <key>method</key><string>developer-id</string>
     <key>teamID</key><string>52RD2GH5DP</string>
     <key>signingStyle</key><string>manual</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>dev.govibe.host</key>
+        <string>GoVibe Host</string>
+    </dict>
+    <key>signingCertificate</key><string>Developer ID Application</string>
     <key>stripSwiftSymbols</key><true/>
 </dict></plist>
