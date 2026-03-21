@@ -12,6 +12,7 @@
 		FC1BF8842F5ACF1F009F5597 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = FC1BF8832F5ACF1F009F5597 /* GoVibeFeature */; };
 		FCD000102F700001009F5597 /* GoVibeHostCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCD000122F700001009F5597 /* GoVibeHostCore */; };
 		FCD100012F700001009F5597 /* GoVibe/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */; };
+		FCE000022F700001009F5597 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = FCE000012F700001009F5597 /* GoogleService-Info.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,6 +30,7 @@
 		8B41F65C2DEDD0D6001A66F9 /* GoVibe.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoVibe.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FCD000012F700001009F5597 /* GoVibeHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoVibeHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = GoVibe/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		FCE000012F700001009F5597 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = GoVibeHostApp/GoogleService-Info.plist; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -45,6 +47,13 @@
 				Tests.xcconfig,
 			);
 			target = 8B41F6442DEDD0D5001A66F9 /* GoVibe */;
+		};
+		FCE000032F700001009F5597 /* Exceptions for "GoVibeHostApp" folder in "GoVibeHost" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = FCD000032F700001009F5597 /* GoVibeHost */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -69,6 +78,9 @@
 		};
 		FCD000022F700001009F5597 /* GoVibeHostApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FCE000032F700001009F5597 /* Exceptions for "GoVibeHostApp" folder in "GoVibeHost" target */,
+			);
 			path = GoVibeHostApp;
 			sourceTree = "<group>";
 		};
@@ -111,6 +123,7 @@
 				8B41F65F2DEDD0D6001A66F9 /* GoVibeUITests */,
 				FCD000022F700001009F5597 /* GoVibeHostApp */,
 				FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */,
+				FCE000012F700001009F5597 /* GoogleService-Info.plist */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
 			);
@@ -275,6 +288,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FCD100012F700001009F5597 /* GoVibe/Assets.xcassets in Resources */,
+				FCE000022F700001009F5597 /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
