@@ -104,7 +104,6 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Developer ID Application" \
-            'PROVISIONING_PROFILE_SPECIFIER=GoVibe Host' \
             DEVELOPMENT_TEAM=52RD2GH5DP \
             ENABLE_HARDENED_RUNTIME=YES
 
