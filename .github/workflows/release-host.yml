@@ -90,11 +90,7 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Developer ID Application" \
-            DEVELOPMENT_TEAM=52RD2GH5DP \
-            ENABLE_HARDENED_RUNTIME=YES
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
       # ── Export ─────────────────────────────────────────────────────────────
       - name: Export Developer ID app
