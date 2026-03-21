@@ -5,6 +5,7 @@ struct HostDashboardView: View {
     @State var manager: HostSessionManager
     @State private var showingWizard = false
     @State private var showingHostIDPopover = false
+    @State private var sessionPendingRemoval: HostedSessionDescriptor?
     private let relativeDateFormatter = RelativeDateTimeFormatter()
     private static let logTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -36,7 +37,7 @@ struct HostDashboardView: View {
                 Button {
                     showingHostIDPopover = true
                 } label: {
-                    Label("Show Host ID", systemImage: "number")
+                    Label("Show Device ID", systemImage: "number")
                 }
                 .popover(isPresented: $showingHostIDPopover, arrowEdge: .top) {
                     HostIDView(hostId: manager.settings.hostId)
@@ -55,6 +56,30 @@ struct HostDashboardView: View {
             manager.refreshPermissions()
             manager.startControlChannel()
         }
+        .confirmationDialog(
+            "Remove Session",
+            isPresented: Binding(
+                get: { sessionPendingRemoval != nil },
+                set: { if !$0 { sessionPendingRemoval = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let session = sessionPendingRemoval {
+                Button("Kill Session", role: .destructive) {
+                    manager.removeSession(id: session.sessionId)
+                    sessionPendingRemoval = nil
+                }
+                Button("Detach Only") {
+                    manager.detachSession(id: session.sessionId)
+                    sessionPendingRemoval = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    sessionPendingRemoval = nil
+                }
+            }
+        } message: {
+            Text("Kill the tmux session, or just detach from it? Detaching keeps the session running so you can reattach later.")
+        }
     }
 
     @ViewBuilder
@@ -72,7 +97,7 @@ struct HostDashboardView: View {
                     HStack {
                         Button(toggleTitle(for: session.state)) { toggleSession(session) }
                             .buttonStyle(.borderedProminent)
-                        Button("Remove", role: .destructive) { manager.removeSession(id: session.sessionId) }
+                        Button("Remove", role: .destructive) { sessionPendingRemoval = session }
                     }
 
                     Divider()
@@ -150,12 +175,17 @@ private struct SessionCreationWizard: View {
     enum Step { case typeSelection, configure }
     enum SessionKind { case terminal, simulator, appWindow }
     enum Field: Hashable { case sessionID, tmuxID }
+    enum TmuxMode { case new, existing }
 
     @State private var step: Step = .typeSelection
     @State private var selectedKind: SessionKind? = nil
     @State private var sessionID = ""
     @State private var sessionIDPrompt = ""
     @State private var tmuxID = ""
+    @State private var tmuxMode: TmuxMode = .new
+    @State private var existingTmuxSessions: [String] = []
+    @State private var isLoadingTmuxSessions = false
+    @State private var selectedTmuxSession: String? = nil
     @State private var simulatorUDID = ""
     @State private var pickerSimulators: [BootedSimulatorDevice] = []
     @State private var isLoadingSimulators = false
@@ -294,49 +324,190 @@ private struct SessionCreationWizard: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 formIntro(
-                    title: "Give this relay a name peers can connect to.",
-                    subtitle: "You can optionally point it at a specific tmux session, or leave that blank and reuse the Session ID."
+                    title: "Configure the tmux session, then confirm the relay name.",
+                    subtitle: "Type a new tmux session name or pick an existing one. The Session ID is pre-filled from your choice."
                 )
+
+                inputBlock(
+                    title: "tmux Session",
+                    help: tmuxMode == .new
+                        ? "The Session ID will be pre-filled with this name."
+                        : "Pick a running tmux session to attach to."
+                ) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            tmuxModeButton(.new, label: "New Session")
+                            tmuxModeButton(.existing, label: "Existing Session")
+                        }
+
+                        if tmuxMode == .new {
+                            TextField("", text: $tmuxID, prompt: Text("e.g. main"))
+                                .textFieldStyle(.plain)
+                                .focused($focusedField, equals: .tmuxID)
+                                .onChange(of: tmuxID) { _, newValue in
+                                    sessionIDPrompt = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                                }
+                        } else {
+                            HStack {
+                                Text(tmuxSelectionSummary)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button {
+                                    Task { await refreshTmuxSessions() }
+                                } label: {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 12, weight: .semibold))
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(isLoadingTmuxSessions)
+                                .help("Refresh running tmux sessions")
+                            }
+
+                            if isLoadingTmuxSessions {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Loading tmux sessions…")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 6)
+                            } else if existingTmuxSessions.isEmpty {
+                                Text("No running tmux sessions found. Start a tmux session, then refresh.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 6)
+                            } else {
+                                VStack(spacing: 8) {
+                                    ForEach(existingTmuxSessions, id: \.self) { session in
+                                        tmuxSessionRow(session)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 inputBlock(
                     title: "Session ID",
                     help: "A unique identifier peers will use to connect to this relay."
                 ) {
-                    TextField("", text: $sessionID, prompt: Text("e.g. ios-dev"))
+                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. ios-dev" : sessionIDPrompt).foregroundColor(.secondary))
                         .textFieldStyle(.plain)
                         .focused($focusedField, equals: .sessionID)
-                }
-
-                inputBlock(
-                    title: "tmux Session",
-                    help: "Optional. Leave blank to use the Session ID as the tmux session name."
-                ) {
-                    TextField("", text: $tmuxID, prompt: Text("Optional tmux session name"))
-                        .textFieldStyle(.plain)
-                        .focused($focusedField, equals: .tmuxID)
                 }
             }
             .padding(28)
         }
-        .onAppear { focusedField = .sessionID }
+        .task { await refreshTmuxSessions() }
+    }
+
+    private var tmuxSelectionSummary: String {
+        guard let selected = selectedTmuxSession else {
+            return "Choose a running tmux session below."
+        }
+        return "Selected: \(selected)"
+    }
+
+    private func isTmuxSessionAlreadyAdded(_ name: String) -> Bool {
+        manager.sessions.contains {
+            $0.kind.rawValue == "terminal" && ($0.displayName == name || $0.sessionId == name)
+        }
+    }
+
+    private func autoSelectFirstEligibleTmuxSession() {
+        let eligible = existingTmuxSessions.first { !isTmuxSessionAlreadyAdded($0) }
+        if let eligible {
+            selectedTmuxSession = eligible
+            sessionIDPrompt = eligible
+        }
+    }
+
+    private func tmuxModeButton(_ mode: TmuxMode, label: String) -> some View {
+        let isSelected = tmuxMode == mode
+        return Button {
+            tmuxMode = mode
+            if mode == .existing && tmuxID.isEmpty {
+                autoSelectFirstEligibleTmuxSession()
+            }
+        } label: {
+            Text(label)
+                .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isSelected ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.04))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.1), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tmuxSessionRow(_ session: String) -> some View {
+        let isSelected = selectedTmuxSession == session
+        let isAdded = isTmuxSessionAlreadyAdded(session)
+        return Button {
+            guard !isAdded else { return }
+            selectedTmuxSession = session
+            sessionIDPrompt = session
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isAdded ? AnyShapeStyle(.tertiary) : (isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary)))
+                Text(session)
+                    .foregroundStyle(isAdded ? .tertiary : .primary)
+                Spacer()
+                if isAdded {
+                    Text("Added")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isAdded ? Color.primary.opacity(0.015) : (isSelected ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.035)))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isAdded ? Color.primary.opacity(0.05) : (isSelected ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.08)), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func refreshTmuxSessions() async {
+        isLoadingTmuxSessions = true
+        let sessions = await Task.detached(priority: .userInitiated) {
+            PtySession.listTmuxSessions()
+        }.value
+        existingTmuxSessions = sessions
+        if sessions.isEmpty {
+            selectedTmuxSession = nil
+            if tmuxMode == .existing { sessionIDPrompt = "" }
+        } else if tmuxMode == .existing,
+                  selectedTmuxSession == nil || !sessions.contains(where: { $0 == selectedTmuxSession }) {
+            let eligible = sessions.first { !isTmuxSessionAlreadyAdded($0) }
+            selectedTmuxSession = eligible
+            sessionIDPrompt = eligible ?? ""
+        }
+        isLoadingTmuxSessions = false
     }
 
     private var simulatorConfigStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 formIntro(
-                    title: "Choose a relay name, then pick a booted simulator to mirror.",
+                    title: "Pick a booted simulator to mirror.",
                     subtitle: "Open Xcode → Open Developer Tool → Simulator and boot the device first. Only active simulators appear here."
                 )
-
-                inputBlock(
-                    title: "Session ID",
-                    help: "A unique identifier peers will use to connect to this relay."
-                ) {
-                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. sim-ios-18" : sessionIDPrompt).foregroundColor(.secondary))
-                        .textFieldStyle(.plain)
-                        .focused($focusedField, equals: .sessionID)
-                }
 
                 inputBlock(
                     title: "Target Simulator",
@@ -382,11 +553,19 @@ private struct SessionCreationWizard: View {
                         }
                     }
                 }
+
+                inputBlock(
+                    title: "Session ID",
+                    help: "A unique identifier peers will use to connect to this relay."
+                ) {
+                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. sim-ios-18" : sessionIDPrompt).foregroundColor(.secondary))
+                        .textFieldStyle(.plain)
+                        .focused($focusedField, equals: .sessionID)
+                }
             }
             .padding(28)
         }
         .task { await refreshSimulators() }
-        .onAppear { focusedField = .sessionID }
     }
 
     // MARK: Helpers
@@ -407,12 +586,18 @@ private struct SessionCreationWizard: View {
         let normalizedID = effectiveSessionID
         switch selectedKind {
         case .terminal:
-            let tmux = tmuxID.trimmingCharacters(in: .whitespacesAndNewlines)
+            let tmuxName: String
+            if tmuxMode == .existing, let selected = selectedTmuxSession {
+                tmuxName = selected
+            } else {
+                let tmux = tmuxID.trimmingCharacters(in: .whitespacesAndNewlines)
+                tmuxName = tmux.isEmpty ? normalizedID : tmux
+            }
             manager.createTerminalSession(
                 config: TerminalSessionConfig(
                     sessionId: normalizedID,
                     shellPath: manager.settings.defaultShellPath,
-                    tmuxSessionName: tmux.isEmpty ? normalizedID : tmux
+                    tmuxSessionName: tmuxName
                 )
             )
         case .simulator:
@@ -463,18 +648,9 @@ private struct SessionCreationWizard: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 formIntro(
-                    title: "Choose a relay name, then pick a window to mirror.",
+                    title: "Pick a window to mirror.",
                     subtitle: "Any visible macOS application window can be mirrored. Grant screen recording permission if prompted."
                 )
-
-                inputBlock(
-                    title: "Session ID",
-                    help: "A unique identifier peers will use to connect to this relay."
-                ) {
-                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. safari-window" : sessionIDPrompt).foregroundColor(.secondary))
-                        .textFieldStyle(.plain)
-                        .focused($focusedField, equals: .sessionID)
-                }
 
                 inputBlock(
                     title: "Target Window",
@@ -546,11 +722,19 @@ private struct SessionCreationWizard: View {
                         }
                     }
                 }
+
+                inputBlock(
+                    title: "Session ID",
+                    help: "A unique identifier peers will use to connect to this relay."
+                ) {
+                    TextField("", text: $sessionID, prompt: Text(sessionIDPrompt.isEmpty ? "e.g. safari-window" : sessionIDPrompt).foregroundColor(.secondary))
+                        .textFieldStyle(.plain)
+                        .focused($focusedField, equals: .sessionID)
+                }
             }
             .padding(28)
         }
         .task { await refreshWindows() }
-        .onAppear { focusedField = .sessionID }
     }
 
     private func refreshWindows() async {
@@ -704,3 +888,4 @@ private struct SessionCreationWizard: View {
         .buttonStyle(.plain)
     }
 }
+

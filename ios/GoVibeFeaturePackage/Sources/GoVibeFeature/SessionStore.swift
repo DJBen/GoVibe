@@ -1,4 +1,5 @@
 import FirebaseAuth
+import FirebaseFirestore
 import Foundation
 import Observation
 
@@ -6,7 +7,7 @@ import Observation
 @Observable
 final class SessionStore {
     private let sessionsBaseKey = "saved_sessions"
-    private let hostsBaseKey = "saved_hosts"
+    private let legacyHostsBaseKey = "saved_hosts"
     private var apiClient: GoVibeAPIClient
 
     var sessions: [SavedSession] = []
@@ -15,8 +16,8 @@ final class SessionStore {
     var errorMessage: String?
     var currentUserId: String?
 
-    // Persistent per-host control-channel listeners for real-time session updates.
-    private var listenerTasks: [String: Task<Void, Never>] = [:]
+    // Persistent per-host Firestore snapshot listeners for real-time session updates.
+    private var snapshotListeners: [String: ListenerRegistration] = [:]
 
     private struct PersistedSavedSession: Decodable {
         let roomId: String
@@ -44,15 +45,13 @@ final class SessionStore {
     }
     
     func reset() {
+        if let userId = currentUserId {
+            clearPersistedState(for: userId)
+        }
         sessions = []
         hosts = []
         errorMessage = nil
         stopAllListeners()
-        // Also clear persisted data if we want a full wipe, but maybe just memory is enough for now?
-        // The requirement said "reset and clear all hosts and all the sessions".
-        // To be safe, we should probably clear persistence too, or at least reload.
-        // But since we are changing config (potentially to a new project), the old data is invalid.
-        // So clearing memory is good start.
     }
 
     func sessions(for hostId: String) -> [SavedSession] {
@@ -62,6 +61,7 @@ final class SessionStore {
     // MARK: - Lifecycle
 
     func refresh() async {
+        guard !isLoading else { return }
         guard AppConfig.shared.isValid else {
             errorMessage = "Configuration required."
             isLoading = false
@@ -76,7 +76,7 @@ final class SessionStore {
             let user = try await ensureAuthenticated()
             currentUserId = user.uid
             load(for: user.uid)
-            loadHosts(for: user.uid)
+            try await refreshDiscoveredHosts()
         } catch {
             sessions = []
             hosts = []
@@ -84,28 +84,7 @@ final class SessionStore {
             return
         }
 
-        // Pull the latest session list from each known host, then start persistent listeners.
-        let hostsSnapshot = hosts
-        for host in hostsSnapshot {
-            await syncSessions(for: host)
-        }
-        reconcileListeners()
-    }
-
-    /// Queries `<hostId>-ctl` for the host's current sessions and merges into the local store.
-    /// Silently no-ops if the host is offline.
-    func syncSessions(for host: HostInfo) async {
-        guard AppConfig.shared.isValid else { return }
-        let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
-        guard !relayBase.isEmpty else { return }
-
-        let client = HostControlClient(relayWebSocketBase: relayBase)
-        do {
-            let remote = try await client.listSessions(hostId: host.id)
-            applyRemoteSessions(remote, hostId: host.id)
-        } catch {
-            // Host is offline or unreachable — silently skip.
-        }
+        reconcileFirestoreListeners()
     }
 
     /// Merges a remote session list into the local store, adding new sessions and
@@ -137,115 +116,49 @@ final class SessionStore {
         }
     }
 
-    // MARK: - Persistent Listeners
+    // MARK: - Firestore Snapshot Listeners
 
-    /// Starts or stops per-host listeners so each host has exactly one live WebSocket
-    /// connection to its control channel. Unsolicited `sessions_list` messages are
-    /// applied immediately without any polling delay.
-    private func reconcileListeners() {
-        guard AppConfig.shared.isValid,
-              let relayBase = AppConfig.shared.relayWebSocketBase,
-              !relayBase.isEmpty else {
-            stopAllListeners()
-            return
-        }
-
+    /// Starts or stops per-host Firestore snapshot listeners so each host has exactly
+    /// one real-time listener on its `hostedSessions` subcollection.
+    private func reconcileFirestoreListeners() {
+        let db = Firestore.firestore()
         let activeIds = Set(hosts.map(\.id))
+        let uid = currentUserId ?? ""
 
-        // Start listeners for newly added hosts.
-        for host in hosts where listenerTasks[host.id] == nil {
+        for host in hosts where snapshotListeners[host.id] == nil {
             let hostId = host.id
-            listenerTasks[hostId] = Task { [weak self] in
-                await self?.runListener(hostId: hostId, relayBase: relayBase)
+            // Query must filter on ownerUid to satisfy Firestore security rules.
+            let reg = db.collection("devices").document(hostId)
+                        .collection("hostedSessions")
+                        .whereField("ownerUid", isEqualTo: uid)
+                        .addSnapshotListener { [weak self] snap, _ in
+                guard let self, let snap else { return }
+                Task { @MainActor in
+                    self.applyFirestoreSnapshot(snap, hostId: hostId)
+                }
             }
+            snapshotListeners[hostId] = reg
         }
 
-        // Cancel listeners for removed hosts.
-        for (hostId, task) in listenerTasks where !activeIds.contains(hostId) {
-            task.cancel()
-            listenerTasks.removeValue(forKey: hostId)
+        for (hostId, reg) in snapshotListeners where !activeIds.contains(hostId) {
+            reg.remove()
+            snapshotListeners.removeValue(forKey: hostId)
         }
+    }
+
+    private func applyFirestoreSnapshot(_ snapshot: QuerySnapshot, hostId: String) {
+        let summaries: [HostSessionSummary] = snapshot.documents.compactMap { doc in
+            let data = doc.data()
+            guard let sid = data["sessionId"] as? String, !sid.isEmpty else { return nil }
+            let kind = (data["kind"] as? String).flatMap { SessionKind(rawValue: $0) }
+            return HostSessionSummary(sessionId: sid, kind: kind)
+        }
+        applyRemoteSessions(summaries, hostId: hostId)
     }
 
     private func stopAllListeners() {
-        listenerTasks.values.forEach { $0.cancel() }
-        listenerTasks.removeAll()
-    }
-
-    private func runListener(hostId: String, relayBase: String) async {
-        while !Task.isCancelled {
-            await connectAndListen(hostId: hostId, relayBase: relayBase)
-            guard !Task.isCancelled else { break }
-            try? await Task.sleep(for: .seconds(5))
-        }
-    }
-
-    private func connectAndListen(hostId: String, relayBase: String) async {
-        guard var components = URLComponents(string: relayBase) else { return }
-        components.queryItems = [URLQueryItem(name: "room", value: "\(hostId)-ctl")]
-        guard let url = components.url else { return }
-
-        let wsTask = URLSession.shared.webSocketTask(with: url)
-        wsTask.resume()
-        defer { wsTask.cancel(with: .goingAway, reason: nil) }
-
-        // Ask for the current list immediately on connect.
-        if let data = try? JSONSerialization.data(withJSONObject: ["type": "list_sessions"]),
-           let json = String(data: data, encoding: .utf8) {
-            try? await wsTask.send(.string(json))
-        }
-
-        while !Task.isCancelled {
-            do {
-                let message = try await wsTask.receive()
-                let text: String
-                switch message {
-                case .string(let s): text = s
-                case .data(let d): text = String(data: d, encoding: .utf8) ?? ""
-                @unknown default: continue
-                }
-                guard let data = text.data(using: .utf8),
-                      let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      parsed["type"] as? String == "sessions_list",
-                      let array = parsed["sessions"] as? [[String: String]] else { continue }
-                let summaries = array.compactMap { entry -> HostSessionSummary? in
-                    guard let sessionId = entry["sessionId"], !sessionId.isEmpty else { return nil }
-                    return HostSessionSummary(sessionId: sessionId, kind: entry["kind"].flatMap { SessionKind(rawValue: $0) })
-                }
-                applyRemoteSessions(summaries, hostId: hostId)
-            } catch {
-                break
-            }
-        }
-    }
-
-    // MARK: - Host Management
-
-    func addHost(id: String, name: String) {
-        guard AppConfig.shared.isValid else {
-            errorMessage = "Configuration required."
-            return
-        }
-        guard let userId = currentUserId else {
-            errorMessage = APIError.notAuthenticated.localizedDescription
-            return
-        }
-        let trimmedId = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedId.isEmpty, !trimmedName.isEmpty else { return }
-        guard !hosts.contains(where: { $0.id == trimmedId }) else { return }
-        hosts.append(HostInfo(id: trimmedId, name: trimmedName))
-        saveHosts(for: userId)
-        save(for: userId)
-    }
-
-    func removeHost(id: String) {
-        // Removal doesn't strictly need config, but better safe.
-        guard let userId = currentUserId else { return }
-        hosts.removeAll { $0.id == id }
-        sessions.removeAll { $0.hostId == id }
-        saveHosts(for: userId)
-        save(for: userId)
+        snapshotListeners.values.forEach { $0.remove() }
+        snapshotListeners.removeAll()
     }
 
     // MARK: - Session Management
@@ -297,12 +210,13 @@ final class SessionStore {
     }
 
     /// Deletes a session, attempting to remove it from the remote host first if applicable.
-    func deleteSession(_ session: SavedSession) async {
+    /// - Parameter killTmux: If `true`, the host kills the underlying tmux session. If `false`, GoVibe detaches without killing tmux.
+    func deleteSession(_ session: SavedSession, killTmux: Bool = true) async {
         let relayBase = AppConfig.shared.relayWebSocketBase ?? ""
         if !relayBase.isEmpty {
-            let client = HostControlClient(relayWebSocketBase: relayBase)
+            let client = HostControlClient(relayWebSocketBase: relayBase, apiBaseURL: AppRuntimeConfig.apiBaseURL)
             do {
-                try await client.deleteSession(hostId: session.hostId, sessionId: session.sessionId)
+                try await client.deleteSession(hostId: session.hostId, sessionId: session.sessionId, killTmux: killTmux)
             } catch {
                 // If remote delete fails, we log it but proceed to delete locally
                 // so the user isn't stuck with a zombie session in their UI.
@@ -337,7 +251,7 @@ final class SessionStore {
     }
 
     private func hostsStorageKey(for userId: String) -> String {
-        "\(hostsBaseKey)_\(userId)"
+        "\(legacyHostsBaseKey)_\(userId)"
     }
 
     private func save(for userId: String) {
@@ -373,24 +287,48 @@ final class SessionStore {
         }
     }
 
-    private func saveHosts(for userId: String) {
-        do {
-            let data = try JSONEncoder().encode(hosts)
-            UserDefaults.standard.set(data, forKey: hostsStorageKey(for: userId))
-        } catch {
-            errorMessage = "Failed to persist host list."
+    private func refreshDiscoveredHosts() async throws {
+        let result = try await apiClient.discoverHosts()
+        applyDiscoveredHosts(result.hosts)
+    }
+
+    private func clearPersistedState(for userId: String) {
+        UserDefaults.standard.removeObject(forKey: storageKey(for: userId))
+        UserDefaults.standard.removeObject(forKey: hostsStorageKey(for: userId))
+
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+        if let cachesDir = caches.first?.appendingPathComponent("govibe_thumbs", isDirectory: true) {
+            try? FileManager.default.removeItem(at: cachesDir)
         }
     }
 
-    private func loadHosts(for userId: String) {
-        guard let data = UserDefaults.standard.data(forKey: hostsStorageKey(for: userId)) else {
-            hosts = []
-            return
+    private func applyDiscoveredHosts(_ discoveredHosts: [DiscoveredHost]) {
+        hosts = discoveredHosts.map { discovered in
+            HostInfo(
+                id: discovered.deviceId,
+                name: discovered.displayName,
+                capabilities: discovered.capabilities,
+                isOnline: discovered.isOnline,
+                lastSeenAt: discovered.lastSeenAt,
+                lastOnlineAt: discovered.lastOnlineAt
+            )
         }
-        do {
-            hosts = try JSONDecoder().decode([HostInfo].self, from: data)
-        } catch {
-            hosts = []
+        .sorted { lhs, rhs in
+            switch ((lhs.isOnline ?? false), (rhs.isOnline ?? false)) {
+            case (true, false):
+                return true
+            case (false, true):
+                return false
+            default:
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        }
+
+        let activeHostIDs = Set(hosts.map(\.id))
+        let originalCount = sessions.count
+        sessions.removeAll { !activeHostIDs.contains($0.hostId) }
+        if sessions.count != originalCount, let userId = currentUserId {
+            save(for: userId)
         }
     }
 
@@ -401,13 +339,6 @@ final class SessionStore {
             _ = try await user.getIDTokenResult(forcingRefresh: false)
             return user
         }
-
-        do {
-            let result = try await Auth.auth().signInAnonymously()
-            _ = try await result.user.getIDTokenResult(forcingRefresh: true)
-            return result.user
-        } catch {
-            throw APIError.notAuthenticated
-        }
+        throw APIError.notAuthenticated
     }
 }

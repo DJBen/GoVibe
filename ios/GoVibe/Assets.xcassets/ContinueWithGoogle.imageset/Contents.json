@@ -1,0 +1,22 @@
+{
+  "images" : [
+    {
+      "filename" : "web_dark_sq_ctn.svg",
+      "idiom" : "universal"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
+      "filename" : "web_neutral_sq_ctn.svg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

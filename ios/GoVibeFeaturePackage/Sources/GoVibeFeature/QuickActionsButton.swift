@@ -18,6 +18,11 @@ struct QuickActionsButton: View {
                 .renderingMode(.template)
                 .foregroundStyle(.black)
                 .padding(10)
+        } else if paneProgram == "Gemini" {
+            Image("GeminiSymbol")
+                .resizable()
+                .renderingMode(.original)
+                .padding(10)
         } else {
             Image("ClaudeSymbol")
                 .resizable()
@@ -28,7 +33,11 @@ struct QuickActionsButton: View {
     }
 
     private var buttonBackground: Color {
-        paneProgram == "Codex" ? .white : Color("ClaudeColor")
+        switch paneProgram {
+        case "Codex":  return .white
+        case "Gemini": return .white
+        default:       return Color("ClaudeColor")
+        }
     }
 
     var body: some View {

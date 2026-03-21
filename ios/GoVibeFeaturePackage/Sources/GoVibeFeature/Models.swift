@@ -25,6 +25,31 @@ struct SessionDiscoveryResponse: Codable {
     let count: Int
 }
 
+struct HostDiscoveryResponse: Codable {
+    let hosts: [DiscoveredHost]
+    let count: Int
+}
+
+struct RelayTokenResponse: Codable {
+    let token: String
+    let room: String
+    let role: String
+    let expiresInSeconds: Int
+}
+
+struct DiscoveredHost: Codable, Hashable, Identifiable {
+    let deviceId: String
+    let displayName: String
+    let capabilities: [String]
+    let appVersion: String?
+    let osVersion: String?
+    let lastSeenAt: Date?
+    let lastOnlineAt: Date?
+    let isOnline: Bool
+
+    var id: String { deviceId }
+}
+
 struct TerminalLine: Identifiable {
     let id = UUID()
     let text: String
@@ -53,12 +78,27 @@ enum SessionKind: String, Codable {
 }
 
 struct HostInfo: Identifiable, Codable, Hashable {
-    var id: String       // hostId UUID string from the macOS GoVibe Host app
-    var name: String     // user-given display label
+    var id: String       // stable host device ID from the authenticated macOS GoVibe Host app
+    var name: String     // display name reported by the host
+    var capabilities: [String]
+    var isOnline: Bool?
+    var lastSeenAt: Date?
+    var lastOnlineAt: Date?
 
-    init(id: String, name: String) {
+    init(
+        id: String,
+        name: String,
+        capabilities: [String] = [],
+        isOnline: Bool? = nil,
+        lastSeenAt: Date? = nil,
+        lastOnlineAt: Date? = nil
+    ) {
         self.id = id
         self.name = name
+        self.capabilities = capabilities
+        self.isOnline = isOnline
+        self.lastSeenAt = lastSeenAt
+        self.lastOnlineAt = lastOnlineAt
     }
 }
 

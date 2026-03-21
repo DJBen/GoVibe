@@ -18,13 +18,13 @@ public final class HostControlChannel: @unchecked Sendable {
     /// Call `sendSessionCreated` or `sendSessionError` in response.
     public var onCreateSession: ((String, String?) -> Void)?
 
-    /// Called when an iOS peer requests the list of all sessions.
-    /// Respond by calling `sendSessionsList(_:)`.
-    public var onListSessions: (() -> Void)?
-
     /// Called when an iOS peer requests to delete a session.
-    /// Parameter: sessionId.
-    public var onDeleteSession: ((String) -> Void)?
+    /// Parameters: sessionId, killTmux (true = kill tmux session, false = detach only).
+    public var onDeleteSession: ((String, Bool) -> Void)?
+
+    /// Called when an iOS peer requests the list of running tmux sessions on the host.
+    /// Respond by calling `sendTmuxSessionsList(_:)`.
+    public var onListTmuxSessions: (() -> Void)?
 
     public init(hostId: String, relayBase: String, logger: HostLogger) {
         self.hostId = hostId
@@ -54,35 +54,37 @@ public final class HostControlChannel: @unchecked Sendable {
         sendJSON(["type": "session_error", "sessionId": sessionId, "error": error])
     }
 
-    /// Sends the full session list to connected iOS peers.
-    /// Call this in response to `onListSessions`, and after any local session creation.
-    public func sendSessionsList(_ sessions: [(sessionId: String, kind: String)]) {
-        let list = sessions.map { ["sessionId": $0.sessionId, "kind": $0.kind] }
-        sendRawJSON(["type": "sessions_list", "sessions": list] as [String: Any])
-    }
-
     // MARK: - Private
 
     private var controlRoomId: String { "\(hostId)-ctl" }
 
     private func connect() {
         guard !stopped else { return }
-        guard var components = URLComponents(string: relayBase) else {
-            logger.error("HostControl: invalid relay URL: \(relayBase)")
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: controlRoomId)]
-        guard let url = components.url else {
-            logger.error("HostControl: failed to compose relay URL")
-            return
-        }
+        let generation = socketGeneration &+ 1
+        socketGeneration = generation
 
-        logger.info("HostControl: connecting to \(url.absoluteString)")
-        socketGeneration &+= 1
-        let task = urlSession.webSocketTask(with: url)
-        task.resume()
-        wsTask = task
-        receiveLoop(generation: socketGeneration)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let apiBaseURL = await MainActor.run { HostConfig.shared.apiBaseURL }
+                let auth = HostRelayAuth(relayWebSocketBase: self.relayBase, apiBaseURL: apiBaseURL)
+                let url = try await auth.authorizedURL(deviceId: self.hostId, hostId: self.hostId, room: self.controlRoomId, role: "host-control")
+                self.logger.info("HostControl: connecting to \(url.absoluteString)")
+                self.queue.async {
+                    guard generation == self.socketGeneration else { return }
+                    let task = self.urlSession.webSocketTask(with: url)
+                    task.resume()
+                    self.wsTask = task
+                    self.receiveLoop(generation: generation)
+                }
+            } catch {
+                self.logger.error("HostControl auth failed: \(error.localizedDescription)")
+                self.queue.async {
+                    guard generation == self.socketGeneration else { return }
+                    self.scheduleReconnect()
+                }
+            }
+        }
     }
 
     private func scheduleReconnect() {
@@ -109,7 +111,16 @@ public final class HostControlChannel: @unchecked Sendable {
                     self.logger.error("HostControl receive error: \(error.localizedDescription)")
                     self.scheduleReconnect()
                 case .success(let message):
-                    if case .string(let text) = message {
+                    let text: String?
+                    switch message {
+                    case .string(let raw):
+                        text = raw
+                    case .data(let data):
+                        text = String(data: data, encoding: .utf8)
+                    @unknown default:
+                        text = nil
+                    }
+                    if let text {
                         self.handleMessage(text)
                     }
                     self.receiveLoop(generation: generation)
@@ -132,16 +143,17 @@ public final class HostControlChannel: @unchecked Sendable {
             let tmuxSession = json["tmuxSession"] as? String
             logger.info("HostControl: create_session '\(sessionId)' tmux=\(tmuxSession ?? "<same>")")
             onCreateSession?(sessionId, tmuxSession)
-        case "list_sessions":
-            logger.info("HostControl: list_sessions requested")
-            onListSessions?()
         case "delete_session":
             guard let sessionId = json["sessionId"] as? String, !sessionId.isEmpty else {
                 logger.error("HostControl: delete_session missing sessionId")
                 return
             }
-            logger.info("HostControl: delete_session '\(sessionId)' requested")
-            onDeleteSession?(sessionId)
+            let killTmux = json["killTmux"] as? Bool ?? true
+            logger.info("HostControl: delete_session '\(sessionId)' requested (killTmux=\(killTmux))")
+            onDeleteSession?(sessionId, killTmux)
+        case "list_tmux_sessions":
+            logger.info("HostControl: list_tmux_sessions requested")
+            onListTmuxSessions?()
         default:
             break
         }
@@ -149,6 +161,11 @@ public final class HostControlChannel: @unchecked Sendable {
 
     public func sendSessionDeleted(sessionId: String) {
         sendJSON(["type": "session_deleted", "sessionId": sessionId])
+    }
+
+    /// Sends the list of running tmux session names to connected iOS peers.
+    public func sendTmuxSessionsList(_ sessions: [String]) {
+        sendRawJSON(["type": "tmux_sessions_list", "sessions": sessions] as [String: Any])
     }
 
     private func sendJSON(_ payload: [String: String]) {

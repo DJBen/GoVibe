@@ -4,10 +4,21 @@ import Foundation
 actor GoVibeAPIClient {
     private let baseURL: URL
     private let decoder = JSONDecoder()
-    private let encoder = JSONEncoder()
 
     init(baseURL: URL) {
         self.baseURL = baseURL
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            let formatterWithFractionalSeconds = ISO8601DateFormatter()
+            formatterWithFractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime]
+            if let date = formatterWithFractionalSeconds.date(from: value) ?? formatter.date(from: value) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid ISO-8601 date: \(value)")
+        }
     }
 
     func sessionCreate(ownerDeviceId: String, peerDeviceId: String) async throws -> SessionCreateResponse {
@@ -41,6 +52,42 @@ actor GoVibeAPIClient {
             path: "/device/fcmToken",
             body: ["deviceId": deviceId, "fcmToken": token],
             responseType: OkResponse.self
+        )
+    }
+
+    func registerIOSDevice(deviceId: String, displayName: String) async throws {
+        _ = try await request(
+            path: "/device/register",
+            body: [
+                "deviceId": deviceId,
+                "platform": "ios",
+                "displayName": displayName,
+                "isHost": false,
+                "discoveryVisible": false,
+                "capabilities": []
+            ],
+            responseType: OkResponse.self
+        )
+    }
+
+    func discoverHosts() async throws -> HostDiscoveryResponse {
+        try await request(
+            path: "/hosts/discover",
+            body: [:],
+            responseType: HostDiscoveryResponse.self
+        )
+    }
+
+    func issueRelayToken(deviceId: String, hostId: String, room: String, role: String) async throws -> RelayTokenResponse {
+        try await request(
+            path: "/relay/token",
+            body: [
+                "deviceId": deviceId,
+                "hostId": hostId,
+                "room": room,
+                "role": role
+            ],
+            responseType: RelayTokenResponse.self
         )
     }
 

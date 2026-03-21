@@ -4,14 +4,15 @@ import UIKit
 struct SessionListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var store = SessionStore()
+    @State private var authController = GoVibeAuthController.shared
     @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
     @State private var selectedSession: SavedSession?
     @State private var navigationPath: [SavedSession] = []
-    @State private var showingAddHost = false
     @State private var showingSettings = false
     @State private var createSessionForHost: HostInfo?
     @State private var userDeletingIds: Set<String> = []
     @State private var externallyDeletedRoomId: String? = nil
+    @State private var sessionPendingDeletion: SavedSession?
 
     var body: some View {
         Group {
@@ -21,7 +22,7 @@ struct SessionListView: View {
                 } detail: {
                     if let selectedSession {
                         SessionDetailView(
-                            roomId: selectedSession.roomId,
+                            session: selectedSession,
                             presentationMode: .regular,
                             onExit: { self.selectedSession = nil },
                             onKindDiscovered: { kind in store.update(roomId: selectedSession.roomId, kind: kind) },
@@ -30,6 +31,7 @@ struct SessionListView: View {
                         .withSnapshot { image, date in
                             saveSnapshot(image: image, date: date, roomId: selectedSession.roomId)
                         }
+                        .id(selectedSession.roomId)
                     } else {
                         SessionPlaceholderView()
                     }
@@ -41,7 +43,7 @@ struct SessionListView: View {
                     sidebarContent()
                         .navigationDestination(for: SavedSession.self) { session in
                             SessionDetailView(
-                                roomId: session.roomId,
+                                session: session,
                                 presentationMode: .compact,
                                 onKindDiscovered: { kind in store.update(roomId: session.roomId, kind: kind) },
                                 onStatusChanged: { status in store.update(roomId: session.roomId, relayStatus: status) }
@@ -52,9 +54,6 @@ struct SessionListView: View {
                         }
                 }
             }
-        }
-        .sheet(isPresented: $showingAddHost) {
-            AddHostView(store: store)
         }
         .sheet(isPresented: $showingSettings, onDismiss: {
             store.reset()
@@ -93,7 +92,7 @@ struct SessionListView: View {
                 externallyDeletedRoomId = roomId
             }
 
-            if let selectedSession, !sessions.contains(selectedSession) {
+            if let selectedSession, !sessionIds.contains(selectedSession.roomId) {
                 self.selectedSession = nil
             }
             navigationPath.removeAll { !sessionIds.contains($0.roomId) }
@@ -108,6 +107,30 @@ struct SessionListView: View {
             if let roomId = externallyDeletedRoomId {
                 Text("\"\(roomId)\" was deleted by the host.")
             }
+        }
+        .confirmationDialog(
+            "Remove Session",
+            isPresented: Binding(
+                get: { sessionPendingDeletion != nil },
+                set: { if !$0 { sessionPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let session = sessionPendingDeletion {
+                Button("Kill Session", role: .destructive) {
+                    deleteSession(session, killTmux: true)
+                    sessionPendingDeletion = nil
+                }
+                Button("Detach Only") {
+                    deleteSession(session, killTmux: false)
+                    sessionPendingDeletion = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    sessionPendingDeletion = nil
+                }
+            }
+        } message: {
+            Text("Kill the tmux session on the host, or just detach from it? Detaching keeps the session running so you can reattach later.")
         }
         .onChange(of: selectedSession) { _, _ in
             syncActiveRoomSelection()
@@ -143,10 +166,10 @@ struct SessionListView: View {
         }
     }
 
-    private func deleteSession(_ session: SavedSession) {
+    private func deleteSession(_ session: SavedSession, killTmux: Bool) {
         userDeletingIds.insert(session.roomId)
         Task {
-            await store.deleteSession(session)
+            await store.deleteSession(session, killTmux: killTmux)
             userDeletingIds.remove(session.roomId)
             if selectedSession == session { selectedSession = nil }
             navigationPath.removeAll { $0.roomId == session.roomId }
@@ -190,7 +213,7 @@ struct SessionListView: View {
                 }
 
                 ForEach(store.hosts) { host in
-                    Section(header: iosSectionHeader(title: host.name, hostId: host.id)) {
+                    Section(header: iosSectionHeader(title: host.name)) {
                         let hostSessions = store.sessions(for: host.id)
                         if !hostSessions.isEmpty {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
@@ -199,7 +222,7 @@ struct SessionListView: View {
                                         session: session,
                                         isSelected: session == selectedSession,
                                         onTap: { handleTap(session) },
-                                        onDelete: { deleteSession(session) }
+                                        onDelete: { sessionPendingDeletion = session }
                                     )
                                 }
                             }
@@ -241,27 +264,13 @@ struct SessionListView: View {
         .background(Color(uiColor: .systemGroupedBackground))
     }
 
-    private func iosSectionHeader(title: String, hostId: String) -> some View {
+    private func iosSectionHeader(title: String) -> some View {
         HStack {
             Text(title)
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.primary)
                 .textCase(nil)
             Spacer()
-            Menu {
-                Button(role: .destructive) {
-                    store.removeHost(id: hostId)
-                    if let selected = selectedSession, selected.hostId == hostId {
-                        selectedSession = nil
-                    }
-                } label: {
-                    Label("Remove Host", systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -294,14 +303,15 @@ struct SessionListView: View {
             Image(systemName: "desktopcomputer.and.arrow.down")
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
-            Text("No Hosts Added")
+            Text("No Macs Available")
                 .font(.headline)
-            Text("Tap + to add a Mac running GoVibe Host.")
+            Text("Sign in to GoVibe Host on your Mac and keep it online to see it here automatically.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
         .padding(.vertical, 24)
         .listRowBackground(Color.clear)
     }
@@ -311,8 +321,20 @@ struct SessionListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button {
-                showingSettings = true
+            Menu {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Label("Relay Settings", systemImage: "gear")
+                }
+
+                if authController.isAuthenticated {
+                    Button(role: .destructive) {
+                        authController.signOut()
+                    } label: {
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
             } label: {
                 Image(systemName: "gear")
             }
@@ -320,8 +342,8 @@ struct SessionListView: View {
         }
 
         ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                if !store.hosts.isEmpty {
+            if !store.hosts.isEmpty {
+                Menu {
                     ForEach(store.hosts) { host in
                         Button {
                             createSessionForHost = host
@@ -329,18 +351,12 @@ struct SessionListView: View {
                             Label("New Session on \(host.name)", systemImage: "terminal")
                         }
                     }
-                    Divider()
-                }
-                Button {
-                    showingAddHost = true
                 } label: {
-                    Label("Add Mac Host", systemImage: "desktopcomputer.and.arrow.down")
+                    Image(systemName: "plus")
+                        .foregroundStyle(.tint)
                 }
-            } label: {
-                Image(systemName: "plus")
-                    .foregroundStyle(.tint)
+                .accessibilityIdentifier("add_session_button")
             }
-            .accessibilityIdentifier("add_session_button")
         }
 
         ToolbarItem(placement: .topBarTrailing) {
@@ -402,7 +418,7 @@ private struct SessionPlaceholderView: View {
         ContentUnavailableView(
             "Select a Session",
             systemImage: "rectangle.split.2x1",
-            description: Text("Choose a session from the sidebar or add a new Mac host to get started.")
+            description: Text("Choose a Mac session from the sidebar to get started.")
         )
         .accessibilityIdentifier("session_detail_placeholder")
     }

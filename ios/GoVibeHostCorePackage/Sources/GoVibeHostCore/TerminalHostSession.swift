@@ -7,7 +7,9 @@ public enum HostSessionRuntimeEvent: Sendable {
 public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime {
     private static let peerStaleTimeout: TimeInterval = 10
 
+    private let hostId: String
     private let macDeviceId: String
+    private let sessionDisplayName: String
     private let pty: PtySession
     private let logger: HostLogger
     private let bridge: RelayTransport
@@ -21,6 +23,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
     private var heartbeatTimer: DispatchSourceTimer?
     private var lastPaneProgram: String = ""
     private var retirementSent = false
+    private var activePeerCount = 0
     private var lastPeerActivityAt: Date?
     private var started = false
     private var running = false
@@ -29,6 +32,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
 
     private var claudeLogWatcher: ClaudeLogWatcher?
     private var codexLogWatcher: CodexLogWatcher?
+    private var geminiLogWatcher: GeminiLogWatcher?
     private var currentPlanArtifact: TerminalPlanArtifact?
 
     public init(
@@ -38,7 +42,9 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
+        self.hostId = hostId
         self.macDeviceId = "\(hostId)-\(config.sessionId)"
+        self.sessionDisplayName = config.tmuxSessionName
         self.pty = PtySession(shellPath: config.shellPath, tmuxSessionName: config.tmuxSessionName, logger: logger)
         self.logger = logger
         self.bridge = RelayTransport(logger: logger)
@@ -73,12 +79,12 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.scheduleSnapshotReplay()
         }
         bridge.onPeerJoined = { [weak self] in
-            self?.recordPeerActivity()
+            self?.recordPeerJoin()
             self?.scheduleSnapshotReplay()
             self?.sendCurrentPlanState()
         }
         bridge.onPeerLeft = { [weak self] in
-            self?.eventHandler(.stateChanged(.waitingForPeer, self?.lastPeerActivityAt, nil))
+            self?.recordPeerLeave()
         }
         bridge.onPeerHeartbeat = { [weak self] in
             self?.recordPeerActivity()
@@ -89,11 +95,13 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.signalStopIfNeeded()
         }
 
+        let sessionName = pty.tmuxSessionName ?? ""
         claudeLogWatcher = ClaudeLogWatcher(
+            tmuxSessionName: sessionName,
             cwd: NSHomeDirectory(),
             logger: logger,
             onTurnComplete: { [weak self] event in
-                self?.bridge.sendPushNotify(event: event.rawValue)
+                self?.bridge.sendPushNotify(event: event.rawValue, sessionName: self?.sessionDisplayName)
             },
             onPlanStateChanged: { [weak self] artifact in
                 self?.setPlanArtifact(artifact)
@@ -103,13 +111,20 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             cwd: NSHomeDirectory(),
             logger: logger,
             onTurnComplete: { [weak self] event in
-                self?.bridge.sendPushNotify(event: event.rawValue)
+                self?.bridge.sendPushNotify(event: event.rawValue, sessionName: self?.sessionDisplayName)
             },
             onPlanStateChanged: { [weak self] artifact in
                 self?.setPlanArtifact(artifact)
             }
         )
-        bridge.start(room: macDeviceId, relayBase: relayBase)
+        geminiLogWatcher = GeminiLogWatcher(
+            tmuxSessionName: sessionName,
+            logger: logger,
+            onTurnComplete: { [weak self] event in
+                self?.bridge.sendPushNotify(event: event.rawValue, sessionName: self?.sessionDisplayName)
+            }
+        )
+        bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
         try pty.start()
         startProgramPolling()
         startHeartbeat()
@@ -162,6 +177,20 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         eventHandler(.stateChanged(.running, lastPeerActivityAt, nil))
     }
 
+    private func recordPeerJoin() {
+        activePeerCount += 1
+        recordPeerActivity()
+    }
+
+    private func recordPeerLeave() {
+        activePeerCount = max(0, activePeerCount - 1)
+        if activePeerCount == 0 {
+            eventHandler(.stateChanged(.waitingForPeer, lastPeerActivityAt, nil))
+        } else {
+            eventHandler(.stateChanged(.running, lastPeerActivityAt, nil))
+        }
+    }
+
     private func scheduleSnapshotReplay() {
         snapshotLock.lock()
         snapshotWorkItem?.cancel()
@@ -174,9 +203,13 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
     }
 
     private func replayViaTmux() {
-        guard let tmuxSessionName = pty.tmuxSessionName,
-              let tmuxPath = PtySession.resolveTmux() else {
-            logger.info("Skipping tmux replay: tmux not configured or not found")
+        guard let tmuxSessionName = pty.tmuxSessionName else {
+            logger.info("Skipping tmux replay: tmuxSessionName is nil")
+            return
+        }
+
+        guard let tmuxPath = PtySession.resolveTmux() else {
+            logger.info("Skipping tmux replay: tmux binary not found in known paths")
             return
         }
 
@@ -188,8 +221,15 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         process.standardError = Pipe()
 
         do {
+            logger.info("Running tmux capture-pane for session '\(tmuxSessionName)' via \(tmuxPath)")
             try process.run()
             process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                let stderrData = (process.standardError as? Pipe)?.fileHandleForReading.readDataToEndOfFile() ?? Data()
+                let stderrText = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                logger.error("tmux capture-pane exited \(process.terminationStatus)\(stderrText.isEmpty ? "" : ": \(stderrText)")")
+                return
+            }
             let captured = pipe.fileHandleForReading.readDataToEndOfFile()
             guard !captured.isEmpty else {
                 logger.info("tmux capture-pane returned empty output, skipping snapshot")
@@ -238,6 +278,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self.bridge.sendPeerHeartbeat(origin: "mac")
             if let lastPeerActivityAt = self.lastPeerActivityAt,
                Date().timeIntervalSince(lastPeerActivityAt) > Self.peerStaleTimeout {
+                self.activePeerCount = 0
                 self.eventHandler(.stateChanged(.stale, lastPeerActivityAt, nil))
             }
         }
@@ -260,6 +301,9 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             if name != "Codex" {
                 codexLogWatcher?.reset()
             }
+            if name != "Gemini" {
+                geminiLogWatcher?.reset()
+            }
             if name == "Claude" || name == "Codex" {
                 // Claude/Codex just became active — update the watcher's cwd from the tmux pane.
                 if let paneCwd = runProcessCaptureOutput(
@@ -278,6 +322,8 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             claudeLogWatcher?.poll()
         } else if lastPaneProgram == "Codex" {
             codexLogWatcher?.poll()
+        } else if lastPaneProgram == "Gemini" {
+            geminiLogWatcher?.poll()
         }
     }
 
@@ -325,16 +371,20 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         ) {
             let tty = URL(fileURLWithPath: paneTTY).lastPathComponent
             let ttyCommandLines = ttyProcessCommandLines(tty: tty)
+            let foregroundLine = foregroundCommandLine(onTTY: tty)
+            // Check the foreground process alone first — it takes priority over background
+            // TTY processes. This prevents a lingering background process (e.g. a previous
+            // Gemini node process) from shadowing the actual foreground program (e.g. Claude).
             if let special = specialProgramDisplayName(
                 currentCommand: currentRaw,
                 startCommand: startCommandRaw,
-                foregroundCommandLine: nil,
+                foregroundCommandLine: foregroundLine,
                 panePidCommandLine: nil,
-                ttyCommandLines: ttyCommandLines
+                ttyCommandLines: []
             ) {
                 return special
             }
-            let foregroundLine = foregroundCommandLine(onTTY: tty)
+            // Fall back to all TTY processes if foreground alone didn't match.
             if let special = specialProgramDisplayName(
                 currentCommand: currentRaw,
                 startCommand: startCommandRaw,
@@ -400,12 +450,15 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             return "Codex"
         }
 
-        if allValues.contains(where: { $0.contains("gemini") || $0.contains("@google/gemini-cli") || $0.contains("gemini-cli") || $0.contains("google gemini") }) {
-            return "Gemini"
-        }
-
+        // Claude is checked before Gemini because "gemini" can appear as a substring in
+        // claude CLI arguments (e.g. --resume gemini-cli-notification-parity), causing a
+        // false-positive Gemini match. "claude" is a stronger signal and should win.
         if allValues.contains(where: { $0.contains("claude") || $0.contains("anthropic") || $0.contains("claude-code") }) {
             return "Claude"
+        }
+
+        if allValues.contains(where: { $0.contains("gemini") || $0.contains("@google/gemini-cli") || $0.contains("gemini-cli") || $0.contains("google gemini") }) {
+            return "Gemini"
         }
 
         if isVersionLikeLabel(currentCommand),

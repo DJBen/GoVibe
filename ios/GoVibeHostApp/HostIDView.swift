@@ -7,10 +7,10 @@ struct HostIDView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Host ID", systemImage: "iphone")
+            Label("Device ID", systemImage: "iphone")
                 .font(.headline)
 
-            Text("Use this in the GoVibe iOS app when adding this Mac host.")
+            Text("Internal machine identifier used for discovery, ownership, and relay routing.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -22,7 +22,7 @@ struct HostIDView: View {
                 .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
 
             HStack(spacing: 8) {
-                Button("Copy Host ID") {
+                Button("Copy Device ID") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(hostId, forType: .string)
                     didCopy = true

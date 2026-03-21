@@ -22,13 +22,72 @@ public final class PtySession: @unchecked Sendable {
         self.logger = logger
     }
 
+    public static func listTmuxSessions() -> [String] {
+        guard let tmuxPath = resolveTmux() else { return [] }
+        return captureProcessOutput(executable: tmuxPath, arguments: ["list-sessions", "-F", "#{session_name}"])?
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty } ?? []
+    }
+
     public static func resolveTmux() -> String? {
         let candidates = [
             "/opt/homebrew/bin/tmux",
             "/usr/local/bin/tmux",
+            "/opt/local/bin/tmux",
             "/usr/bin/tmux",
         ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+        for candidate in candidates {
+            if isFilePresent(atPath: candidate) {
+                return candidate
+            }
+
+            let resolved = URL(fileURLWithPath: candidate).resolvingSymlinksInPath().path
+            if resolved != candidate, isFilePresent(atPath: resolved) {
+                return resolved
+            }
+        }
+
+        if let discovered = captureProcessOutput(
+            executable: "/bin/zsh",
+            arguments: ["-lc", "command -v tmux 2>/dev/null"]
+        )?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !discovered.isEmpty,
+           isFilePresent(atPath: discovered) {
+            return discovered
+        }
+
+        return nil
+    }
+
+    private static func isFilePresent(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return false
+        }
+        return true
+    }
+
+    private static func captureProcessOutput(executable: String, arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            guard !data.isEmpty else { return nil }
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
+        }
     }
 
     public func start() throws {
@@ -47,9 +106,11 @@ public final class PtySession: @unchecked Sendable {
             setenv("COLORTERM", "truecolor", 1)
             let args: [String]
             let execPath: String
-            if let sessionName = tmuxSessionName, let tmux = Self.resolveTmux() {
-                execPath = tmux
-                args = [tmux, "new-session", "-A", "-s", sessionName]
+            if let sessionName = tmuxSessionName, let tmuxPath = Self.resolveTmux() {
+                execPath = "/bin/zsh"
+                setenv("GOVIBE_TMUX_SESSION", sessionName, 1)
+                setenv("GOVIBE_TMUX_BIN", tmuxPath, 1)
+                args = ["/bin/zsh", "-lc", "exec \"$GOVIBE_TMUX_BIN\" new-session -A -s \"$GOVIBE_TMUX_SESSION\""]
             } else {
                 execPath = shellPath
                 args = [shellPath, "-l"]
@@ -64,6 +125,10 @@ public final class PtySession: @unchecked Sendable {
         childPid = pid
         masterFd = master
         logger.info("PTY started pid=\(childPid)")
+        if let sessionName = tmuxSessionName {
+            logger.info("PTY tmux session configured: \(sessionName)")
+            logger.info("PTY tmux path resolved: \(Self.resolveTmux() ?? "<nil>")")
+        }
 
         let source = DispatchSource.makeReadSource(fileDescriptor: masterFd, queue: ioQueue)
         source.setEventHandler { [weak self] in

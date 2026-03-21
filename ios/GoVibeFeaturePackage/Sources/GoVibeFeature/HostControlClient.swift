@@ -25,6 +25,12 @@ enum HostControlError: LocalizedError {
 /// Connects to a host's control relay room and sends a create_session command.
 struct HostControlClient {
     let relayWebSocketBase: String
+    let apiBaseURL: URL?
+
+    init(relayWebSocketBase: String, apiBaseURL: URL? = nil) {
+        self.relayWebSocketBase = relayWebSocketBase
+        self.apiBaseURL = apiBaseURL
+    }
 
     /// Connects to `<hostId>-ctl` relay room, sends create_session, and awaits confirmation.
     func createSession(
@@ -33,13 +39,8 @@ struct HostControlClient {
         tmuxSession: String?
     ) async throws {
         let roomId = "\(hostId)-ctl"
-        guard var components = URLComponents(string: relayWebSocketBase) else {
-            throw HostControlError.connectionFailed("Invalid relay URL")
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: roomId)]
-        guard let url = components.url else {
-            throw HostControlError.connectionFailed("Failed to compose relay URL")
-        }
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: apiBaseURL)
+        let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
         let task = urlSession.webSocketTask(with: url)
@@ -59,17 +60,17 @@ struct HostControlClient {
             throw HostControlError.connectionFailed("Failed to encode message")
         }
 
-        try await task.send(.string(json))
-
         // Typed response to satisfy Swift 6 Sendable requirements
         enum ControlResponse: Sendable {
             case created
             case error(String)
         }
 
-        // Receive messages until session_created or session_error for our session ID
+        // Send + receive inside the task group so the timeout covers the entire operation,
+        // including the initial WebSocket connection and send.
         let response: ControlResponse = try await withThrowingTaskGroup(of: ControlResponse.self) { group in
             group.addTask {
+                try await task.send(.string(json))
                 while true {
                     let message = try await task.receive()
                     let text: String
@@ -108,15 +109,11 @@ struct HostControlClient {
     }
 
     /// Connects to `<hostId>-ctl` and requests deletion of a session.
-    func deleteSession(hostId: String, sessionId: String) async throws {
+    /// - Parameter killTmux: If `true`, the host kills the underlying tmux session. If `false`, GoVibe detaches without killing tmux.
+    func deleteSession(hostId: String, sessionId: String, killTmux: Bool = true) async throws {
         let roomId = "\(hostId)-ctl"
-        guard var components = URLComponents(string: relayWebSocketBase) else {
-            throw HostControlError.connectionFailed("Invalid relay URL")
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: roomId)]
-        guard let url = components.url else {
-            throw HostControlError.connectionFailed("Failed to compose relay URL")
-        }
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: apiBaseURL)
+        let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
         let task = urlSession.webSocketTask(with: url)
@@ -125,12 +122,11 @@ struct HostControlClient {
 
         guard let data = try? JSONSerialization.data(withJSONObject: [
             "type": "delete_session",
-            "sessionId": sessionId
-        ]), let json = String(data: data, encoding: .utf8) else {
+            "sessionId": sessionId,
+            "killTmux": killTmux
+        ] as [String: Any]), let json = String(data: data, encoding: .utf8) else {
             throw HostControlError.connectionFailed("Failed to encode message")
         }
-
-        try await task.send(.string(json))
 
         enum ControlResponse: Sendable {
             case deleted
@@ -139,6 +135,7 @@ struct HostControlClient {
 
         let response: ControlResponse = try await withThrowingTaskGroup(of: ControlResponse.self) { group in
             group.addTask {
+                try await task.send(.string(json))
                 while true {
                     let message = try await task.receive()
                     let text: String
@@ -175,30 +172,25 @@ struct HostControlClient {
         }
     }
 
-    /// Connects to `<hostId>-ctl`, sends `list_sessions`, and returns the host's session list.
-    func listSessions(hostId: String) async throws -> [HostSessionSummary] {
+    /// Connects to `<hostId>-ctl`, sends `list_tmux_sessions`, and returns running tmux session names.
+    func listTmuxSessions(hostId: String, timeout: Duration = .seconds(8)) async throws -> [String] {
         let roomId = "\(hostId)-ctl"
-        guard var components = URLComponents(string: relayWebSocketBase) else {
-            throw HostControlError.connectionFailed("Invalid relay URL")
-        }
-        components.queryItems = [URLQueryItem(name: "room", value: roomId)]
-        guard let url = components.url else {
-            throw HostControlError.connectionFailed("Failed to compose relay URL")
-        }
+        let relayAuthClient = RelayAuthClient(relayWebSocketBase: relayWebSocketBase, apiBaseURL: apiBaseURL)
+        let url = try await relayAuthClient.authorizedURL(hostId: hostId, room: roomId, role: "client-control")
 
         let urlSession = URLSession(configuration: .default)
         let task = urlSession.webSocketTask(with: url)
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
 
-        guard let data = try? JSONSerialization.data(withJSONObject: ["type": "list_sessions"]),
+        guard let data = try? JSONSerialization.data(withJSONObject: ["type": "list_tmux_sessions"]),
               let json = String(data: data, encoding: .utf8) else {
             throw HostControlError.connectionFailed("Failed to encode message")
         }
-        try await task.send(.string(json))
 
-        return try await withThrowingTaskGroup(of: [HostSessionSummary].self) { group in
+        return try await withThrowingTaskGroup(of: [String].self) { group in
             group.addTask {
+                try await task.send(.string(json))
                 while true {
                     let message = try await task.receive()
                     let text: String
@@ -209,20 +201,14 @@ struct HostControlClient {
                     }
                     guard let responseData = text.data(using: .utf8),
                           let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-                          parsed["type"] as? String == "sessions_list",
-                          let array = parsed["sessions"] as? [[String: String]] else { continue }
-                    return array.compactMap { entry in
-                        guard let sessionId = entry["sessionId"], !sessionId.isEmpty else { return nil }
-                        return HostSessionSummary(
-                            sessionId: sessionId,
-                            kind: entry["kind"].flatMap { SessionKind(rawValue: $0) }
-                        )
-                    }
+                          parsed["type"] as? String == "tmux_sessions_list",
+                          let sessions = parsed["sessions"] as? [String] else { continue }
+                    return sessions
                 }
                 throw HostControlError.connectionFailed("Connection closed without response")
             }
             group.addTask {
-                try await Task.sleep(for: .seconds(10))
+                try await Task.sleep(for: timeout)
                 throw HostControlError.timeout
             }
             let result = try await group.next()!
@@ -230,4 +216,5 @@ struct HostControlClient {
             return result
         }
     }
+
 }

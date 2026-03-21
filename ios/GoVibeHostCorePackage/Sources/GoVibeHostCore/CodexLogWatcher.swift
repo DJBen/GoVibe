@@ -201,6 +201,9 @@ final class CodexLogWatcher {
             readOffset = endOffset
             pendingEscalatedCallIDs.removeAll()
             approvalNotificationPending = false
+            // Scan recent content to detect any approval that was already pending before
+            // this watcher became active (e.g. session opened while Codex was mid-turn).
+            scanForPendingApproval(url: newest, upToOffset: endOffset)
         }
     }
 
@@ -270,6 +273,61 @@ final class CodexLogWatcher {
         readOffset += UInt64(data.count)
         let text = String(data: data, encoding: .utf8) ?? ""
         return text.components(separatedBy: "\n").filter { !$0.isEmpty }
+    }
+
+    /// Scans the tail of the JSONL file (up to 256 KB) to detect a `require_escalated`
+    /// function call that has no matching output — i.e. Codex was already waiting for
+    /// approval before this watcher became active. If found, fires the approval push
+    /// immediately so the user isn't silently stuck on a pre-existing decision.
+    private func scanForPendingApproval(url: URL, upToOffset: UInt64) {
+        let lookback: UInt64 = 256 * 1024
+        let startOffset = upToOffset > lookback ? upToOffset - lookback : 0
+
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? fh.close() }
+        fh.seek(toFileOffset: startOffset)
+        let data = fh.readDataToEndOfFile()
+        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+
+        var lines = text.components(separatedBy: "\n").filter { !$0.isEmpty }
+        // If we started mid-file, the first line may be a partial fragment — skip it.
+        if startOffset > 0, !lines.isEmpty { lines.removeFirst() }
+
+        var pendingCalls: Set<String> = []
+
+        for line in lines {
+            guard let lineData = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let type = obj["type"] as? String,
+                  let payload = obj["payload"] as? [String: Any]
+            else { continue }
+
+            if type == "event_msg",
+               let eventType = payload["type"] as? String,
+               ["task_complete", "turn_aborted", "task_started", "user_message"].contains(eventType) {
+                // Any of these resets the pending-approval state for the current turn.
+                pendingCalls.removeAll()
+            } else if type == "response_item",
+                      let itemType = payload["type"] as? String {
+                if itemType == "function_call",
+                   let callID = payload["call_id"] as? String,
+                   let argsText = payload["arguments"] as? String,
+                   let argsData = argsText.data(using: .utf8),
+                   let args = try? JSONSerialization.jsonObject(with: argsData) as? [String: Any],
+                   args["sandbox_permissions"] as? String == "require_escalated" {
+                    pendingCalls.insert(callID)
+                } else if itemType == "function_call_output",
+                          let callID = payload["call_id"] as? String {
+                    pendingCalls.remove(callID)
+                }
+            }
+        }
+
+        guard !pendingCalls.isEmpty else { return }
+        pendingEscalatedCallIDs = pendingCalls
+        approvalNotificationPending = true
+        logger.info("CodexLogWatcher: pre-existing pending approval detected at startup, firing push")
+        onTurnComplete(.awaitingApproval)
     }
 
     private func updatePlanArtifact(_ artifact: TerminalPlanArtifact?) {

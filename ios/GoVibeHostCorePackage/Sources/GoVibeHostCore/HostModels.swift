@@ -192,11 +192,21 @@ public struct HostPermissionState: Codable, Hashable, Sendable {
     public var accessibilityGranted: Bool
     public var screenRecordingGranted: Bool
     public var tmuxInstalled: Bool
+    public var claudeHookInstalled: Bool
+    public var geminiHookInstalled: Bool
 
-    public init(accessibilityGranted: Bool, screenRecordingGranted: Bool, tmuxInstalled: Bool) {
+    public init(
+        accessibilityGranted: Bool,
+        screenRecordingGranted: Bool,
+        tmuxInstalled: Bool,
+        claudeHookInstalled: Bool,
+        geminiHookInstalled: Bool
+    ) {
         self.accessibilityGranted = accessibilityGranted
         self.screenRecordingGranted = screenRecordingGranted
         self.tmuxInstalled = tmuxInstalled
+        self.claudeHookInstalled = claudeHookInstalled
+        self.geminiHookInstalled = geminiHookInstalled
     }
 }
 

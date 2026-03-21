@@ -10,9 +10,19 @@ let package = Package(
             targets: ["GoVibeHostCore"]
         ),
     ],
+    dependencies: [
+        .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "11.10.0"),
+        .package(url: "https://github.com/google/GoogleSignIn-iOS.git", from: "9.0.0"),
+    ],
     targets: [
         .target(
-            name: "GoVibeHostCore"
+            name: "GoVibeHostCore",
+            dependencies: [
+                .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
+                .product(name: "FirebaseCore", package: "firebase-ios-sdk"),
+                .product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
+                .product(name: "GoogleSignIn", package: "GoogleSignIn-iOS"),
+            ]
         ),
         .testTarget(
             name: "GoVibeHostCoreTests",

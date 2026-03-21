@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct NotificationOnboardingView: View {
+    let programName: String
     let onDismiss: () -> Void
 
     var body: some View {
@@ -9,14 +10,15 @@ struct NotificationOnboardingView: View {
                 .padding(.top, 32)
 
             VStack(spacing: 12) {
-                Text("Know when Claude is done")
+                Text("Know when \(programName) is done")
                     .font(.title2.weight(.bold))
                     .multilineTextAlignment(.center)
 
-                Text("GoVibe can send you a notification when Claude or Codex finishes processing so you don't have to keep checking.")
+                Text("GoVibe can send you a notification when \(programName) finishes processing so you don't have to keep checking.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 8)
             }
 
@@ -43,7 +45,6 @@ struct NotificationOnboardingView: View {
                 } label: {
                     Text("Not now")
                         .font(.body)
-                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                 }
@@ -62,16 +63,14 @@ struct NotificationOnboardingView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text("GoVibe")
+                    Text("\(programName) finished")
                         .font(.footnote.weight(.semibold))
                     Spacer()
                     Text("now")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("Claude finished")
-                    .font(.footnote.weight(.semibold))
-                Text("Claude is waiting for your next prompt.")
+                Text("\(programName) is waiting for your next prompt.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -84,4 +83,8 @@ struct NotificationOnboardingView: View {
                 .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
         )
     }
+}
+
+#Preview {
+    NotificationOnboardingView(programName: "Claude", onDismiss: {})
 }

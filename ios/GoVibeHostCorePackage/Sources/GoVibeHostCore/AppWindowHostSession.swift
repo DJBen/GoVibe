@@ -4,6 +4,7 @@ import Foundation
 public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime {
     private static let peerStaleTimeout: TimeInterval = 10
 
+    private let hostId: String
     private let macDeviceId: String
     private let logger: HostLogger
     private let transport: RelayTransport
@@ -13,7 +14,7 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
 
     private var heartbeatTimer: DispatchSourceTimer?
     private var retirementSent = false
-    private var hasPeer = false
+    private var activePeerCount = 0
     private var lastPeerActivityAt: Date?
     private var latestWindowInfo: AppWindowInfoPayload?
     private var stopSignalSent = false
@@ -26,6 +27,7 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
         logger: HostLogger,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
+        self.hostId = hostId
         self.macDeviceId = "\(hostId)-\(config.sessionId)"
         self.logger = logger
         self.transport = RelayTransport(logger: logger)
@@ -45,7 +47,7 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
             self?.latestWindowInfo = info
         }
         bridge.onBinaryFrame = { [weak self] data in
-            guard let self, self.hasPeer else { return }
+            guard let self, self.activePeerCount > 0 else { return }
             self.transport.sendBinaryFrame(data)
         }
 
@@ -82,18 +84,20 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
         }
         transport.onPeerJoined = { [weak self] in
             guard let self else { return }
-            self.recordPeerActivity()
-            self.logger.info("Peer joined — starting app window capture")
-            DispatchQueue.main.async {
-                self.bridge.focusForPeerJoin()
+            let becameActive = self.recordPeerJoin()
+            if becameActive {
+                self.logger.info("Peer joined — starting app window capture")
+                DispatchQueue.main.async {
+                    self.bridge.focusForPeerJoin()
+                }
+                Task { await self.bridge.startCapture(relayTransport: self.transport) }
             }
-            Task { await self.bridge.startCapture(relayTransport: self.transport) }
         }
         transport.onPeerLeft = { [weak self] in
-            self?.markPeerOffline(reason: "Peer left")
+            self?.recordPeerLeave()
         }
 
-        transport.start(room: macDeviceId, relayBase: relayBase)
+        transport.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
         startHeartbeat()
         eventHandler(.stateChanged(.waitingForPeer, nil, nil))
     }
@@ -145,10 +149,15 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
     }
 
     private func recordPeerActivity() {
-        let wasOffline = !hasPeer
-        hasPeer = true
         lastPeerActivityAt = Date()
         eventHandler(.stateChanged(.running, lastPeerActivityAt, nil))
+    }
+
+    @discardableResult
+    private func recordPeerJoin() -> Bool {
+        let wasOffline = activePeerCount == 0
+        activePeerCount += 1
+        recordPeerActivity()
         if wasOffline {
             logger.info("Peer activity detected — resuming frame forwarding")
             bridge.forceKeyframe()
@@ -156,10 +165,22 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
                 transport.sendAppWindowInfo(info)
             }
         }
+        return wasOffline
+    }
+
+    private func recordPeerLeave() {
+        activePeerCount = max(0, activePeerCount - 1)
+        guard activePeerCount == 0 else {
+            eventHandler(.stateChanged(.running, lastPeerActivityAt, nil))
+            return
+        }
+        lastPeerActivityAt = nil
+        logger.info("Last peer left")
+        eventHandler(.stateChanged(.waitingForPeer, nil, nil))
     }
 
     private func checkPeerFreshness() {
-        guard hasPeer, let lastPeerActivityAt else { return }
+        guard activePeerCount > 0, let lastPeerActivityAt else { return }
         let staleSeconds = Date().timeIntervalSince(lastPeerActivityAt)
         if staleSeconds > Self.peerStaleTimeout {
             markPeerOffline(reason: "Peer heartbeat timed out (\(Int(staleSeconds))s)")
@@ -167,8 +188,8 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
     }
 
     private func markPeerOffline(reason: String) {
-        guard hasPeer || lastPeerActivityAt != nil else { return }
-        hasPeer = false
+        guard activePeerCount > 0 || lastPeerActivityAt != nil else { return }
+        activePeerCount = 0
         lastPeerActivityAt = nil
         logger.info("\(reason)")
         eventHandler(.stateChanged(.stale, nil, nil))

@@ -7,7 +7,7 @@ struct SessionDetailView: View {
         case regular
     }
 
-    let roomId: String
+    let session: SavedSession
     let presentationMode: PresentationMode
     let onExit: (() -> Void)?
     var onKindDiscovered: ((SessionKind) -> Void)? = nil
@@ -16,22 +16,23 @@ struct SessionDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SessionViewModel
     @State private var showNotificationOnboarding = false
+    @State private var notificationOnboardingProgram = ""
     @State private var showPlanSheet = false
     @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
 
     init(
-        roomId: String,
+        session: SavedSession,
         presentationMode: PresentationMode = .compact,
         onExit: (() -> Void)? = nil,
         onKindDiscovered: ((SessionKind) -> Void)? = nil,
         onStatusChanged: ((String) -> Void)? = nil
     ) {
-        self.roomId = roomId
+        self.session = session
         self.presentationMode = presentationMode
         self.onExit = onExit
         self.onKindDiscovered = onKindDiscovered
         self.onStatusChanged = onStatusChanged
-        _viewModel = State(initialValue: SessionViewModel(macDeviceId: roomId))
+        _viewModel = State(initialValue: SessionViewModel(roomId: session.roomId, hostId: session.hostId))
     }
 
     var body: some View {
@@ -71,7 +72,7 @@ struct SessionDetailView: View {
                     .padding(.bottom, 16)
             }
         }
-        .navigationTitle(roomId)
+        .navigationTitle(session.roomId)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if presentationMode == .regular {
@@ -86,14 +87,15 @@ struct SessionDetailView: View {
         .accessibilityIdentifier("govibe_root_view")
         .onChange(of: viewModel.paneProgram) { _, newProgram in
             guard let program = newProgram,
-                  (program == "Claude" || program == "Codex"),
+                  (program == "Claude" || program == "Codex" || program == "Gemini"),
                   viewModel.relayStatus == "Connected",
                   !GoVibeBootstrap.hasSeenNotificationOnboarding,
                   !showNotificationOnboarding else { return }
+            notificationOnboardingProgram = program
             showNotificationOnboarding = true
         }
         .sheet(isPresented: $showNotificationOnboarding) {
-            NotificationOnboardingView {
+            NotificationOnboardingView(programName: notificationOnboardingProgram) {
                 showNotificationOnboarding = false
             }
             .presentationDetents([.medium])
@@ -104,7 +106,13 @@ struct SessionDetailView: View {
             }
         }
         .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, newRoomId in
-            guard let newRoomId, newRoomId != roomId else { return }
+            guard let newRoomId else { return }
+            if newRoomId == session.roomId {
+                // Already in this session — consume the deep link so the session list
+                // doesn't re-push it when the user navigates back.
+                foregroundNotifications.pendingDeepLinkRoomId = nil
+                return
+            }
             exitSession()
         }
         .onChange(of: viewModel.relayStatus) { _, newStatus in
@@ -248,17 +256,17 @@ struct SessionDetailView: View {
             showPlanSheet = true
         } label: {
             Label("View Plan", systemImage: "doc.text")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .background(.black.opacity(0.78))
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+                .background(.white)
                 .overlay {
                     Capsule()
-                        .strokeBorder(.white.opacity(0.16))
+                        .strokeBorder(.black.opacity(0.12), lineWidth: 1)
                 }
                 .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+                .shadow(color: .black.opacity(0.35), radius: 15, y: 8)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("view_plan_button")
