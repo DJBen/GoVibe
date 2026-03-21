@@ -58,7 +58,12 @@ jobs:
           PROFILE_PATH="$RUNNER_TEMP/GoVibeHost.provisionprofile"
           echo "$PROFILE_BASE64" | base64 --decode -o "$PROFILE_PATH"
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+          PROFILE_PLIST="$(security cms -D -i "$PROFILE_PATH")"
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< "$PROFILE_PLIST")
+          echo "Profile UUID: $UUID"
+          echo "Profile Name: $(/usr/libexec/PlistBuddy -c 'Print Name' /dev/stdin <<< "$PROFILE_PLIST")"
+          echo "Profile Entitlements:"
+          /usr/libexec/PlistBuddy -c 'Print Entitlements' /dev/stdin <<< "$PROFILE_PLIST"
           cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".provisionprofile
 
       # ── Build config ───────────────────────────────────────────────────────
@@ -89,19 +94,12 @@ jobs:
 
       # ── Archive ────────────────────────────────────────────────────────────
       - name: Archive GoVibeHost
-        env:
-          ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project ios/GoVibe.xcodeproj \
             -scheme GoVibeHost \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/GoVibeHost.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$ASC_KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Developer ID Application" \
             DEVELOPMENT_TEAM=52RD2GH5DP \
