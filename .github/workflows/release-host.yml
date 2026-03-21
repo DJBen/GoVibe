@@ -78,15 +78,22 @@ jobs:
 
       # ── Archive ────────────────────────────────────────────────────────────
       - name: Archive GoVibeHost
+        env:
+          ASC_KEY_ID: ${{ secrets.APPLE_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project ios/GoVibe.xcodeproj \
             -scheme GoVibeHost \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/GoVibeHost.xcarchive" \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM=52RD2GH5DP \
             ENABLE_HARDENED_RUNTIME=YES
 
       # ── Export ─────────────────────────────────────────────────────────────
@@ -130,11 +137,28 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.APPLE_ASC_ISSUER_ID }}
           DMG_PATH: ${{ steps.dmg.outputs.DMG_PATH }}
         run: |
-          xcrun notarytool submit "$DMG_PATH" \
+          OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
             --key "$ASC_KEY_PATH" \
             --key-id "$ASC_KEY_ID" \
             --issuer "$ASC_ISSUER_ID" \
-            --wait
+            --wait 2>&1) || true
+          echo "$OUTPUT"
+
+          SUBMISSION_ID=$(echo "$OUTPUT" | grep 'id:' | head -1 | awk '{print $2}')
+
+          if echo "$OUTPUT" | grep -q "status: Invalid"; then
+            echo "--- Notarization rejected. Fetching log ---"
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --key "$ASC_KEY_PATH" \
+              --key-id "$ASC_KEY_ID" \
+              --issuer "$ASC_ISSUER_ID" || true
+            exit 1
+          fi
+
+          if ! echo "$OUTPUT" | grep -q "status: Accepted"; then
+            echo "Unexpected notarization status"
+            exit 1
+          fi
 
       - name: Staple notarization ticket
         env:
