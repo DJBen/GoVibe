@@ -66,12 +66,16 @@ jobs:
         env:
           GCP_PROJECT_ID: ${{ secrets.GOVIBE_GCP_PROJECT_ID }}
           GCP_REGION: ${{ secrets.GOVIBE_GCP_REGION }}
+          HOST_GOOGLE_CLIENT_ID: ${{ secrets.HOST_GOOGLE_CLIENT_ID }}
+          HOST_GOOGLE_REVERSED_CLIENT_ID: ${{ secrets.HOST_GOOGLE_REVERSED_CLIENT_ID }}
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           cat > ios/Config/Shared.xcconfig.local <<EOF
           GOVIBE_GCP_PROJECT_ID = ${GCP_PROJECT_ID}
           GOVIBE_GCP_REGION = ${GCP_REGION}
           GOVIBE_GCP_RELAY_HOST = UNUSED
+          HOST_GOOGLE_CLIENT_ID = ${HOST_GOOGLE_CLIENT_ID}
+          HOST_GOOGLE_REVERSED_CLIENT_ID = ${HOST_GOOGLE_REVERSED_CLIENT_ID}
           MARKETING_VERSION = ${VERSION}
           EOF
 
