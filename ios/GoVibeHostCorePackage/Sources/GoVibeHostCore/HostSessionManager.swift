@@ -153,7 +153,7 @@ public final class HostSessionManager {
                 guard (entry["matcher"] as? String) == "permission_prompt",
                       let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
-                    if let cmd = hook["command"] as? String, cmd.contains("govibe-permission-pending") {
+                    if let cmd = hook["command"] as? String, cmd.contains("govibe-") && cmd.contains("permission-pending") {
                         hasPermission = true
                         break outer
                     }
@@ -167,7 +167,7 @@ public final class HostSessionManager {
             outer: for entry in stopHooks {
                 guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
-                    if let cmd = hook["command"] as? String, cmd.contains("govibe-turn-complete-pending") {
+                    if let cmd = hook["command"] as? String, cmd.contains("govibe-") && cmd.contains("turn-complete-pending") {
                         hasStop = true
                         break outer
                     }
@@ -195,7 +195,7 @@ public final class HostSessionManager {
         let permissionEntry: [String: Any] = [
             "matcher": "permission_prompt",
             "hooks": [
-                ["type": "command", "command": "touch ~/.claude/govibe-permission-pending"]
+                ["type": "command", "command": "S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-permission-pending"]
             ]
         ]
         notificationHooks.append(permissionEntry)
@@ -205,7 +205,7 @@ public final class HostSessionManager {
         var stopHooks = hooks["Stop"] as? [[String: Any]] ?? []
         let stopEntry: [String: Any] = [
             "hooks": [
-                ["type": "command", "command": "touch ~/.claude/govibe-turn-complete-pending"]
+                ["type": "command", "command": "S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-turn-complete-pending"]
             ]
         ]
         stopHooks.append(stopEntry)
@@ -243,7 +243,7 @@ public final class HostSessionManager {
                 guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
                     if let cmd = hook["command"] as? String,
-                       cmd.contains("govibe-turn-complete-pending") {
+                       cmd.contains("govibe-") && cmd.contains("turn-complete-pending") {
                         hasAfterAgent = true
                         break outer
                     }
@@ -261,7 +261,7 @@ public final class HostSessionManager {
                   let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
             for hook in innerHooks {
                 if let cmd = hook["command"] as? String,
-                   cmd.contains("govibe-permission-pending") {
+                   cmd.contains("govibe-") && cmd.contains("permission-pending") {
                     return true
                 }
             }
@@ -288,7 +288,7 @@ public final class HostSessionManager {
         var afterAgentHooks = hooks["AfterAgent"] as? [[String: Any]] ?? []
         let afterAgentEntry: [String: Any] = [
             "hooks": [
-                ["type": "command", "command": "touch ~/.gemini/govibe-turn-complete-pending"]
+                ["type": "command", "command": "S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-turn-complete-pending"]
             ]
         ]
         afterAgentHooks.append(afterAgentEntry)
@@ -299,7 +299,7 @@ public final class HostSessionManager {
         let notificationEntry: [String: Any] = [
             "matcher": "ToolPermission",
             "hooks": [
-                ["type": "command", "command": "touch ~/.gemini/govibe-permission-pending"]
+                ["type": "command", "command": "S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-permission-pending"]
             ]
         ]
         notificationHooks.append(notificationEntry)

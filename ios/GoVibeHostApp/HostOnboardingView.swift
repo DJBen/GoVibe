@@ -53,7 +53,8 @@ struct HostOnboardingView: View {
                             title: "tmux",
                             detail: "tmux keeps terminal sessions stable and reconnectable during collaboration",
                             installed: manager.permissionState.tmuxInstalled,
-                            isInstalling: manager.isTmuxInstalling
+                            isInstalling: manager.isTmuxInstalling,
+                            buttonTitle: "Install via Homebrew"
                         ) {
                             Task { await manager.installTmux() }
                         }
@@ -142,6 +143,7 @@ struct HostOnboardingView: View {
         detail: String,
         installed: Bool,
         isInstalling: Bool,
+        buttonTitle: String = "Install",
         action: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -154,7 +156,7 @@ struct HostOnboardingView: View {
                 Text("Installed")
                     .foregroundStyle(.green)
             } else {
-                Button("Install via Homebrew", action: action)
+                Button(buttonTitle, action: action)
             }
         }
         .help(installed ? title : detail)

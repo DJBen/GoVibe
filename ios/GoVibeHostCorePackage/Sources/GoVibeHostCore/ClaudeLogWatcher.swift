@@ -27,13 +27,16 @@ final class ClaudeLogWatcher {
     private var awaitingNextTurn = false
     private var currentPlanArtifact: TerminalPlanArtifact?
 
-    /// Written by the `Stop` hook in ~/.claude/settings.json.
-    static let turnCompleteSentinelURL: URL = FileManager.default
+    /// Session-scoped sentinel written by the `Stop` hook in ~/.claude/settings.json.
+    private let turnCompleteSentinelURL: URL
+    /// Session-scoped sentinel written by the `Notification`/`permission_prompt` hook.
+    private let permissionSentinelURL: URL
+
+    /// Legacy global sentinel paths (no session prefix) cleaned up during reset as a migration step.
+    private static let legacyTurnCompleteSentinelURL: URL = FileManager.default
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/govibe-turn-complete-pending")
-
-    /// Written by the `Notification`/`permission_prompt` hook in ~/.claude/settings.json.
-    static let permissionSentinelURL: URL = FileManager.default
+    private static let legacyPermissionSentinelURL: URL = FileManager.default
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".claude/govibe-permission-pending")
 
@@ -41,15 +44,19 @@ final class ClaudeLogWatcher {
     let onPlanStateChanged: (TerminalPlanArtifact?) -> Void
 
     init(
+        tmuxSessionName: String,
         cwd: String,
         logger: HostLogger,
         onTurnComplete: @escaping (ClaudePushEvent) -> Void,
         onPlanStateChanged: @escaping (TerminalPlanArtifact?) -> Void
     ) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let prefix = "govibe-\(tmuxSessionName)-"
+        self.permissionSentinelURL = home.appendingPathComponent(".claude/\(prefix)permission-pending")
+        self.turnCompleteSentinelURL = home.appendingPathComponent(".claude/\(prefix)turn-complete-pending")
         self.cwd = cwd
         self.logger = logger
-        self.projectsRoot = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/projects")
+        self.projectsRoot = home.appendingPathComponent(".claude/projects")
         self.onTurnComplete = onTurnComplete
         self.onPlanStateChanged = onPlanStateChanged
     }
@@ -66,7 +73,7 @@ final class ClaudeLogWatcher {
     /// Called every second by `TerminalHostSession.pollPaneProgram()` while Claude is active.
     func poll() {
         // Check sentinels before reading JSONL — hooks are the authoritative notification source.
-        let permPath = Self.permissionSentinelURL.path
+        let permPath = permissionSentinelURL.path
         if !awaitingNextTurn, FileManager.default.fileExists(atPath: permPath) {
             logger.info("ClaudeLogWatcher: permission sentinel detected, firing approval push")
             try? FileManager.default.removeItem(atPath: permPath)
@@ -74,7 +81,7 @@ final class ClaudeLogWatcher {
             onTurnComplete(.awaitingApproval)
         }
 
-        let turnPath = Self.turnCompleteSentinelURL.path
+        let turnPath = turnCompleteSentinelURL.path
         if !awaitingNextTurn, FileManager.default.fileExists(atPath: turnPath) {
             logger.info("ClaudeLogWatcher: turn-complete sentinel detected, firing turn-complete push")
             try? FileManager.default.removeItem(atPath: turnPath)
@@ -105,8 +112,8 @@ final class ClaudeLogWatcher {
                 if awaitingNextTurn {
                     logger.info("ClaudeLogWatcher: user turn detected, ready for next notification")
                 }
-                try? FileManager.default.removeItem(at: Self.turnCompleteSentinelURL)
-                try? FileManager.default.removeItem(at: Self.permissionSentinelURL)
+                try? FileManager.default.removeItem(at: turnCompleteSentinelURL)
+                try? FileManager.default.removeItem(at: permissionSentinelURL)
                 awaitingNextTurn = false
                 updatePlanArtifact(nil)
             }
@@ -130,8 +137,11 @@ final class ClaudeLogWatcher {
         fileURL = nil
         readOffset = 0
         awaitingNextTurn = false
-        try? FileManager.default.removeItem(at: Self.permissionSentinelURL)
-        try? FileManager.default.removeItem(at: Self.turnCompleteSentinelURL)
+        try? FileManager.default.removeItem(at: permissionSentinelURL)
+        try? FileManager.default.removeItem(at: turnCompleteSentinelURL)
+        // Clean up legacy global sentinels (pre-session-scoped migration).
+        try? FileManager.default.removeItem(at: Self.legacyPermissionSentinelURL)
+        try? FileManager.default.removeItem(at: Self.legacyTurnCompleteSentinelURL)
         updatePlanArtifact(nil)
     }
 

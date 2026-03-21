@@ -9,6 +9,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
 
     private let hostId: String
     private let macDeviceId: String
+    private let sessionDisplayName: String
     private let pty: PtySession
     private let logger: HostLogger
     private let bridge: RelayTransport
@@ -43,6 +44,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
     ) {
         self.hostId = hostId
         self.macDeviceId = "\(hostId)-\(config.sessionId)"
+        self.sessionDisplayName = config.tmuxSessionName
         self.pty = PtySession(shellPath: config.shellPath, tmuxSessionName: config.tmuxSessionName, logger: logger)
         self.logger = logger
         self.bridge = RelayTransport(logger: logger)
@@ -93,11 +95,13 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.signalStopIfNeeded()
         }
 
+        let sessionName = pty.tmuxSessionName ?? ""
         claudeLogWatcher = ClaudeLogWatcher(
+            tmuxSessionName: sessionName,
             cwd: NSHomeDirectory(),
             logger: logger,
             onTurnComplete: { [weak self] event in
-                self?.bridge.sendPushNotify(event: event.rawValue)
+                self?.bridge.sendPushNotify(event: event.rawValue, sessionName: self?.sessionDisplayName)
             },
             onPlanStateChanged: { [weak self] artifact in
                 self?.setPlanArtifact(artifact)
@@ -107,16 +111,17 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             cwd: NSHomeDirectory(),
             logger: logger,
             onTurnComplete: { [weak self] event in
-                self?.bridge.sendPushNotify(event: event.rawValue)
+                self?.bridge.sendPushNotify(event: event.rawValue, sessionName: self?.sessionDisplayName)
             },
             onPlanStateChanged: { [weak self] artifact in
                 self?.setPlanArtifact(artifact)
             }
         )
         geminiLogWatcher = GeminiLogWatcher(
+            tmuxSessionName: sessionName,
             logger: logger,
             onTurnComplete: { [weak self] event in
-                self?.bridge.sendPushNotify(event: event.rawValue)
+                self?.bridge.sendPushNotify(event: event.rawValue, sessionName: self?.sessionDisplayName)
             }
         )
         bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)

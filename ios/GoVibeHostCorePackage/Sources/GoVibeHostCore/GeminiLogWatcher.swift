@@ -15,34 +15,41 @@ enum GeminiPushEvent: String {
 /// deduplication state is needed. Polling is driven externally; call `poll()` every
 /// second from the host session.
 final class GeminiLogWatcher {
-    /// Written by the Gemini `AfterAgent` hook.
-    static let turnCompleteSentinelURL: URL = FileManager.default
+    /// Session-scoped sentinel written by the Gemini `AfterAgent` hook.
+    private let turnCompleteSentinelURL: URL
+    /// Session-scoped sentinel written by the Gemini `Notification`/ToolPermission hook.
+    private let permissionSentinelURL: URL
+
+    /// Legacy global sentinel paths (no session prefix) cleaned up during reset as a migration step.
+    private static let legacyTurnCompleteSentinelURL: URL = FileManager.default
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".gemini/govibe-turn-complete-pending")
-
-    /// Written by the Gemini `Notification`/ToolPermission hook.
-    static let permissionSentinelURL: URL = FileManager.default
+    private static let legacyPermissionSentinelURL: URL = FileManager.default
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".gemini/govibe-permission-pending")
 
     private let logger: HostLogger
     let onTurnComplete: (GeminiPushEvent) -> Void
 
-    init(logger: HostLogger, onTurnComplete: @escaping (GeminiPushEvent) -> Void) {
+    init(tmuxSessionName: String, logger: HostLogger, onTurnComplete: @escaping (GeminiPushEvent) -> Void) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let prefix = "govibe-\(tmuxSessionName)-"
+        self.permissionSentinelURL = home.appendingPathComponent(".gemini/\(prefix)permission-pending")
+        self.turnCompleteSentinelURL = home.appendingPathComponent(".gemini/\(prefix)turn-complete-pending")
         self.logger = logger
         self.onTurnComplete = onTurnComplete
     }
 
     /// Called every second by `TerminalHostSession.pollPaneProgram()` while Gemini is active.
     func poll() {
-        let permPath = Self.permissionSentinelURL.path
+        let permPath = permissionSentinelURL.path
         if FileManager.default.fileExists(atPath: permPath) {
             logger.info("GeminiLogWatcher: permission sentinel detected, firing approval push")
             try? FileManager.default.removeItem(atPath: permPath)
             onTurnComplete(.awaitingApproval)
         }
 
-        let turnPath = Self.turnCompleteSentinelURL.path
+        let turnPath = turnCompleteSentinelURL.path
         if FileManager.default.fileExists(atPath: turnPath) {
             logger.info("GeminiLogWatcher: turn-complete sentinel detected, firing turn-complete push")
             try? FileManager.default.removeItem(atPath: turnPath)
@@ -53,7 +60,10 @@ final class GeminiLogWatcher {
     /// Called when the pane switches away from Gemini. Cleans up any stale sentinels.
     func reset() {
         logger.info("GeminiLogWatcher: reset (pane switched away from Gemini)")
-        try? FileManager.default.removeItem(at: Self.turnCompleteSentinelURL)
-        try? FileManager.default.removeItem(at: Self.permissionSentinelURL)
+        try? FileManager.default.removeItem(at: turnCompleteSentinelURL)
+        try? FileManager.default.removeItem(at: permissionSentinelURL)
+        // Clean up legacy global sentinels (pre-session-scoped migration).
+        try? FileManager.default.removeItem(at: Self.legacyTurnCompleteSentinelURL)
+        try? FileManager.default.removeItem(at: Self.legacyPermissionSentinelURL)
     }
 }

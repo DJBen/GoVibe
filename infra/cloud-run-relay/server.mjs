@@ -133,7 +133,7 @@ wss.on("connection", (ws, req) => {
           for (const peer of peers) {
             if (peer !== ws && peer.readyState === peer.OPEN) peer.send(data);
           }
-          sendFCMForRoom(room, parsed.event).catch(console.error);
+          sendFCMForRoom(room, parsed.event, parsed.sessionName || null).catch(console.error);
           return;
         }
       } catch (_) {}
@@ -160,7 +160,7 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-async function sendFCMForRoom(room, event) {
+async function sendFCMForRoom(room, event, sessionName) {
   const iosDeviceId = await resolveIOSDeviceIdForRoom(room);
   if (!iosDeviceId) {
     console.warn(`[fcm] no iosDeviceId for room ${room}, skipping`);
@@ -174,8 +174,8 @@ async function sendFCMForRoom(room, event) {
     return;
   }
 
-  console.log(`[fcm] sending event=${event} to device=${iosDeviceId}`);
-  const { title, body } = notificationCopyForEvent(event);
+  console.log(`[fcm] sending event=${event} to device=${iosDeviceId} session=${sessionName}`);
+  const { title, body } = notificationCopyForEvent(event, sessionName);
 
   await getMessaging().send({
     token: fcmToken,
@@ -186,10 +186,12 @@ async function sendFCMForRoom(room, event) {
   console.log(`[fcm] sent successfully to device=${iosDeviceId}`);
 }
 
-function notificationCopyForEvent(event) {
+function notificationCopyForEvent(event, sessionName) {
   const assistant = event?.startsWith("codex_") ? "Codex"
                   : event?.startsWith("gemini_") ? "Gemini"
                   : "Claude";
+
+  const label = sessionName || assistant;
 
   switch (event) {
     case "claude_approval_required":
@@ -197,19 +199,19 @@ function notificationCopyForEvent(event) {
     case "gemini_approval_required":
       return {
         title: `Unblock ${assistant} now`,
-        body: `${assistant} requires your decision before proceeding`,
+        body: `${label} requires your decision before proceeding`,
       };
     case "claude_turn_complete":
     case "codex_turn_complete":
     case "gemini_turn_complete":
       return {
         title: `${assistant} finished`,
-        body: `${assistant} is waiting for your next prompt.`,
+        body: `${label} is waiting for your next prompt.`,
       };
     default:
       return {
         title: `${assistant} update`,
-        body: `${assistant} is waiting for your input.`,
+        body: `${label} is waiting for your input.`,
       };
   }
 }

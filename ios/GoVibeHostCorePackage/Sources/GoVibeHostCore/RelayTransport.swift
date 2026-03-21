@@ -110,8 +110,12 @@ public final class RelayTransport: @unchecked Sendable {
         ])
     }
 
-    public func sendPushNotify(event: String) {
-        enqueueJSON(["type": "push_notify", "event": event])
+    public func sendPushNotify(event: String, sessionName: String? = nil) {
+        var payload: [String: String] = ["type": "push_notify", "event": event]
+        if let sessionName, !sessionName.isEmpty {
+            payload["sessionName"] = sessionName
+        }
+        enqueueJSON(payload)
     }
 
     func sendPlanState(_ artifact: TerminalPlanArtifact?) {
