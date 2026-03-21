@@ -1,4 +1,4 @@
-import FirebaseFirestore
+@preconcurrency import FirebaseFirestore
 import Foundation
 
 /// Writes hosted session metadata to Firestore so iOS can discover sessions
