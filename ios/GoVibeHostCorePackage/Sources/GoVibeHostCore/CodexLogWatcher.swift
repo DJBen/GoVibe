@@ -25,15 +25,18 @@ final class CodexLogWatcher {
     private static let rescanInterval: TimeInterval = 3
     private var currentPlanArtifact: TerminalPlanArtifact?
     private var pendingAssistantOutputs: [String] = []
+    private var lastUserPrompt: String?
 
     let onTurnComplete: (CodexPushEvent) -> Void
     let onPlanStateChanged: (TerminalPlanArtifact?) -> Void
+    let onLastUserPromptChanged: (String) -> Void
 
     init(
         cwd: String,
         logger: HostLogger,
         onTurnComplete: @escaping (CodexPushEvent) -> Void,
-        onPlanStateChanged: @escaping (TerminalPlanArtifact?) -> Void
+        onPlanStateChanged: @escaping (TerminalPlanArtifact?) -> Void,
+        onLastUserPromptChanged: @escaping (String) -> Void
     ) {
         self.cwd = cwd
         self.logger = logger
@@ -41,6 +44,7 @@ final class CodexLogWatcher {
             .appendingPathComponent(".codex/sessions")
         self.onTurnComplete = onTurnComplete
         self.onPlanStateChanged = onPlanStateChanged
+        self.onLastUserPromptChanged = onLastUserPromptChanged
     }
 
     /// Update the working directory (e.g. when the tmux pane's cwd changes).
@@ -125,6 +129,19 @@ final class CodexLogWatcher {
             approvalNotificationPending = false
             pendingAssistantOutputs.removeAll()
             updatePlanArtifact(nil)
+        }
+
+        if eventType == "user_message" {
+            let text = (payload["message"] as? String)
+                ?? (payload["text"] as? String)
+                ?? (payload["content"] as? String)
+            if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let truncated = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+                if truncated != lastUserPrompt {
+                    lastUserPrompt = truncated
+                    onLastUserPromptChanged(truncated)
+                }
+            }
         }
     }
 

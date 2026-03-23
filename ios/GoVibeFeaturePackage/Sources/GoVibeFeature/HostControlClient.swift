@@ -3,6 +3,7 @@ import Foundation
 struct HostSessionSummary: Sendable {
     let sessionId: String
     let kind: SessionKind?
+    let lastConversationSummary: String?
 }
 
 enum HostControlError: LocalizedError {

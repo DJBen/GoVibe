@@ -91,6 +91,10 @@ public final class PtySession: @unchecked Sendable {
     }
 
     public func start() throws {
+        // Resolve tmux path BEFORE fork — resolveTmux() uses FileManager/Process
+        // which are NOT async-signal-safe and crash in forked child processes.
+        let resolvedTmuxPath: String? = tmuxSessionName != nil ? Self.resolveTmux() : nil
+
         var master: Int32 = -1
         var winsz = winsize(ws_row: 40, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
         let pid = forkpty(&master, nil, nil, &winsz)
@@ -99,26 +103,26 @@ public final class PtySession: @unchecked Sendable {
         }
 
         if pid == 0 {
+            // CHILD — only async-signal-safe functions (setenv, execv, _exit, etc.)
             setenv("TERM", "xterm-256color", 1)
             setenv("LANG", "en_US.UTF-8", 1)
             setenv("LC_ALL", "en_US.UTF-8", 1)
             setenv("LC_CTYPE", "en_US.UTF-8", 1)
             setenv("COLORTERM", "truecolor", 1)
-            let args: [String]
-            let execPath: String
-            if let sessionName = tmuxSessionName, let tmuxPath = Self.resolveTmux() {
-                execPath = "/bin/zsh"
+            if let sessionName = tmuxSessionName, let tmuxPath = resolvedTmuxPath {
                 setenv("GOVIBE_TMUX_SESSION", sessionName, 1)
                 setenv("GOVIBE_TMUX_BIN", tmuxPath, 1)
-                args = ["/bin/zsh", "-lc", "exec \"$GOVIBE_TMUX_BIN\" new-session -A -s \"$GOVIBE_TMUX_SESSION\""]
+                let cmd = "exec \"$GOVIBE_TMUX_BIN\" new-session -A -s \"$GOVIBE_TMUX_SESSION\""
+                var cArgs: [UnsafeMutablePointer<CChar>?] = [
+                    strdup("/bin/zsh"), strdup("-lc"), strdup(cmd), nil
+                ]
+                execv("/bin/zsh", &cArgs)
             } else {
-                execPath = shellPath
-                args = [shellPath, "-l"]
+                var cArgs: [UnsafeMutablePointer<CChar>?] = [
+                    strdup(shellPath), strdup("-l"), nil
+                ]
+                execv(shellPath, &cArgs)
             }
-
-            var cArgs = args.map { strdup($0) }
-            cArgs.append(nil)
-            execv(execPath, &cArgs)
             _exit(127)
         }
 
@@ -127,7 +131,7 @@ public final class PtySession: @unchecked Sendable {
         logger.info("PTY started pid=\(childPid)")
         if let sessionName = tmuxSessionName {
             logger.info("PTY tmux session configured: \(sessionName)")
-            logger.info("PTY tmux path resolved: \(Self.resolveTmux() ?? "<nil>")")
+            logger.info("PTY tmux path resolved: \(resolvedTmuxPath ?? "<nil>")")
         }
 
         let source = DispatchSource.makeReadSource(fileDescriptor: masterFd, queue: ioQueue)

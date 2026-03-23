@@ -28,16 +28,45 @@ final class GeminiLogWatcher {
         .homeDirectoryForCurrentUser
         .appendingPathComponent(".gemini/govibe-permission-pending")
 
-    private let logger: HostLogger
-    let onTurnComplete: (GeminiPushEvent) -> Void
+    private static let geminiRoot: URL = FileManager.default
+        .homeDirectoryForCurrentUser
+        .appendingPathComponent(".gemini")
 
-    init(tmuxSessionName: String, logger: HostLogger, onTurnComplete: @escaping (GeminiPushEvent) -> Void) {
+    private let logger: HostLogger
+    private var cwd: String
+    private var lastUserPrompt: String?
+    private var lastChatFileURL: URL?
+    private var lastChatModDate: Date?
+    private var lastChatCheckAt: Date?
+    private static let chatCheckInterval: TimeInterval = 5
+
+    let onTurnComplete: (GeminiPushEvent) -> Void
+    let onLastUserPromptChanged: (String) -> Void
+
+    init(
+        tmuxSessionName: String,
+        cwd: String,
+        logger: HostLogger,
+        onTurnComplete: @escaping (GeminiPushEvent) -> Void,
+        onLastUserPromptChanged: @escaping (String) -> Void
+    ) {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let prefix = "govibe-\(tmuxSessionName)-"
         self.permissionSentinelURL = home.appendingPathComponent(".gemini/\(prefix)permission-pending")
         self.turnCompleteSentinelURL = home.appendingPathComponent(".gemini/\(prefix)turn-complete-pending")
+        self.cwd = cwd
         self.logger = logger
         self.onTurnComplete = onTurnComplete
+        self.onLastUserPromptChanged = onLastUserPromptChanged
+    }
+
+    func updateCwd(_ newCwd: String) {
+        guard newCwd != cwd else { return }
+        logger.info("GeminiLogWatcher: cwd updated \(cwd) → \(newCwd)")
+        cwd = newCwd
+        lastChatFileURL = nil
+        lastChatModDate = nil
+        lastChatCheckAt = nil
     }
 
     /// Called every second by `TerminalHostSession.pollPaneProgram()` while Gemini is active.
@@ -55,6 +84,8 @@ final class GeminiLogWatcher {
             try? FileManager.default.removeItem(atPath: turnPath)
             onTurnComplete(.turnComplete)
         }
+
+        refreshChatIfNeeded()
     }
 
     /// Called when the pane switches away from Gemini. Cleans up any stale sentinels.
@@ -65,5 +96,81 @@ final class GeminiLogWatcher {
         // Clean up legacy global sentinels (pre-session-scoped migration).
         try? FileManager.default.removeItem(at: Self.legacyTurnCompleteSentinelURL)
         try? FileManager.default.removeItem(at: Self.legacyPermissionSentinelURL)
+    }
+
+    // MARK: - Chat file reading
+
+    private func refreshChatIfNeeded() {
+        if let lastCheck = lastChatCheckAt,
+           Date().timeIntervalSince(lastCheck) < Self.chatCheckInterval {
+            return
+        }
+        lastChatCheckAt = Date()
+
+        guard let chatURL = latestChatFile() else { return }
+        let modDate = (try? chatURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+
+        if chatURL == lastChatFileURL, modDate == lastChatModDate { return }
+        lastChatFileURL = chatURL
+        lastChatModDate = modDate
+
+        if let prompt = extractLastUserPrompt(from: chatURL), prompt != lastUserPrompt {
+            lastUserPrompt = prompt
+            onLastUserPromptChanged(prompt)
+        }
+    }
+
+    private func geminiProjectName() -> String? {
+        let projectsFile = Self.geminiRoot.appendingPathComponent("projects.json")
+        guard let data = try? Data(contentsOf: projectsFile),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let projects = obj["projects"] as? [String: String]
+        else { return nil }
+        return projects[cwd]
+    }
+
+    private func latestChatFile() -> URL? {
+        guard let projectName = geminiProjectName() else { return nil }
+        let chatsDir = Self.geminiRoot
+            .appendingPathComponent("tmp")
+            .appendingPathComponent(projectName)
+            .appendingPathComponent("chats")
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: chatsDir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: .skipsHiddenFiles
+        ) else { return nil }
+
+        return contents
+            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("session-") }
+            .max {
+                let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                return a < b
+            }
+    }
+
+    private func extractLastUserPrompt(from url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let messages = obj["messages"] as? [[String: Any]]
+        else { return nil }
+
+        for message in messages.reversed() {
+            guard message["type"] as? String == "user" else { continue }
+            let content = message["content"]
+            if let parts = content as? [[String: Any]] {
+                for part in parts {
+                    if let text = part["text"] as? String {
+                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { return String(trimmed.prefix(200)) }
+                    }
+                }
+            } else if let text = content as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return String(trimmed.prefix(200)) }
+            }
+        }
+        return nil
     }
 }

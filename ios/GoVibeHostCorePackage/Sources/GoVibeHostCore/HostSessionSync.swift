@@ -21,7 +21,7 @@ actor HostSessionSync {
         guard !hostId.isEmpty, !ownerUid.isEmpty else { return }
         let ref = db.collection("devices").document(hostId)
                     .collection("hostedSessions").document(descriptor.sessionId)
-        try? await ref.setData([
+        var data: [String: Any] = [
             "ownerUid":    ownerUid,
             "sessionId":   descriptor.sessionId,
             "kind":        descriptor.kind.rawValue,
@@ -29,7 +29,13 @@ actor HostSessionSync {
             "state":       descriptor.state.rawValue,
             "createdAt":   FieldValue.serverTimestamp(),
             "updatedAt":   FieldValue.serverTimestamp(),
-        ], merge: true)
+        ]
+        if let summary = descriptor.lastConversationSummary {
+            data["lastConversationSummary"] = summary
+        } else {
+            data["lastConversationSummary"] = FieldValue.delete()
+        }
+        try? await ref.setData(data, merge: true)
     }
 
     func remove(sessionId: String) async {
@@ -51,13 +57,19 @@ actor HostSessionSync {
 
         let batch = db.batch()
         for d in descriptors {
-            batch.setData([
+            var sessionData: [String: Any] = [
                 "ownerUid": ownerUid, "sessionId": d.sessionId,
                 "kind": d.kind.rawValue, "displayName": d.displayName,
                 "state": d.state.rawValue,
                 "createdAt": FieldValue.serverTimestamp(),
                 "updatedAt": FieldValue.serverTimestamp(),
-            ], forDocument: base.document(d.sessionId), merge: true)
+            ]
+            if let summary = d.lastConversationSummary {
+                sessionData["lastConversationSummary"] = summary
+            } else {
+                sessionData["lastConversationSummary"] = FieldValue.delete()
+            }
+            batch.setData(sessionData, forDocument: base.document(d.sessionId), merge: true)
         }
         // Remove Firestore docs not present in local state.
         for doc in existingSnap?.documents ?? [] where !localIds.contains(doc.documentID) {

@@ -17,7 +17,7 @@ struct TerminalScrollGestureMapper {
         let rows = max(1, visibleRows)
         let adjustedRows: Int
         if let previousDirection, previousDirection != direction {
-            adjustedRows = max(1, rows - 2)
+            adjustedRows = max(1, (rows - 2) + rows)
         } else {
             adjustedRows = rows
         }

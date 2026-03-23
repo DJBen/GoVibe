@@ -126,6 +126,7 @@ public struct HostedSessionDescriptor: Identifiable, Codable, Hashable, Sendable
     public var lastPeerActivityAt: Date?
     public var lastError: String?
     public var configuration: HostedSessionConfiguration
+    public var lastConversationSummary: String?
 
     public init(
         hostId: String,
@@ -136,7 +137,8 @@ public struct HostedSessionDescriptor: Identifiable, Codable, Hashable, Sendable
         createdAt: Date = .now,
         lastPeerActivityAt: Date? = nil,
         lastError: String? = nil,
-        configuration: HostedSessionConfiguration
+        configuration: HostedSessionConfiguration,
+        lastConversationSummary: String? = nil
     ) {
         self.hostId = hostId
         self.sessionId = sessionId
@@ -147,6 +149,7 @@ public struct HostedSessionDescriptor: Identifiable, Codable, Hashable, Sendable
         self.lastPeerActivityAt = lastPeerActivityAt
         self.lastError = lastError
         self.configuration = configuration
+        self.lastConversationSummary = lastConversationSummary
     }
 }
 

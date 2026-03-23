@@ -617,13 +617,17 @@ public final class HostSessionManager {
         didAutoStartPersistedSessions = true
         startControlChannel()
 
+        // Start sessions BEFORE syncAll so the snapshot captures up-to-date
+        // states (.starting/.waitingForPeer) instead of stale .stopped.
+        // Otherwise syncAll's batch write can overwrite individual upserts
+        // and the iOS client sees .stopped, never connecting to the relay.
+        for session in sessions where runtimes[session.sessionId] == nil {
+            startSession(id: session.sessionId)
+        }
+
         let snapshot = sessions
         Task.detached { [sessionSync] in
             await sessionSync.syncAll(snapshot)
-        }
-
-        for session in sessions where runtimes[session.sessionId] == nil {
-            startSession(id: session.sessionId)
         }
     }
 
@@ -638,6 +642,8 @@ public final class HostSessionManager {
             if state == .stopped || state == .error {
                 runtimes[sessionID] = nil
             }
+        case .lastUserPromptChanged(let prompt):
+            updateSession(id: sessionID) { $0.lastConversationSummary = prompt }
         }
     }
 

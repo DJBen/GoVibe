@@ -26,6 +26,7 @@ final class SessionStore {
         let kind: SessionKind?
         let lastRelayStatus: String?
         let lastActiveAt: Date?
+        let lastConversationSummary: String?
     }
 
     init(
@@ -99,9 +100,15 @@ final class SessionStore {
                     sessions[index].kind = kind
                     changed = true
                 }
+                if let remoteSummary = summary.lastConversationSummary,
+                   sessions[index].lastConversationSummary != remoteSummary {
+                    sessions[index].lastConversationSummary = remoteSummary
+                    changed = true
+                }
             } else {
                 var s = SavedSession(sessionId: summary.sessionId, hostId: hostId)
                 s.kind = summary.kind
+                s.lastConversationSummary = summary.lastConversationSummary
                 sessions.append(s)
                 changed = true
             }
@@ -151,7 +158,8 @@ final class SessionStore {
             let data = doc.data()
             guard let sid = data["sessionId"] as? String, !sid.isEmpty else { return nil }
             let kind = (data["kind"] as? String).flatMap { SessionKind(rawValue: $0) }
-            return HostSessionSummary(sessionId: sid, kind: kind)
+            let summary = data["lastConversationSummary"] as? String
+            return HostSessionSummary(sessionId: sid, kind: kind, lastConversationSummary: summary)
         }
         applyRemoteSessions(summaries, hostId: hostId)
     }
@@ -279,6 +287,7 @@ final class SessionStore {
                 saved.kind = session.kind
                 saved.lastRelayStatus = session.lastRelayStatus
                 saved.lastActiveAt = session.lastActiveAt
+                saved.lastConversationSummary = session.lastConversationSummary
                 return saved
             }
         } catch {

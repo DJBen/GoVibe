@@ -113,6 +113,7 @@ struct SavedSession: Identifiable, Codable, Hashable {
     var kind: SessionKind?
     var lastRelayStatus: String?
     var lastActiveAt: Date?      // set when user leaves session
+    var lastConversationSummary: String?
 
     var id: String { roomId }
 

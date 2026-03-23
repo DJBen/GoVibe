@@ -15,9 +15,16 @@
 
 set -euo pipefail
 
+# ── Load .env if present ────────────────────────────────────────────────────
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -f "$REPO_ROOT/.env" ]]; then
+    set -a
+    source "$REPO_ROOT/.env"
+    set +a
+fi
+
 # ── Config ──────────────────────────────────────────────────────────────────
 VERSION="${1:?Usage: $0 <version>}"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT="$REPO_ROOT/ios/GoVibe.xcodeproj"
 SCHEME="GoVibeHost"
 BUILD_DIR="$(mktemp -d)"

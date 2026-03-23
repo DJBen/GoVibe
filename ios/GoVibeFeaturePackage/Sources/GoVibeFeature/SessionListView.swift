@@ -497,7 +497,12 @@ private struct SessionCardView: View {
                             .foregroundStyle(.white)
                             .lineLimit(1)
                     }
-                    if let lastActiveAt = session.lastActiveAt {
+                    if let summary = session.lastConversationSummary {
+                        Text(summary)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.8))
+                            .lineLimit(2)
+                    } else if let lastActiveAt = session.lastActiveAt {
                         Text(lastActiveAt, style: .relative)
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(0.8))
