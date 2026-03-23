@@ -10,6 +10,7 @@
 		8B41F6832DEDD23B001A66F9 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* GoVibeFeature */; };
 		8B41F6852DEDD25C001A66F9 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* GoVibeFeature */; };
 		FC1BF8842F5ACF1F009F5597 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = FC1BF8832F5ACF1F009F5597 /* GoVibeFeature */; };
+		FC9B93582F7116680046B3BF /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = FC9B93572F7116680046B3BF /* Sparkle */; };
 		FCD000102F700001009F5597 /* GoVibeHostCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCD000122F700001009F5597 /* GoVibeHostCore */; };
 		FCD100012F700001009F5597 /* GoVibe/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */; };
 		FCE000022F700001009F5597 /* GoVibeHostApp/GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = FCE000012F700001009F5597 /* GoVibeHostApp/GoogleService-Info.plist */; };
@@ -109,6 +110,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FCD000102F700001009F5597 /* GoVibeHostCore in Frameworks */,
+				FC9B93582F7116680046B3BF /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -216,6 +218,7 @@
 			name = GoVibeHost;
 			packageProductDependencies = (
 				FCD000122F700001009F5597 /* GoVibeHostCore */,
+				FC9B93572F7116680046B3BF /* Sparkle */,
 			);
 			productName = GoVibeHost;
 			productReference = FCD000012F700001009F5597 /* GoVibeHost.app */;
@@ -255,6 +258,7 @@
 			packageReferences = (
 				FCD000112F700001009F5597 /* XCLocalSwiftPackageReference "GoVibeHostCorePackage" */,
 				FC1BF8822F5ACF1F009F5597 /* XCLocalSwiftPackageReference "GoVibeFeaturePackage" */,
+				FC9B93562F7116680046B3BF /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
@@ -570,7 +574,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.2.4;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -601,7 +605,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.2.4;
 				PROVISIONING_PROFILE_SPECIFIER = "GoVibe Host";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -660,6 +664,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		FC9B93562F7116680046B3BF /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		8B41F6822DEDD23B001A66F9 /* GoVibeFeature */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -672,6 +687,11 @@
 		FC1BF8832F5ACF1F009F5597 /* GoVibeFeature */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = GoVibeFeature;
+		};
+		FC9B93572F7116680046B3BF /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FC9B93562F7116680046B3BF /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 		FCD000122F700001009F5597 /* GoVibeHostCore */ = {
 			isa = XCSwiftPackageProductDependency;

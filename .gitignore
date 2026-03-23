@@ -5,6 +5,7 @@ node_modules
 **/Package.resolved
 backend/functions/lib
 firebase-debug.log
+.firebase/
 
 # Xcode / Swift build artifacts
 DerivedData/

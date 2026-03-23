@@ -41,5 +41,11 @@
 	<false/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>GoVibe Host uses automation to keep the selected simulator ready for remote control.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://storage.googleapis.com/govibe-host-releases/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>jFuJRoY5FukEDjnJ+6LLbk13MRI/7OVy1zV8hjTuF5A=</string>
 </dict>
 </plist>

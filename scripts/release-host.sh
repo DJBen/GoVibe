@@ -74,18 +74,30 @@ echo "    Build dir: $BUILD_DIR"
 
 # ── Stamp version in xcconfig ──────────────────────────────────────────────
 XCCONFIG_LOCAL="$REPO_ROOT/ios/Config/Shared.xcconfig.local"
+CURRENT_PROJECT_VERSION="$(date +%Y%m%d%H%M)"
+
 if [[ -f "$XCCONFIG_LOCAL" ]]; then
     if grep -q "^MARKETING_VERSION" "$XCCONFIG_LOCAL"; then
         sed -i '' "s/^MARKETING_VERSION.*/MARKETING_VERSION = ${VERSION}/" "$XCCONFIG_LOCAL"
     else
         echo "MARKETING_VERSION = ${VERSION}" >> "$XCCONFIG_LOCAL"
     fi
+    if grep -q "^CURRENT_PROJECT_VERSION" "$XCCONFIG_LOCAL"; then
+        sed -i '' "s/^CURRENT_PROJECT_VERSION.*/CURRENT_PROJECT_VERSION = ${CURRENT_PROJECT_VERSION}/" "$XCCONFIG_LOCAL"
+    else
+        echo "CURRENT_PROJECT_VERSION = ${CURRENT_PROJECT_VERSION}" >> "$XCCONFIG_LOCAL"
+    fi
 else
     echo "Error: $XCCONFIG_LOCAL not found — create it with your local config" >&2
     exit 1
 fi
 
-echo "==> Stamped MARKETING_VERSION = ${VERSION}"
+# Also update HostRelease.xcconfig so the checked-in values stay current
+XCCONFIG_RELEASE="$REPO_ROOT/ios/Config/HostRelease.xcconfig"
+sed -i '' "s/^MARKETING_VERSION = .*/MARKETING_VERSION = ${VERSION}/" "$XCCONFIG_RELEASE"
+sed -i '' "s/^CURRENT_PROJECT_VERSION = .*/CURRENT_PROJECT_VERSION = ${CURRENT_PROJECT_VERSION}/" "$XCCONFIG_RELEASE"
+
+echo "==> Stamped MARKETING_VERSION = ${VERSION}, CURRENT_PROJECT_VERSION = ${CURRENT_PROJECT_VERSION}"
 
 # ── Archive ─────────────────────────────────────────────────────────────────
 echo "==> Archiving..."
@@ -163,6 +175,24 @@ done
 SHA256="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
 echo "==> SHA-256: $SHA256"
 
+# ── Sparkle EdDSA signature ────────────────────────────────────────────────
+echo "==> Signing DMG for Sparkle..."
+SIGN_UPDATE="$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+    -path "*/Sparkle/bin/sign_update" -type f 2>/dev/null | head -1)"
+if [[ -z "$SIGN_UPDATE" ]]; then
+    SIGN_UPDATE="$(find "$REPO_ROOT/ios/.build/checkouts" \
+        -path "*/Sparkle/bin/sign_update" -type f 2>/dev/null | head -1)"
+fi
+if [[ -z "$SIGN_UPDATE" ]]; then
+    echo "Error: Sparkle sign_update not found. Build the project first to resolve Sparkle SPM." >&2
+    exit 1
+fi
+
+SPARKLE_SIG=$("$SIGN_UPDATE" "$DMG_PATH")
+ED_SIGNATURE=$(echo "$SPARKLE_SIG" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
+ED_LENGTH=$(echo "$SPARKLE_SIG" | sed -n 's/.*length="\([^"]*\)".*/\1/p')
+echo "    EdDSA signature obtained"
+
 # ── Upload to GCS ───────────────────────────────────────────────────────────
 echo "==> Uploading DMG to GCS..."
 gsutil cp "$DMG_PATH" "${GCS_BUCKET}/${DMG_NAME}"
@@ -182,6 +212,32 @@ EOF
 
 gsutil -h "Cache-Control:no-cache, no-store" \
     cp "$BUILD_DIR/latest.json" "${GCS_BUCKET}/latest.json"
+
+# ── Sparkle appcast ────────────────────────────────────────────────────────
+echo "==> Generating appcast.xml..."
+cat > "$BUILD_DIR/appcast.xml" <<APPCAST_EOF
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>GoVibe Host Updates</title>
+    <language>en</language>
+    <item>
+      <title>GoVibe Host v${VERSION}</title>
+      <pubDate>$(date -R)</pubDate>
+      <sparkle:version>${CURRENT_PROJECT_VERSION}</sparkle:version>
+      <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <enclosure url="${DMG_URL}"
+                 type="application/octet-stream"
+                 sparkle:edSignature="${ED_SIGNATURE}"
+                 length="${ED_LENGTH}" />
+    </item>
+  </channel>
+</rss>
+APPCAST_EOF
+
+gsutil -h "Cache-Control:no-cache, no-store" \
+    cp "$BUILD_DIR/appcast.xml" "${GCS_BUCKET}/appcast.xml"
 
 echo "==> Uploaded to GCS"
 

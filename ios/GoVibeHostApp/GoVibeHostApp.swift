@@ -2,12 +2,14 @@ import SwiftUI
 import GoVibeHostCore
 import AppKit
 import Observation
+import Sparkle
 
 @main
 struct GoVibeHostApp: App {
     @NSApplicationDelegateAdaptor(HostAppDelegate.self) private var appDelegate
     @State private var manager = HostSessionManager()
     @State private var auth = HostAuthController.shared
+    @State private var updaterModel = CheckForUpdatesModel()
     private var config = HostConfig.shared
 
     var body: some Scene {
@@ -63,6 +65,11 @@ struct GoVibeHostApp: App {
 
         MenuBarExtra {
             HostMenuBarView(manager: manager)
+            Divider()
+            Button("Check for Updates…") {
+                updaterModel.updaterController.checkForUpdates(nil)
+            }
+            .disabled(!updaterModel.canCheckForUpdates)
             Divider()
             if auth.isAuthenticated {
                 Button("Sign Out") {
