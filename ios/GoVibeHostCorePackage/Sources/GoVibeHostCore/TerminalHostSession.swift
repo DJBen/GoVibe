@@ -2,6 +2,7 @@ import Foundation
 
 public enum HostSessionRuntimeEvent: Sendable {
     case stateChanged(HostedSessionState, Date?, String?)
+    case lastUserPromptChanged(String)
 }
 
 public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime {
@@ -96,6 +97,9 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         }
 
         let sessionName = pty.tmuxSessionName ?? ""
+        let promptHandler: (String) -> Void = { [weak self] prompt in
+            self?.eventHandler(.lastUserPromptChanged(prompt))
+        }
         claudeLogWatcher = ClaudeLogWatcher(
             tmuxSessionName: sessionName,
             cwd: NSHomeDirectory(),
@@ -105,7 +109,8 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             },
             onPlanStateChanged: { [weak self] artifact in
                 self?.setPlanArtifact(artifact)
-            }
+            },
+            onLastUserPromptChanged: promptHandler
         )
         codexLogWatcher = CodexLogWatcher(
             cwd: NSHomeDirectory(),
@@ -115,14 +120,17 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             },
             onPlanStateChanged: { [weak self] artifact in
                 self?.setPlanArtifact(artifact)
-            }
+            },
+            onLastUserPromptChanged: promptHandler
         )
         geminiLogWatcher = GeminiLogWatcher(
             tmuxSessionName: sessionName,
+            cwd: NSHomeDirectory(),
             logger: logger,
             onTurnComplete: { [weak self] event in
                 self?.bridge.sendPushNotify(event: event.rawValue, sessionName: self?.sessionDisplayName)
-            }
+            },
+            onLastUserPromptChanged: promptHandler
         )
         bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
         try pty.start()
@@ -304,16 +312,18 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             if name != "Gemini" {
                 geminiLogWatcher?.reset()
             }
-            if name == "Claude" || name == "Codex" {
-                // Claude/Codex just became active — update the watcher's cwd from the tmux pane.
+            if name == "Claude" || name == "Codex" || name == "Gemini" {
+                // Agent just became active — update the watcher's cwd from the tmux pane.
                 if let paneCwd = runProcessCaptureOutput(
                     executable: tmuxPath,
                     arguments: ["display-message", "-p", "-t", sessionName, "#{pane_current_path}"]
                 ) {
                     if name == "Claude" {
                         claudeLogWatcher?.updateCwd(paneCwd)
-                    } else {
+                    } else if name == "Codex" {
                         codexLogWatcher?.updateCwd(paneCwd)
+                    } else {
+                        geminiLogWatcher?.updateCwd(paneCwd)
                     }
                 }
             }

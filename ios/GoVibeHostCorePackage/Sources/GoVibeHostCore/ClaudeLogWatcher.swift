@@ -26,11 +26,21 @@ final class ClaudeLogWatcher {
     private var readOffset: UInt64 = 0
     private var awaitingNextTurn = false
     private var currentPlanArtifact: TerminalPlanArtifact?
+    private var lastUserPrompt: String?
+    /// When set, prefer this specific session's JSONL file over the newest.
+    private var targetSessionId: String?
+    /// When true, the watcher has pinned to a file and should not re-evaluate.
+    private var filePinned = false
 
     /// Session-scoped sentinel written by the `Stop` hook in ~/.claude/settings.json.
     private let turnCompleteSentinelURL: URL
     /// Session-scoped sentinel written by the `Notification`/`permission_prompt` hook.
     private let permissionSentinelURL: URL
+
+    /// Claim file used to coordinate with other watchers sharing the same project
+    /// directory. Each watcher writes the path of its claimed JSONL file here so
+    /// other watchers can skip it.
+    private let claimFileURL: URL
 
     /// Legacy global sentinel paths (no session prefix) cleaned up during reset as a migration step.
     private static let legacyTurnCompleteSentinelURL: URL = FileManager.default
@@ -42,23 +52,27 @@ final class ClaudeLogWatcher {
 
     let onTurnComplete: (ClaudePushEvent) -> Void
     let onPlanStateChanged: (TerminalPlanArtifact?) -> Void
+    let onLastUserPromptChanged: (String) -> Void
 
     init(
         tmuxSessionName: String,
         cwd: String,
         logger: HostLogger,
         onTurnComplete: @escaping (ClaudePushEvent) -> Void,
-        onPlanStateChanged: @escaping (TerminalPlanArtifact?) -> Void
+        onPlanStateChanged: @escaping (TerminalPlanArtifact?) -> Void,
+        onLastUserPromptChanged: @escaping (String) -> Void
     ) {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let prefix = "govibe-\(tmuxSessionName)-"
         self.permissionSentinelURL = home.appendingPathComponent(".claude/\(prefix)permission-pending")
         self.turnCompleteSentinelURL = home.appendingPathComponent(".claude/\(prefix)turn-complete-pending")
+        self.claimFileURL = home.appendingPathComponent(".claude/\(prefix)jsonl-claim")
         self.cwd = cwd
         self.logger = logger
         self.projectsRoot = home.appendingPathComponent(".claude/projects")
         self.onTurnComplete = onTurnComplete
         self.onPlanStateChanged = onPlanStateChanged
+        self.onLastUserPromptChanged = onLastUserPromptChanged
     }
 
     /// Update the working directory (e.g. when the tmux pane's cwd changes).
@@ -68,6 +82,19 @@ final class ClaudeLogWatcher {
         cwd = newCwd
         fileURL = nil
         readOffset = 0
+    }
+
+    /// Pin to a specific Claude session's JSONL file (by sessionId UUID).
+    /// When set, `refreshFileIfNeeded()` uses `{sessionId}.jsonl` directly
+    /// instead of picking the newest file — required when multiple Claude
+    /// sessions share the same cwd.
+    func updateTargetSessionId(_ sessionId: String?) {
+        guard sessionId != targetSessionId else { return }
+        logger.info("ClaudeLogWatcher: targetSessionId updated → \(sessionId ?? "nil")")
+        targetSessionId = sessionId
+        fileURL = nil
+        readOffset = 0
+        filePinned = false
     }
 
     /// Called every second by `TerminalHostSession.pollPaneProgram()` while Claude is active.
@@ -116,6 +143,7 @@ final class ClaudeLogWatcher {
                 try? FileManager.default.removeItem(at: permissionSentinelURL)
                 awaitingNextTurn = false
                 updatePlanArtifact(nil)
+                updateLastUserPrompt(userPromptText(from: message))
             }
 
             if type == "assistant", let uuid {
@@ -136,9 +164,11 @@ final class ClaudeLogWatcher {
         logger.info("ClaudeLogWatcher: reset (pane switched away from Claude)")
         fileURL = nil
         readOffset = 0
+        filePinned = false
         awaitingNextTurn = false
         try? FileManager.default.removeItem(at: permissionSentinelURL)
         try? FileManager.default.removeItem(at: turnCompleteSentinelURL)
+        try? FileManager.default.removeItem(at: claimFileURL)
         // Clean up legacy global sentinels (pre-session-scoped migration).
         try? FileManager.default.removeItem(at: Self.legacyPermissionSentinelURL)
         try? FileManager.default.removeItem(at: Self.legacyTurnCompleteSentinelURL)
@@ -159,9 +189,29 @@ final class ClaudeLogWatcher {
             if fileURL != nil {
                 logger.info("ClaudeLogWatcher: project dir not found for cwd=\(cwd)")
                 fileURL = nil
+                filePinned = false
             }
             return
         }
+
+        // Once pinned to a file, stick with it until reset().
+        if filePinned, let fileURL, FileManager.default.fileExists(atPath: fileURL.path) {
+            return
+        }
+
+        // If we have a target session ID whose JSONL file exists, use it directly.
+        if let targetSessionId {
+            let target = dir.appendingPathComponent("\(targetSessionId).jsonl")
+            if FileManager.default.fileExists(atPath: target.path) {
+                pinToFile(target)
+                return
+            }
+        }
+
+        // Fallback: pick the newest unclaimed JSONL file.
+        // Read claim files written by other watchers (govibe-*-jsonl-claim)
+        // to avoid selecting a file another session is already reading.
+        let claimedPaths = otherClaimedPaths()
 
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: dir,
@@ -169,29 +219,95 @@ final class ClaudeLogWatcher {
             options: .skipsHiddenFiles
         ) else { return }
 
-        let newest = contents
-            .filter { $0.pathExtension == "jsonl" }
-            .max {
+        let candidates = contents
+            .filter { $0.pathExtension == "jsonl" && !claimedPaths.contains($0.path) }
+            .sorted {
                 let aDate = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 let bDate = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return aDate < bDate
+                return aDate > bDate // newest first
             }
 
-        guard let newest else {
-            if fileURL != nil {
+        guard let selected = candidates.first else {
+            // If all files are claimed, fall back to newest overall.
+            let allFiles = contents
+                .filter { $0.pathExtension == "jsonl" }
+                .max {
+                    let aDate = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    let bDate = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                    return aDate < bDate
+                }
+            if let allFiles {
+                pinToFile(allFiles)
+            } else if fileURL != nil {
                 logger.info("ClaudeLogWatcher: no .jsonl files found in \(dir.path)")
                 fileURL = nil
+                filePinned = false
             }
             return
         }
 
-        if newest != fileURL {
-            let endOffset = (try? FileManager.default.attributesOfItem(atPath: newest.path)[.size] as? UInt64) ?? 0
-            logger.info("ClaudeLogWatcher: watching \(newest.lastPathComponent) at offset \(endOffset)")
-            fileURL = newest
-            readOffset = endOffset
-            updatePlanArtifact(existingPlanArtifact(in: newest))
+        pinToFile(selected)
+        resolveClaimConflicts()
+    }
+
+    private func pinToFile(_ url: URL) {
+        guard url != fileURL else {
+            if !filePinned { filePinned = true }
+            return
         }
+        let endOffset = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? 0
+        logger.info("ClaudeLogWatcher: pinned to \(url.lastPathComponent) at offset \(endOffset)")
+        fileURL = url
+        readOffset = endOffset
+        filePinned = true
+        // Write claim file so other watchers skip this file.
+        try? url.path.write(to: claimFileURL, atomically: true, encoding: .utf8)
+        updatePlanArtifact(existingPlanArtifact(in: url))
+        updateLastUserPrompt(existingLastUserPrompt(in: url))
+    }
+
+    /// Detects and resolves conflicts when two watchers race and claim the same file.
+    /// Uses the claim file name (which encodes the tmux session name) as a deterministic
+    /// tiebreaker: the lexicographically smaller name wins.
+    private func resolveClaimConflicts() {
+        guard let myPath = fileURL?.path else { return }
+        let myName = claimFileURL.lastPathComponent
+
+        for (name, path) in otherClaimedEntries() {
+            if path == myPath, name < myName {
+                // The other watcher has priority — yield and retry next poll.
+                logger.info("ClaudeLogWatcher: claim conflict with \(name), yielding")
+                fileURL = nil
+                readOffset = 0
+                filePinned = false
+                try? FileManager.default.removeItem(at: claimFileURL)
+                return
+            }
+        }
+    }
+
+    /// Reads claim files from other GoVibe watchers.
+    /// Returns (claimFileName, claimedPath) pairs.
+    private func otherClaimedEntries() -> [(String, String)] {
+        let claudeDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude")
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: claudeDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+        ) else { return [] }
+        var result: [(String, String)] = []
+        for entry in entries where entry.lastPathComponent.hasPrefix("govibe-")
+                                 && entry.lastPathComponent.hasSuffix("-jsonl-claim")
+                                 && entry != claimFileURL {
+            if let claimed = try? String(contentsOf: entry, encoding: .utf8) {
+                result.append((entry.lastPathComponent, claimed.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+        }
+        return result
+    }
+
+    /// Returns paths claimed by other watchers.
+    private func otherClaimedPaths() -> Set<String> {
+        Set(otherClaimedEntries().map(\.1))
     }
 
     private func readNewLines(from url: URL) -> [String] {
@@ -296,5 +412,44 @@ final class ClaudeLogWatcher {
         guard artifact != currentPlanArtifact else { return }
         currentPlanArtifact = artifact
         onPlanStateChanged(artifact)
+    }
+
+    private func userPromptText(from message: [String: Any]?) -> String? {
+        guard let message else { return nil }
+        if let content = message["content"] as? String {
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : String(trimmed.prefix(200))
+        }
+        guard let content = message["content"] as? [[String: Any]] else { return nil }
+        let textParts = content.compactMap { item -> String? in
+            guard item["type"] as? String == "text" else { return nil }
+            return item["text"] as? String
+        }
+        let joined = textParts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return joined.isEmpty ? nil : String(joined.prefix(200))
+    }
+
+    private func existingLastUserPrompt(in url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+
+        var prompt: String?
+        for line in text.components(separatedBy: "\n") where !line.isEmpty {
+            guard let lineData = line.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  obj["type"] as? String == "user"
+            else { continue }
+            let message = obj["message"] as? [String: Any]
+            if isExternalUserPrompt(message) {
+                prompt = userPromptText(from: message)
+            }
+        }
+        return prompt
+    }
+
+    private func updateLastUserPrompt(_ prompt: String?) {
+        guard let prompt, prompt != lastUserPrompt else { return }
+        lastUserPrompt = prompt
+        onLastUserPromptChanged(prompt)
     }
 }
