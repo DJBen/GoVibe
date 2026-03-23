@@ -8,7 +8,6 @@ struct SessionListView: View {
     @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
     @State private var selectedSession: SavedSession?
     @State private var navigationPath: [SavedSession] = []
-    @State private var showingSettings = false
     @State private var createSessionForHost: HostInfo?
     @State private var userDeletingIds: Set<String> = []
     @State private var externallyDeletedRoomId: String? = nil
@@ -54,13 +53,6 @@ struct SessionListView: View {
                         }
                 }
             }
-        }
-        .sheet(isPresented: $showingSettings, onDismiss: {
-            store.reset()
-            store.updateConfig()
-            Task { await store.refresh() }
-        }) {
-            AppConfigSetupView()
         }
         .sheet(item: $createSessionForHost) { host in
             SessionCreateView(host: host, store: store)
@@ -322,12 +314,6 @@ struct SessionListView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Menu {
-                Button {
-                    showingSettings = true
-                } label: {
-                    Label("Relay Settings", systemImage: "gear")
-                }
-
                 if authController.isAuthenticated {
                     Button(role: .destructive) {
                         authController.signOut()

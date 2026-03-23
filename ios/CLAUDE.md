@@ -10,7 +10,7 @@ This is a native **iOS application** built with **Swift 6.1+** and **SwiftUI**. 
 
 ## Project Structure
 
-The project follows a **workspace + SPM package** architecture:
+The project follows an **xcodeproj + SPM package** architecture:
 
 ```
 YourApp/
@@ -19,8 +19,7 @@ YourApp/
 │   ├── Release.xcconfig
 │   ├── Shared.xcconfig
 │   └── Tests.xcconfig
-├── YourApp.xcworkspace/            # Workspace container
-├── YourApp.xcodeproj/              # App shell (minimal wrapper)
+├── YourApp.xcodeproj/              # App project (contains all targets and SPM deps)
 ├── YourApp/                        # App target - just the entry point
 │   ├── Assets.xcassets/
 │   ├── YourAppApp.swift           # @main entry point only
@@ -436,14 +435,14 @@ To work with this project, build, test, and development commands should use Xcod
 ## Project Discovery & Setup
 
 ```javascript
-// Discover Xcode projects in the workspace
+// Discover Xcode projects
 discover_projs({
     workspaceRoot: "/path/to/YourApp"
 })
 
 // List available schemes
-list_schems_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace"
+list_schems_proj({
+    projectPath: "/path/to/YourApp.xcodeproj"
 })
 ```
 
@@ -451,17 +450,17 @@ list_schems_ws({
 
 ```javascript
 // Build for iPhone simulator by name
-build_sim_name_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
+build_sim_name_proj({
+    projectPath: "/path/to/YourApp.xcodeproj",
     scheme: "YourApp",
     simulatorName: "iPhone 16",
     configuration: "Debug"
 })
 
 // Build and run in one step
-build_run_sim_name_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
-    scheme: "YourApp", 
+build_run_sim_name_proj({
+    projectPath: "/path/to/YourApp.xcodeproj",
+    scheme: "YourApp",
     simulatorName: "iPhone 16"
 })
 ```
@@ -473,8 +472,8 @@ build_run_sim_name_ws({
 list_devices()
 
 // Build for physical device
-build_dev_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
+build_dev_proj({
+    projectPath: "/path/to/YourApp.xcodeproj",
     scheme: "YourApp",
     configuration: "Debug"
 })
@@ -484,15 +483,15 @@ build_dev_ws({
 
 ```javascript
 // Run tests on simulator
-test_sim_name_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
+test_sim_name_proj({
+    projectPath: "/path/to/YourApp.xcodeproj",
     scheme: "YourApp",
     simulatorName: "iPhone 16"
 })
 
 // Run tests on device
-test_device_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
+test_device_proj({
+    projectPath: "/path/to/YourApp.xcodeproj",
     scheme: "YourApp",
     deviceId: "DEVICE_UUID_HERE"
 })
@@ -602,13 +601,13 @@ get_app_bundle_id({
 })
 
 // Clean build artifacts
-clean_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace"
+clean_proj({
+    projectPath: "/path/to/YourApp.xcodeproj"
 })
 
 // Get app path for simulator
-get_sim_app_path_name_ws({
-    workspacePath: "/path/to/YourApp.xcworkspace",
+get_sim_app_path_name_proj({
+    projectPath: "/path/to/YourApp.xcodeproj",
     scheme: "YourApp",
     platform: "iOS Simulator",
     simulatorName: "iPhone 16"

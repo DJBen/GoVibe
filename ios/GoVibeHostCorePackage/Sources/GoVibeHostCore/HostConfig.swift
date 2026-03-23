@@ -10,25 +10,21 @@ public final class HostConfig {
     public var gcpProjectID: String = ""
     public var gcpRegion: String = ""
 
-    private let defaults: UserDefaults
     private let env: [String: String]
     private let bundle: Bundle
 
     private enum Keys {
-        static let relayHost = "GOVIBE_RELAY_WS_BASE" // Env var
-        static let relayHostEnv = "GOVIBE_GCP_RELAY_HOST" // Env var (New)
-        static let relayHostPlist = "GOVIBE_GCP_RELAY_HOST" // Plist
-        static let relayHostDefaults = "GOVIBE_GCP_RELAY_HOST" // UserDefaults
+        static let relayHost = "GOVIBE_RELAY_WS_BASE"
+        static let relayHostEnv = "GOVIBE_GCP_RELAY_HOST"
+        static let relayHostPlist = "GOVIBE_GCP_RELAY_HOST"
         static let gcpProjectID = "GOVIBE_GCP_PROJECT_ID"
         static let gcpRegion = "GOVIBE_GCP_REGION"
     }
 
     init(
-        defaults: UserDefaults = .standard,
         env: [String: String] = ProcessInfo.processInfo.environment,
         bundle: Bundle = .main
     ) {
-        self.defaults = defaults
         self.env = env
         self.bundle = bundle
         load()
@@ -67,13 +63,7 @@ public final class HostConfig {
             gcpRegion = trimmed.hasPrefix("DUMMY_") ? "" : trimmed
         }
 
-        // 1. Try UserDefaults
-        if let relay = defaults.string(forKey: Keys.relayHostDefaults), !relay.isEmpty {
-            self.relayHost = relay
-            return
-        }
-
-        // 2. Try Environment Variable (for dev/scripting)
+        // Relay host: environment variables, then Info.plist
         if let relay = env[Keys.relayHost], !relay.isEmpty {
             self.relayHost = relay
             return
@@ -84,26 +74,13 @@ public final class HostConfig {
             return
         }
 
-        // 3. Try Info.plist / Bundle
         let bundleRelay = bundle.object(forInfoDictionaryKey: Keys.relayHostPlist) as? String
         self.relayHost = (bundleRelay ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         if self.relayHost.hasPrefix("DUMMY_") { self.relayHost = "" }
     }
 
-    public func save(relay: String) {
-        self.relayHost = relay.trimmingCharacters(in: .whitespacesAndNewlines)
-        defaults.set(self.relayHost, forKey: Keys.relayHostDefaults)
-    }
-
-    public func reset() {
-        defaults.removeObject(forKey: Keys.relayHostDefaults)
-        load()
-    }
-
     /// Returns the normalized hostname from a relay URL string, or nil if the input is empty/invalid.
-    /// Strips scheme (wss://, https://, etc.) and path components.
-    /// Mirrors the validation logic used by the iOS companion app.
     public static func normalizedRelayHost(from input: String) -> String? {
         if let url = URL(string: input), let host = url.host, !host.isEmpty {
             return host

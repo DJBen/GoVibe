@@ -39,12 +39,6 @@ final class SessionStore {
         }
     }
     
-    func updateConfig() {
-        if let url = AppConfig.shared.apiBaseURL {
-            self.apiClient = GoVibeAPIClient(baseURL: url)
-        }
-    }
-    
     func reset() {
         if let userId = currentUserId {
             clearPersistedState(for: userId)

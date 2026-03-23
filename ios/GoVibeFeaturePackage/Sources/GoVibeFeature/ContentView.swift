@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 
 enum ContentRoute: Equatable {
-    case configSetup
+    case missingConfig
     case launch
     case sessions
     case signIn
@@ -16,8 +16,8 @@ public struct ContentView: View {
     public var body: some View {
         Group {
             switch Self.route(configIsValid: config.isValid, bootstrapState: authController.bootstrapState) {
-            case .configSetup:
-                AppConfigSetupView()
+            case .missingConfig:
+                GoVibeMissingConfigView()
             case .launch:
                 GoVibeLaunchView()
             case .sessions:
@@ -52,7 +52,7 @@ public struct ContentView: View {
     public init() {}
 
     static func route(configIsValid: Bool, bootstrapState: GoVibeAuthBootstrapState) -> ContentRoute {
-        guard configIsValid else { return .configSetup }
+        guard configIsValid else { return .missingConfig }
 
         switch bootstrapState {
         case .checking:
@@ -62,6 +62,31 @@ public struct ContentView: View {
         case .unauthenticated:
             return .signIn
         }
+    }
+}
+
+private struct GoVibeMissingConfigView: View {
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer()
+
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 42, weight: .medium))
+                .foregroundStyle(.orange)
+
+            VStack(spacing: 6) {
+                Text("Configuration Missing")
+                    .font(.title2.weight(.semibold))
+
+                Text("GoVibe requires relay and GCP settings provided via build configuration. Please check your xcconfig or environment variables.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+        }
+        .padding(24)
     }
 }
 

@@ -37,6 +37,8 @@
 	<string>$(GOVIBE_GCP_REGION)</string>
 	<key>GOVIBE_GCP_RELAY_HOST</key>
 	<string>$(GOVIBE_GCP_RELAY_HOST)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSUIElement</key>
 	<false/>
 	<key>NSAppleEventsUsageDescription</key>

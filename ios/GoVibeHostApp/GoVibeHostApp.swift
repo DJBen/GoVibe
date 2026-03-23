@@ -15,10 +15,13 @@ struct GoVibeHostApp: App {
     var body: some Scene {
         Window("GoVibe Host", id: "main") {
             Group {
-                if !auth.isAuthenticated {
+                if !config.isValid {
+                    HostMissingConfigView()
+                        .frame(minWidth: 440, minHeight: 300)
+                } else if !auth.isAuthenticated {
                     HostSignInView(auth: auth)
                         .frame(minWidth: 440, minHeight: 360)
-                } else if config.isValid {
+                } else {
                     HostAppRootView(manager: manager)
                         .frame(minWidth: 980, minHeight: 680)
                         .onAppear {
@@ -26,9 +29,6 @@ struct GoVibeHostApp: App {
                             syncHostRegistration()
                             manager.updateFromConfig()
                         }
-                } else {
-                    HostConfigSetupView()
-                        .frame(minWidth: 400, minHeight: 300)
                 }
             }
             .onChange(of: auth.currentUser?.uid) { _, userID in
@@ -44,18 +44,8 @@ struct GoVibeHostApp: App {
                 syncHostRegistration()
                 manager.updateFromConfig()
             }
-            .onChange(of: config.relayHost) { _, _ in
-                auth.refreshConfig()
-                syncHostRegistration()
-                manager.updateFromConfig()
-            }
         }
         .windowResizability(.contentSize)
-        
-        Settings {
-            HostConfigSetupView()
-                .frame(minWidth: 400, minHeight: 300)
-        }
 
         Window("Device ID", id: "host-id") {
             HostIDView(hostId: manager.settings.hostId)
@@ -95,6 +85,29 @@ struct GoVibeHostApp: App {
             capabilities: ["terminal", "simulator", "app_window"],
             discoveryVisible: manager.settings.onboardingCompleted && config.isValid
         )
+    }
+}
+
+private struct HostMissingConfigView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(.orange)
+
+            Text("Configuration Missing")
+                .font(.title3.weight(.semibold))
+
+            Text("GoVibe Host requires relay settings provided via build configuration.\nCheck your xcconfig or environment variables.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Spacer()
+        }
+        .padding(24)
     }
 }
 

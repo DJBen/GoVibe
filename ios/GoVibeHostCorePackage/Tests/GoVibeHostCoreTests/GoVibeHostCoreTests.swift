@@ -2,21 +2,6 @@ import XCTest
 @testable import GoVibeHostCore
 
 final class GoVibeHostCoreTests: XCTestCase {
-    @MainActor
-    func testHostConfigPersistsSavedRelayHost() {
-        let suiteName = "GoVibeHostCoreTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-
-        let config = HostConfig(defaults: defaults, env: [:], bundle: .main)
-        config.save(relay: " govibe-relay.run.app ")
-
-        let reloadedConfig = HostConfig(defaults: defaults, env: [:], bundle: .main)
-
-        XCTAssertEqual(reloadedConfig.relayHost, "govibe-relay.run.app")
-        XCTAssertEqual(reloadedConfig.relayWebSocketBase, "wss://govibe-relay.run.app/relay")
-    }
-
     func testHostedSessionConfigurationRoundTrip() throws {
         let original = HostedSessionConfiguration.terminal(
             TerminalSessionConfig(sessionId: "dev-shell", shellPath: "/bin/zsh", tmuxSessionName: "dev-shell")

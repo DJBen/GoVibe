@@ -686,16 +686,10 @@ public final class HostSessionManager {
             defaultsSettings.onboardingCompleted = true
         }
         let resolvedSettings = persistedSettings ?? defaultsSettings
-        let effectiveRelay: String
-        if resolvedSettings.onboardingCompleted || configRelay.isEmpty {
-            effectiveRelay = resolvedSettings.relayBase
-        } else {
-            effectiveRelay = configRelay
-        }
 
         let settings = HostSettings(
             hostId: HostMachineIdentity.resolveHostID(userID: userID),
-            relayBase: effectiveRelay,
+            relayBase: configRelay,
             defaultShellPath: resolvedSettings.defaultShellPath,
             preferredSimulatorUDID: resolvedSettings.preferredSimulatorUDID,
             onboardingCompleted: resolvedSettings.onboardingCompleted

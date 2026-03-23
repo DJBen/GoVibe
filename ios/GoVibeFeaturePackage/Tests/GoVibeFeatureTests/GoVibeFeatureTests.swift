@@ -1,20 +1,6 @@
 import Testing
 @testable import GoVibeFeature
 
-@MainActor
-@Test func appConfigPersistsSavedRelayHost() async throws {
-    let suiteName = "GoVibeFeatureTests.\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suiteName))
-    defaults.removePersistentDomain(forName: suiteName)
-
-    let config = AppConfig(defaults: defaults, bundle: .main)
-    config.save(relay: " govibe-relay.run.app ")
-
-    let reloadedConfig = AppConfig(defaults: defaults, bundle: .main)
-
-    #expect(reloadedConfig.relayHost == "govibe-relay.run.app")
-}
-
 // Both axes normalized by min(width, height) so equal finger movements
 // produce equal cursor deltas regardless of direction.
 @Test func simulatorGestureMathNormalizesTranslationsByMinDimension() async throws {
@@ -133,10 +119,10 @@ import Testing
     #expect(payload.body == "Codex requires your decision before proceeding")
 }
 
-@Test func contentRoutePrefersConfigSetupWhenConfigIsInvalid() async throws {
+@Test func contentRouteShowsMissingConfigWhenConfigIsInvalid() async throws {
     let route = ContentView.route(configIsValid: false, bootstrapState: .authenticated)
 
-    #expect(route == .configSetup)
+    #expect(route == .missingConfig)
 }
 
 @Test func contentRouteShowsLaunchScreenWhileAuthBootstrapIsChecking() async throws {
