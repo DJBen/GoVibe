@@ -2,6 +2,13 @@ import AuthenticationServices
 import GoVibeHostCore
 import SwiftUI
 
+private struct UniformPressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1.0)
+    }
+}
+
 struct HostSignInView: View {
     @State var auth: HostAuthController
     @Environment(\.colorScheme) private var colorScheme
@@ -45,8 +52,9 @@ struct HostSignInView: View {
                         }
                         .frame(width: 240, height: 32)
                         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .compositingGroup()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(UniformPressButtonStyle())
 
                     SignInWithAppleButton(.continue) { request in
                         auth.prepareAppleSignIn(request)
