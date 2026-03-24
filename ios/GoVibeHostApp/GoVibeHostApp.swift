@@ -53,6 +53,12 @@ struct GoVibeHostApp: App {
         }
         .windowResizability(.contentSize)
 
+        Settings {
+            HostSettingsView(manager: manager) {
+                auth.signOut()
+            }
+        }
+
         MenuBarExtra {
             HostMenuBarView(manager: manager)
             Divider()

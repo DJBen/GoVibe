@@ -383,6 +383,51 @@ public final class HostSessionManager {
         refreshPermissions()
     }
 
+    /// Performs a full reset: stops sessions, removes all persisted state
+    /// (UserDefaults, Keychain host ID, sentinel files), and resets to
+    /// a fresh-install state. The caller is responsible for signing out
+    /// of Firebase after this returns.
+    public func fullReset() {
+        stopAllSessions()
+
+        // Clear UserDefaults for current user scope.
+        defaults.removeObject(forKey: Self.scopedKey(Keys.settings, userID: currentUserID))
+        defaults.removeObject(forKey: Self.scopedKey(Keys.sessions, userID: currentUserID))
+
+        // Also clear guest-scoped keys in case they exist from legacy state.
+        defaults.removeObject(forKey: "\(Keys.settings).guest")
+        defaults.removeObject(forKey: "\(Keys.sessions).guest")
+
+        // Delete the Keychain-stored host machine identity.
+        HostMachineIdentity.deleteHostID()
+
+        // Remove GoVibe sentinel files from ~/.claude/ and ~/.gemini/.
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser
+        for dir in [".claude", ".gemini"] {
+            let dirURL = home.appendingPathComponent(dir)
+            guard let contents = try? fm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: nil) else { continue }
+            for file in contents where file.lastPathComponent.hasPrefix("govibe-") {
+                try? fm.removeItem(at: file)
+            }
+        }
+
+        // Reset in-memory state to fresh defaults.
+        sessions = []
+        logsBySessionID.removeAll()
+        selectedSessionID = nil
+        settings = HostSettings(
+            hostId: HostMachineIdentity.resolveHostID(userID: currentUserID),
+            relayBase: HostConfig.shared.relayWebSocketBase ?? "",
+            defaultShellPath: ProcessInfo.processInfo.environment["GOVIBE_SHELL"]
+                ?? ProcessInfo.processInfo.environment["SHELL"]
+                ?? "/bin/zsh",
+            onboardingCompleted: false
+        )
+        didAutoStartPersistedSessions = false
+        refreshPermissions()
+    }
+
     public func listSessions() -> [HostedSessionDescriptor] {
         sessions
     }

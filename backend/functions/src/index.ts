@@ -645,6 +645,57 @@ app.post("/hosts/discover", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/user/reset", async (req: Request, res: Response) => {
+  try {
+    const { uid } = await requireAuth(req);
+
+    const batch = firestore.batch();
+    let deletedCount = 0;
+
+    // 1. Delete all devices owned by this user and their hostedSessions subcollections.
+    const devicesSnap = await firestore
+      .collection("devices")
+      .where("ownerUid", "==", uid)
+      .get();
+    for (const deviceDoc of devicesSnap.docs) {
+      const hostedSnap = await deviceDoc.ref.collection("hostedSessions").get();
+      for (const hosted of hostedSnap.docs) {
+        batch.delete(hosted.ref);
+        deletedCount++;
+      }
+      batch.delete(deviceDoc.ref);
+      deletedCount++;
+    }
+
+    // 2. Delete all sessions owned by this user and their signal subcollections.
+    const sessionsSnap = await firestore
+      .collection("sessions")
+      .where("ownerUid", "==", uid)
+      .get();
+    for (const sessionDoc of sessionsSnap.docs) {
+      const signalSnap = await sessionDoc.ref.collection("signal").get();
+      for (const signal of signalSnap.docs) {
+        batch.delete(signal.ref);
+        deletedCount++;
+      }
+      batch.delete(sessionDoc.ref);
+      deletedCount++;
+    }
+
+    await batch.commit();
+
+    res.json({
+      ok: true,
+      deletedDocuments: deletedCount
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: "user_reset_failed",
+      detail: error instanceof Error ? error.message : "unknown"
+    });
+  }
+});
+
 app.get("/healthz", (_req: Request, res: Response) => {
   res.json({ status: "ok", service: "govibe-api" });
 });

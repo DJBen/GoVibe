@@ -266,7 +266,6 @@ struct SessionListView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.ultraThinMaterial) // sticky header effect
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

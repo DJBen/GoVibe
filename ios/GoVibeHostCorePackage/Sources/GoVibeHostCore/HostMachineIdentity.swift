@@ -52,6 +52,15 @@ enum HostMachineIdentity {
         return hostId
     }
 
+    static func deleteHostID() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
     private static func saveHostID(_ hostId: String) {
         let data = Data(hostId.utf8)
         let baseQuery: [String: Any] = [

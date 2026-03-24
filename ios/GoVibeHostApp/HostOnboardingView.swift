@@ -11,10 +11,77 @@ struct HostOnboardingView: View {
                 Text("GoVibe Host Setup")
                     .font(.largeTitle.bold())
 
-                Text("This Mac app hosts terminal and simulator relay sessions from one menu bar app.")
+                Text("Allow you to control your simulator or window from your phone.")
                     .foregroundStyle(.secondary)
 
-                GroupBox("1. Permissions") {
+                GroupBox("1. Dependencies") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        dependencyRow(
+                            title: "tmux",
+                            detail: "tmux keeps terminal sessions stable and reconnectable during collaboration",
+                            installed: manager.permissionState.tmuxInstalled,
+                            isInstalling: manager.isTmuxInstalling,
+                            buttonTitle: "Install via Homebrew"
+                        ) {
+                            Task { await manager.installTmux() }
+                        }
+
+                        if let error = manager.tmuxInstallError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(4)
+                    Text("tmux helps GoVibe Host keep shared terminal sessions running smoothly, even if the app or connection briefly drops.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 4)
+                }
+
+                GroupBox("2. Terminal Defaults") {
+                    TextField("Shell Path", text: $shellPath)
+                        .textFieldStyle(.roundedBorder)
+                        .padding(4)
+                }
+
+                GroupBox("3. Claude Code Hook") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        dependencyRow(
+                            title: "Stop + Permission Prompt Hooks",
+                            detail: "Enables 'Claude finished' and 'Unblock Claude' push notifications",
+                            installed: manager.permissionState.claudeHookInstalled,
+                            isInstalling: manager.isClaudeHookInstalling
+                        ) {
+                            Task { await manager.installClaudeHook() }
+                        }
+                        Text("Get notified when Claude finishes or requires your attention so you can keep flowing.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(4)
+                }
+
+                GroupBox("4. Gemini CLI Hook") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        dependencyRow(
+                            title: "AfterAgent + ToolPermission Hooks",
+                            detail: "Enables 'Gemini finished' and 'Unblock Gemini' push notifications",
+                            installed: manager.permissionState.geminiHookInstalled,
+                            isInstalling: manager.isGeminiHookInstalling
+                        ) {
+                            Task { await manager.installGeminiHook() }
+                        }
+                        Text("Get notified when Gemini finishes or requires your attention so you can keep flowing.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(4)
+                }
+
+                GroupBox("5. Permissions") {
                     VStack(alignment: .leading, spacing: 12) {
                         VStack(alignment: .leading, spacing: 6) {
                             permissionRow(
@@ -43,73 +110,6 @@ struct HostOnboardingView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                    }
-                    .padding(4)
-                }
-
-                GroupBox("2. Dependencies") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        dependencyRow(
-                            title: "tmux",
-                            detail: "tmux keeps terminal sessions stable and reconnectable during collaboration",
-                            installed: manager.permissionState.tmuxInstalled,
-                            isInstalling: manager.isTmuxInstalling,
-                            buttonTitle: "Install via Homebrew"
-                        ) {
-                            Task { await manager.installTmux() }
-                        }
-
-                        if let error = manager.tmuxInstallError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .textSelection(.enabled)
-                        }
-                    }
-                    .padding(4)
-                    Text("tmux helps GoVibe Host keep shared terminal sessions running smoothly, even if the app or connection briefly drops.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 4)
-                }
-
-                GroupBox("3. Terminal Defaults") {
-                    TextField("Shell Path", text: $shellPath)
-                        .textFieldStyle(.roundedBorder)
-                        .padding(4)
-                }
-
-                GroupBox("4. Claude Code Hook") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        dependencyRow(
-                            title: "Stop + Permission Prompt Hooks",
-                            detail: "Enables 'Claude finished' and 'Unblock Claude' push notifications",
-                            installed: manager.permissionState.claudeHookInstalled,
-                            isInstalling: manager.isClaudeHookInstalling
-                        ) {
-                            Task { await manager.installClaudeHook() }
-                        }
-                        Text("Get notified when Claude finishes or requires your attention so you can keep flowing.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(4)
-                }
-
-                GroupBox("5. Gemini CLI Hook") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        dependencyRow(
-                            title: "AfterAgent + ToolPermission Hooks",
-                            detail: "Enables 'Gemini finished' and 'Unblock Gemini' push notifications",
-                            installed: manager.permissionState.geminiHookInstalled,
-                            isInstalling: manager.isGeminiHookInstalling
-                        ) {
-                            Task { await manager.installGeminiHook() }
-                        }
-                        Text("Get notified when Gemini finishes or requires your attention so you can keep flowing.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                     .padding(4)
                 }
