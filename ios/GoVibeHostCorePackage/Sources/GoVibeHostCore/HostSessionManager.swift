@@ -383,6 +383,18 @@ public final class HostSessionManager {
         refreshPermissions()
     }
 
+    /// Deletes all cloud data for the current user via `/user/reset`, then
+    /// performs a full local reset. Throws if the cloud deletion fails so
+    /// the caller can decide whether to proceed.
+    public func deleteAccount() async throws {
+        guard let baseURL = HostConfig.shared.apiBaseURL else {
+            throw HostAPIError.notAuthenticated
+        }
+        let client = HostAPIClient(baseURL: baseURL)
+        try await client.resetUser()
+        fullReset()
+    }
+
     /// Performs a full reset: stops sessions, removes all persisted state
     /// (UserDefaults, Keychain host ID, sentinel files), and resets to
     /// a fresh-install state. The caller is responsible for signing out

@@ -9,7 +9,9 @@ struct HostSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedSection: SettingsSection? = .general
-    @State private var showingResetConfirmation = false
+    @State private var showingDeleteConfirmation = false
+    @State private var isDeletingAccount = false
+    @State private var deleteError: String?
     @State private var didCopyDeviceID = false
     @State private var didCopyToken = false
     @State private var isLoadingToken = false
@@ -105,32 +107,48 @@ struct HostSettingsView: View {
                 Divider().padding(.vertical, 12)
 
                 settingsRow(
-                    icon: "clear",
-                    title: "Reset",
-                    description: "Erase all local data (sessions, settings, device identity) and sign out. This returns the app to a fresh-install state. Your cloud data can be cleared separately."
+                    icon: "trash",
+                    title: "Delete My Account",
+                    description: "Permanently delete all cloud data (devices, sessions) and erase local data. You will be signed out."
                 ) {
-                    Button("Reset", role: .destructive) {
-                        showingResetConfirmation = true
+                    Button("Delete Account", role: .destructive) {
+                        showingDeleteConfirmation = true
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(isDeletingAccount)
+                }
+
+                if let deleteError {
+                    Text(deleteError)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .padding(.top, 8)
                 }
             }
             .padding(24)
+            .overlay {
+                if isDeletingAccount {
+                    ZStack {
+                        Color.black.opacity(0.15)
+                        ProgressView("Deleting account\u{2026}")
+                            .padding(24)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
         }
         .confirmationDialog(
-            "Reset GoVibe Host?",
-            isPresented: $showingResetConfirmation,
+            "Delete your GoVibe account?",
+            isPresented: $showingDeleteConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Reset Everything", role: .destructive) {
-                manager.fullReset()
-                onSignOut()
-                dismiss()
-                activateMainWindow()
+            Button("Delete My Account", role: .destructive) {
+                performAccountDeletion()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will stop all sessions, delete your device identity, clear all local settings, and sign you out. This cannot be undone.")
+            Text("This will permanently delete all your cloud data, stop all sessions, erase local settings, and sign you out. This cannot be undone.")
         }
     }
 
@@ -230,6 +248,22 @@ struct HostSettingsView: View {
                 // Token fetch failed silently — user can retry.
             }
             isLoadingToken = false
+        }
+    }
+
+    private func performAccountDeletion() {
+        isDeletingAccount = true
+        deleteError = nil
+        Task {
+            do {
+                try await manager.deleteAccount()
+                onSignOut()
+                dismiss()
+                activateMainWindow()
+            } catch {
+                deleteError = "Failed to delete account: \(error.localizedDescription)"
+            }
+            isDeletingAccount = false
         }
     }
 

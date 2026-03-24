@@ -8,7 +8,6 @@ import Observation
 final class SessionStore {
     private let sessionsBaseKey = "saved_sessions"
     private let legacyHostsBaseKey = "saved_hosts"
-    private var apiClient: GoVibeAPIClient
 
     var sessions: [SavedSession] = []
     var hosts: [HostInfo] = []
@@ -18,6 +17,8 @@ final class SessionStore {
 
     // Persistent per-host Firestore snapshot listeners for real-time session updates.
     private var snapshotListeners: [String: ListenerRegistration] = [:]
+    // Real-time listener on the `devices` collection to detect new/removed hosts.
+    private var hostDiscoveryListener: ListenerRegistration?
 
     private struct PersistedSavedSession: Decodable {
         let roomId: String
@@ -27,16 +28,6 @@ final class SessionStore {
         let lastRelayStatus: String?
         let lastActiveAt: Date?
         let lastConversationSummary: String?
-    }
-
-    init(
-        apiBaseURL: URL? = AppRuntimeConfig.apiBaseURL
-    ) {
-        if let apiBaseURL {
-            self.apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
-        } else {
-            self.apiClient = GoVibeAPIClient(baseURL: URL(string: "https://unconfigured.local")!)
-        }
     }
     
     func reset() {
@@ -62,7 +53,7 @@ final class SessionStore {
             isLoading = false
             return
         }
-        
+
         isLoading = true
         defer { isLoading = false }
         errorMessage = nil
@@ -71,7 +62,6 @@ final class SessionStore {
             let user = try await ensureAuthenticated()
             currentUserId = user.uid
             load(for: user.uid)
-            try await refreshDiscoveredHosts()
         } catch {
             sessions = []
             hosts = []
@@ -79,7 +69,11 @@ final class SessionStore {
             return
         }
 
-        reconcileFirestoreListeners()
+        // The Firestore host discovery listener is the single source of truth
+        // for the host list. Its initial snapshot fires immediately (replacing the
+        // old HTTP API call), and it keeps watching so hosts that register later
+        // (e.g. macOS launched after iOS) appear automatically.
+        startHostDiscoveryListener()
     }
 
     /// Merges a remote session list into the local store, adding new sessions and
@@ -159,8 +153,64 @@ final class SessionStore {
     }
 
     private func stopAllListeners() {
+        hostDiscoveryListener?.remove()
+        hostDiscoveryListener = nil
         snapshotListeners.values.forEach { $0.remove() }
         snapshotListeners.removeAll()
+    }
+
+    // MARK: - Host Discovery Listener
+
+    /// Starts a Firestore snapshot listener on the user's mac host devices so the
+    /// iOS app is notified in real time when a host registers or goes away.
+    private func startHostDiscoveryListener() {
+        guard hostDiscoveryListener == nil, let uid = currentUserId else { return }
+        let db = Firestore.firestore()
+        // Query only on ownerUid (required by security rules) and filter the
+        // remaining host criteria client-side. This avoids needing a composite
+        // Firestore index and the devices collection per-user is tiny.
+        hostDiscoveryListener = db.collection("devices")
+            .whereField("ownerUid", isEqualTo: uid)
+            .addSnapshotListener { [weak self] snap, error in
+                guard let self else { return }
+                if let error {
+                    print("Host discovery listener error: \(error.localizedDescription)")
+                    return
+                }
+                guard let snap else { return }
+                Task { @MainActor in
+                    self.applyHostDiscoverySnapshot(snap)
+                }
+            }
+    }
+
+    private func applyHostDiscoverySnapshot(_ snapshot: QuerySnapshot) {
+        let now = Date()
+        let discoveredHosts: [DiscoveredHost] = snapshot.documents.compactMap { doc in
+            let data = doc.data()
+            // Mirror the backend: only mac hosts with discoveryVisible != false.
+            guard data["platform"] as? String == "mac" else { return nil }
+            guard data["isHost"] as? Bool == true else { return nil }
+            if let visible = data["discoveryVisible"] as? Bool, !visible { return nil }
+
+            let lastSeenTimestamp = data["lastSeenAt"] as? Timestamp
+            let lastOnlineTimestamp = data["lastOnlineAt"] as? Timestamp
+            let lastSeenDate = lastSeenTimestamp?.dateValue()
+            let isOnline = lastSeenDate.map { now.timeIntervalSince($0) <= 60 } ?? false
+
+            return DiscoveredHost(
+                deviceId: doc.documentID,
+                displayName: data["displayName"] as? String ?? doc.documentID,
+                capabilities: data["capabilities"] as? [String] ?? [],
+                appVersion: data["appVersion"] as? String,
+                osVersion: data["osVersion"] as? String,
+                lastSeenAt: lastSeenDate,
+                lastOnlineAt: lastOnlineTimestamp?.dateValue(),
+                isOnline: isOnline
+            )
+        }
+        applyDiscoveredHosts(discoveredHosts)
+        reconcileFirestoreListeners()
     }
 
     // MARK: - Session Management
@@ -288,11 +338,6 @@ final class SessionStore {
             sessions = []
             errorMessage = "Failed to read local session list."
         }
-    }
-
-    private func refreshDiscoveredHosts() async throws {
-        let result = try await apiClient.discoverHosts()
-        applyDiscoveredHosts(result.hosts)
     }
 
     private func clearPersistedState(for userId: String) {

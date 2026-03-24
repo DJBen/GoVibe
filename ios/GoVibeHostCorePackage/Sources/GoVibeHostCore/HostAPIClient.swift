@@ -65,6 +65,14 @@ actor HostAPIClient {
         )
     }
 
+    func resetUser() async throws {
+        _ = try await request(
+            path: "/user/reset",
+            body: [:],
+            responseType: HostOKResponse.self
+        )
+    }
+
     func issueRelayToken(deviceId: String, hostId: String, room: String, role: String) async throws -> HostRelayTokenResponse {
         try await request(
             path: "/relay/token",

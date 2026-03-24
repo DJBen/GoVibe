@@ -233,13 +233,12 @@ struct SessionListView: View {
                             createSessionForHost = host
                         } label: {
                             Label("New Terminal Session", systemImage: "plus")
-                                .foregroundStyle(.tint)
-                                .font(.subheadline.weight(.medium))
+                                .font(.body.weight(.medium))
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .padding(.vertical, 8)
+                                .clipShape(Capsule(style: .continuous))
                         }
+                        .buttonStyle(.borderedProminent)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 24)
                         .accessibilityIdentifier("new_session_\(host.id)")
