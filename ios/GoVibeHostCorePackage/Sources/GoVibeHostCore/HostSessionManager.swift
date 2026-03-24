@@ -166,7 +166,8 @@ public final class HostSessionManager {
                 guard (entry["matcher"] as? String) == "permission_prompt",
                       let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
-                    if let cmd = hook["command"] as? String, cmd.contains("govibe-") && cmd.contains("permission-pending") {
+                    if let cmd = hook["command"] as? String,
+                       cmd.contains("govibe-") && cmd.contains("permission-pending") && cmd.contains("|| true") {
                         hasPermission = true
                         break outer
                     }
@@ -180,7 +181,8 @@ public final class HostSessionManager {
             outer: for entry in stopHooks {
                 guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
-                    if let cmd = hook["command"] as? String, cmd.contains("govibe-") && cmd.contains("turn-complete-pending") {
+                    if let cmd = hook["command"] as? String,
+                       cmd.contains("govibe-") && cmd.contains("turn-complete-pending") && cmd.contains("|| true") {
                         hasStop = true
                         break outer
                     }
@@ -203,7 +205,13 @@ public final class HostSessionManager {
         ) ?? [:]
 
         var hooks = root["hooks"] as? [String: Any] ?? [:]
+
+        // Remove any existing GoVibe entries before adding current ones (handles upgrades).
         var notificationHooks = hooks["Notification"] as? [[String: Any]] ?? []
+        notificationHooks.removeAll { entry in
+            guard let innerHooks = entry["hooks"] as? [[String: Any]] else { return false }
+            return innerHooks.contains { ($0["command"] as? String)?.contains("govibe-") == true }
+        }
 
         let permissionEntry: [String: Any] = [
             "matcher": "permission_prompt",
@@ -216,6 +224,10 @@ public final class HostSessionManager {
 
         // Stop hook — fires when Claude finishes a turn (replaces end_turn JSONL detection).
         var stopHooks = hooks["Stop"] as? [[String: Any]] ?? []
+        stopHooks.removeAll { entry in
+            guard let innerHooks = entry["hooks"] as? [[String: Any]] else { return false }
+            return innerHooks.contains { ($0["command"] as? String)?.contains("govibe-") == true }
+        }
         let stopEntry: [String: Any] = [
             "hooks": [
                 ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-turn-complete-pending || true"]
@@ -256,7 +268,7 @@ public final class HostSessionManager {
                 guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
                     if let cmd = hook["command"] as? String,
-                       cmd.contains("govibe-") && cmd.contains("turn-complete-pending") {
+                       cmd.contains("govibe-") && cmd.contains("turn-complete-pending") && cmd.contains("|| true") {
                         hasAfterAgent = true
                         break outer
                     }
@@ -274,7 +286,7 @@ public final class HostSessionManager {
                   let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
             for hook in innerHooks {
                 if let cmd = hook["command"] as? String,
-                   cmd.contains("govibe-") && cmd.contains("permission-pending") {
+                   cmd.contains("govibe-") && cmd.contains("permission-pending") && cmd.contains("|| true") {
                     return true
                 }
             }
@@ -296,12 +308,17 @@ public final class HostSessionManager {
 
         var hooks = root["hooks"] as? [String: Any] ?? [:]
 
+        // Remove any existing GoVibe entries before adding current ones (handles upgrades).
         // AfterAgent hook — fires when Gemini finishes a turn.
         // Gemini CLI requires the nested { hooks: [...] } wrapper on every definition entry.
         var afterAgentHooks = hooks["AfterAgent"] as? [[String: Any]] ?? []
+        afterAgentHooks.removeAll { entry in
+            guard let innerHooks = entry["hooks"] as? [[String: Any]] else { return false }
+            return innerHooks.contains { ($0["command"] as? String)?.contains("govibe-") == true }
+        }
         let afterAgentEntry: [String: Any] = [
             "hooks": [
-                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-turn-complete-pending"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-turn-complete-pending || true"]
             ]
         ]
         afterAgentHooks.append(afterAgentEntry)
@@ -309,10 +326,14 @@ public final class HostSessionManager {
 
         // Notification / ToolPermission hook — fires when Gemini needs tool approval.
         var notificationHooks = hooks["Notification"] as? [[String: Any]] ?? []
+        notificationHooks.removeAll { entry in
+            guard let innerHooks = entry["hooks"] as? [[String: Any]] else { return false }
+            return innerHooks.contains { ($0["command"] as? String)?.contains("govibe-") == true }
+        }
         let notificationEntry: [String: Any] = [
             "matcher": "ToolPermission",
             "hooks": [
-                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-permission-pending"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-permission-pending || true"]
             ]
         ]
         notificationHooks.append(notificationEntry)
