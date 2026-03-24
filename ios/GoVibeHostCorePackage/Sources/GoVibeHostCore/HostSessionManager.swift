@@ -208,7 +208,7 @@ public final class HostSessionManager {
         let permissionEntry: [String: Any] = [
             "matcher": "permission_prompt",
             "hooks": [
-                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-permission-pending"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-permission-pending || true"]
             ]
         ]
         notificationHooks.append(permissionEntry)
@@ -218,7 +218,7 @@ public final class HostSessionManager {
         var stopHooks = hooks["Stop"] as? [[String: Any]] ?? []
         let stopEntry: [String: Any] = [
             "hooks": [
-                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-turn-complete-pending"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-turn-complete-pending || true"]
             ]
         ]
         stopHooks.append(stopEntry)
