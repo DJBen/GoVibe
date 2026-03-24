@@ -26,6 +26,7 @@ public final class HostSessionManager {
     public private(set) var permissionState: HostPermissionState
     public var selectedSessionID: String?
     public private(set) var isTmuxInstalling: Bool = false
+    public private(set) var tmuxInstallError: String?
     public private(set) var isClaudeHookInstalling: Bool = false
     public private(set) var isGeminiHookInstalling: Bool = false
 
@@ -118,20 +119,32 @@ public final class HostSessionManager {
 
     public func installTmux() async {
         isTmuxInstalling = true
+        tmuxInstallError = nil
         defer { isTmuxInstalling = false }
 
         let brewCandidates = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
         guard let brewPath = brewCandidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            tmuxInstallError = "Homebrew not found. Install it from https://brew.sh first, then try again."
             return
         }
 
         let process = Process()
         process.executableURL = URL(filePath: brewPath)
         process.arguments = ["install", "tmux"]
+        let stderrPipe = Pipe()
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        process.standardError = stderrPipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                let stderrText = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                tmuxInstallError = "brew install tmux failed (exit \(process.terminationStatus))\(stderrText.isEmpty ? "" : ": \(stderrText)")"
+            }
+        } catch {
+            tmuxInstallError = "Failed to run brew: \(error.localizedDescription)"
+        }
         refreshPermissions()
     }
 
@@ -678,13 +691,7 @@ public final class HostSessionManager {
         let persistedSettings = defaults.data(forKey: scopedKey(Keys.settings, userID: userID))
             .flatMap { try? JSONDecoder().decode(HostSettings.self, from: $0) }
         let configRelay = HostConfig.shared.relayWebSocketBase ?? ""
-        var defaultsSettings = HostRuntimeDefaults.makeSettings(userID: userID, bundle: bundle)
-        // If no persisted settings for this user but a relay is already configured
-        // (e.g. switching from Apple to Google sign-in), auto-onboard so the host
-        // registers as discoverable immediately without requiring the setup flow again.
-        if persistedSettings == nil, !configRelay.isEmpty {
-            defaultsSettings.onboardingCompleted = true
-        }
+        let defaultsSettings = HostRuntimeDefaults.makeSettings(userID: userID, bundle: bundle)
         let resolvedSettings = persistedSettings ?? defaultsSettings
 
         let settings = HostSettings(

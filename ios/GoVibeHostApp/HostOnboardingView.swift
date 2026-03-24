@@ -58,6 +58,13 @@ struct HostOnboardingView: View {
                         ) {
                             Task { await manager.installTmux() }
                         }
+
+                        if let error = manager.tmuxInstallError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .textSelection(.enabled)
+                        }
                     }
                     .padding(4)
                     Text("tmux helps GoVibe Host keep shared terminal sessions running smoothly, even if the app or connection briefly drops.")
@@ -109,10 +116,19 @@ struct HostOnboardingView: View {
 
                 HStack {
                     Spacer()
-                    Button("Finish Setup") {
-                        finishSetup()
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Button("Finish Setup") {
+                            finishSetup()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!manager.permissionState.tmuxInstalled)
+
+                        if !manager.permissionState.tmuxInstalled {
+                            Text("tmux must be installed before you can continue.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
                 }
             }
             .padding(32)
