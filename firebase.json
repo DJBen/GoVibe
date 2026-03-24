@@ -11,7 +11,10 @@
   "hosting": {
     "public": "web/public",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+    "rewrites": [
+      { "source": "/privacy", "destination": "/privacy.html" },
+      { "source": "**", "destination": "/index.html" }
+    ]
   },
   "emulators": {
     "functions": {
