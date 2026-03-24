@@ -7,6 +7,7 @@ struct HostSettingsView: View {
     @State var manager: HostSessionManager
     var onSignOut: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedSection: SettingsSection? = .general
     @State private var showingResetConfirmation = false
     @State private var didCopyDeviceID = false
@@ -124,6 +125,7 @@ struct HostSettingsView: View {
             Button("Reset Everything", role: .destructive) {
                 manager.fullReset()
                 onSignOut()
+                dismiss()
                 activateMainWindow()
             }
             Button("Cancel", role: .cancel) {}

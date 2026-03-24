@@ -288,23 +288,55 @@ struct SessionListView: View {
         )
     }
 
+    private let hostDownloadURL = URL(string: "https://govibe-783119.web.app")!
+
     @ViewBuilder
     private var emptyStateView: some View {
-        VStack(alignment: .center, spacing: 12) {
-            Image(systemName: "desktopcomputer.and.arrow.down")
-                .font(.system(size: 36))
-                .foregroundStyle(.tertiary)
-            Text("No Macs Available")
-                .font(.headline)
-            Text("Sign in to GoVibe Host on your Mac and keep it online to see it here automatically.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(spacing: 16) {
+            HStack(spacing: 16) {
+                Image("HostAppIcon", bundle: .main)
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                Image(systemName: "chevron.forward.2")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.tint)
+
+                Image(systemName: "macbook")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.tint)
+            }
+
+            Text("Download GoVibe Host on your macOS. After signing in to the same account, your host and sessions will appear here.")
+                .font(.body)
+
+            Spacer()
+
+            VStack(spacing: 12) {
+                Link(destination: hostDownloadURL) {
+                    Label("Learn more", systemImage: "globe")
+                        .font(.body.weight(.medium))
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+
+                ShareLink(item: hostDownloadURL) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                        .font(.body.weight(.medium))
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+            }
+            .padding(.horizontal, 32)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 32)
+        .padding(.horizontal, 24)
         .padding(.vertical, 24)
-        .listRowBackground(Color.clear)
     }
 
     // MARK: - Toolbar
