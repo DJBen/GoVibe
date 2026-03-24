@@ -239,7 +239,7 @@ struct SessionDetailView: View {
                 }
             }
         }
-        .padding(.top, 12)
+        .padding(.top, 44)
         .padding(.trailing, 12)
     }
 
