@@ -240,7 +240,7 @@ struct SessionListView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
+                        .padding(.vertical, 12)
                         .accessibilityIdentifier("new_session_\(host.id)")
                     }
                 }
