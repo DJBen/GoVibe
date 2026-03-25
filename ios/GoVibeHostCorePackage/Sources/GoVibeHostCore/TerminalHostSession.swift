@@ -6,7 +6,7 @@ public enum HostSessionRuntimeEvent: Sendable {
 }
 
 public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime {
-    private static let peerStaleTimeout: TimeInterval = 10
+    private static let peerStaleTimeout: TimeInterval = 120
 
     private let hostId: String
     private let macDeviceId: String
@@ -87,9 +87,8 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         bridge.onPeerLeft = { [weak self] in
             self?.recordPeerLeave()
         }
-        bridge.onPeerHeartbeat = { [weak self] in
-            self?.recordPeerActivity()
-        }
+        // Peer liveness is detected via peer_joined/peer_left from the relay
+        // and real data messages — no periodic heartbeat needed.
         pty.onExit = { [weak self] _ in
             self?.sendPeerRetiredIfNeeded(reason: "pty_exit")
             self?.eventHandler(.stateChanged(.stopped, self?.lastPeerActivityAt, nil))
@@ -135,7 +134,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
         try pty.start()
         startProgramPolling()
-        startHeartbeat()
+        startPeerWatchdog()
         eventHandler(.stateChanged(.waitingForPeer, nil, nil))
     }
 
@@ -278,12 +277,11 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         programTimer = timer
     }
 
-    private func startHeartbeat() {
+    private func startPeerWatchdog() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-        timer.schedule(deadline: .now() + 1.0, repeating: 3.0)
+        timer.schedule(deadline: .now() + 5.0, repeating: 5.0)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            self.bridge.sendPeerHeartbeat(origin: "mac")
             if let lastPeerActivityAt = self.lastPeerActivityAt,
                Date().timeIntervalSince(lastPeerActivityAt) > Self.peerStaleTimeout {
                 self.activePeerCount = 0

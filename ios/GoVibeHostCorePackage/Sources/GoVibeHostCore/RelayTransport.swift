@@ -21,7 +21,6 @@ public final class RelayTransport: @unchecked Sendable {
     public var onScrollCancel: (() -> Void)?
     public var onPeerJoined: (() -> Void)?
     public var onPeerLeft: (() -> Void)?
-    public var onPeerHeartbeat: (() -> Void)?
     public var onSimCursorMove: ((Double, Double) -> Void)?
     public var onSimClick: ((String, Int) -> Void)?
     public var onSimScroll: ((Double, Double) -> Void)?
@@ -158,10 +157,6 @@ public final class RelayTransport: @unchecked Sendable {
             self.outboundQueue.insert(json, at: 0)
             self.flushOutboundQueueLocked()
         }
-    }
-
-    public func sendPeerHeartbeat(origin: String = "mac") {
-        enqueueJSON(["type": "peer_heartbeat", "origin": origin])
     }
 
     public func sendSimInfo(_ payload: SimInfoPayload) {
@@ -335,11 +330,6 @@ public final class RelayTransport: @unchecked Sendable {
             onPeerJoined?()
         case "peer_left":
             onPeerLeft?()
-        case "peer_heartbeat":
-            let origin = (json["origin"] as? String)?.lowercased()
-            if origin != "mac" {
-                onPeerHeartbeat?()
-            }
         case "terminal_input":
             if let encoding = json["encoding"] as? String,
                encoding.lowercased() == "base64",

@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime {
-    private static let peerStaleTimeout: TimeInterval = 10
+    private static let peerStaleTimeout: TimeInterval = 120
 
     private let hostId: String
     private let macDeviceId: String
@@ -57,6 +57,10 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
 
         simulatorBridge.onSimInfo = { [weak self] info in
             self?.latestSimInfo = info
+            // Reactively send sim info when it changes and peers are connected.
+            if let self, self.activePeerCount > 0 {
+                self.bridge.sendSimInfo(info)
+            }
             self?.bridge.sendSimInfo(info)
         }
         simulatorBridge.onBinaryFrame = { [weak self] data in
@@ -96,9 +100,8 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
             self?.recordPeerActivity()
             self?.simulatorBridge.injectDragEnd()
         }
-        bridge.onPeerHeartbeat = { [weak self] in
-            self?.recordPeerActivity()
-        }
+        // Peer liveness is detected via peer_joined/peer_left and real data
+        // messages — no periodic heartbeat needed.
         bridge.onPeerJoined = { [weak self] in
             guard let self else { return }
             let becameActive = self.recordPeerJoin()
@@ -118,7 +121,7 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
         }
 
         bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
-        startHeartbeat()
+        startPeerWatchdog()
         eventHandler(.stateChanged(.waitingForPeer, nil, nil))
 
         Task { await self.simulatorBridge.startCapture(preferredUDID: preferredUDID ?? latestSimInfo?.udid) }
@@ -149,16 +152,11 @@ public final class SimulatorHostSession: @unchecked Sendable, ManagedHostRuntime
         stopSemaphore.signal()
     }
 
-    private func startHeartbeat() {
+    private func startPeerWatchdog() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-        timer.schedule(deadline: .now() + 1.0, repeating: 3.0)
+        timer.schedule(deadline: .now() + 5.0, repeating: 5.0)
         timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.checkPeerFreshness()
-            self.bridge.sendPeerHeartbeat(origin: "mac")
-            if let info = self.latestSimInfo {
-                self.bridge.sendSimInfo(info)
-            }
+            self?.checkPeerFreshness()
         }
         timer.resume()
         heartbeatTimer = timer

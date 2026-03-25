@@ -3,6 +3,7 @@ import AuthenticationServices
 import CryptoKit
 @preconcurrency import FirebaseAuth
 import FirebaseCore
+@preconcurrency import FirebaseFirestore
 import Foundation
 @preconcurrency import GoogleSignIn
 import Observation
@@ -207,11 +208,17 @@ public final class HostAuthController {
             return
         }
 
+        let db = Firestore.firestore()
         while !Task.isCancelled {
             do {
                 try await Task.sleep(for: .seconds(30))
                 guard let payload = latestRegistrationPayload else { continue }
-                try await apiClient.heartbeat(payload)
+                var update: [String: Any] = [
+                    "lastSeenAt": FieldValue.serverTimestamp(),
+                    "lastOnlineAt": FieldValue.serverTimestamp(),
+                ]
+                update["discoveryVisible"] = payload.discoveryVisible
+                try await db.collection("devices").document(payload.deviceId).updateData(update)
             } catch is CancellationError {
                 break
             } catch {

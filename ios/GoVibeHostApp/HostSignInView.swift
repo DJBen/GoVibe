@@ -44,15 +44,19 @@ struct HostSignInView: View {
                     Button {
                         Task { await auth.signIn() }
                     } label: {
-                        Color("GoogleBackgroundColor").overlay {
-                            Image("ContinueWithGoogle")
+                        HStack(spacing: 4) {
+                            Image("GoogleSymbol")
+                                .renderingMode(.original)
                                 .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .opacity(auth.isBusy ? 0.7 : 1)
+                                .scaledToFit()
+                                .frame(width: 12, height: 12)
+                            Text("Continue with Google")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(colorScheme == .dark ? .black : .white)
                         }
                         .frame(width: 240, height: 32)
+                        .background(colorScheme == .dark ? Color.white : Color.black)
                         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .compositingGroup()
                     }
                     .buttonStyle(UniformPressButtonStyle())
 

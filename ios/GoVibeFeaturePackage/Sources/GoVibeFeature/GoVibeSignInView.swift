@@ -22,19 +22,20 @@ struct GoVibeSignInView: View {
                     Button {
                         Task { await authController.signIn() }
                     } label: {
-                        ZStack {
-                            Image("ContinueWithGoogle", bundle: .main)
+                        HStack(spacing: 6) {
+                            Image("GoogleSymbol", bundle: .main)
+                                .renderingMode(.original)
                                 .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .opacity(authController.isBusy ? 0.7 : 1)
-
-                            if authController.isBusy {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
+                                .scaledToFit()
+                                .frame(width: 16, height: 16)
+                            Text("Continue with Google")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(colorScheme == .dark ? .black : .white)
                         }
                         .frame(width: 240, height: 56)
-                        .contentShape(Rectangle())
+                        .background(colorScheme == .dark ? Color.white : Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .opacity(authController.isBusy ? 0.7 : 1)
                     }
                     .buttonStyle(.plain)
                     .disabled(authController.isBusy)

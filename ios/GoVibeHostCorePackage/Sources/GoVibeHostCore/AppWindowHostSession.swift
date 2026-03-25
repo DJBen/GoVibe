@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime {
-    private static let peerStaleTimeout: TimeInterval = 10
+    private static let peerStaleTimeout: TimeInterval = 120
 
     private let hostId: String
     private let macDeviceId: String
@@ -45,6 +45,10 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
 
         bridge.onAppWindowInfo = { [weak self] info in
             self?.latestWindowInfo = info
+            // Reactively send window info when it changes and peers are connected.
+            if let self, self.activePeerCount > 0 {
+                self.transport.sendAppWindowInfo(info)
+            }
         }
         bridge.onBinaryFrame = { [weak self] data in
             guard let self, self.activePeerCount > 0 else { return }
@@ -79,9 +83,8 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
             self?.recordPeerActivity()
             self?.bridge.injectDragEnd()
         }
-        transport.onPeerHeartbeat = { [weak self] in
-            self?.recordPeerActivity()
-        }
+        // Peer liveness is detected via peer_joined/peer_left and real data
+        // messages — no periodic heartbeat needed.
         transport.onPeerJoined = { [weak self] in
             guard let self else { return }
             let becameActive = self.recordPeerJoin()
@@ -98,7 +101,7 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
         }
 
         transport.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
-        startHeartbeat()
+        startPeerWatchdog()
         eventHandler(.stateChanged(.waitingForPeer, nil, nil))
     }
 
@@ -127,16 +130,11 @@ public final class AppWindowHostSession: @unchecked Sendable, ManagedHostRuntime
         stopSemaphore.signal()
     }
 
-    private func startHeartbeat() {
+    private func startPeerWatchdog() {
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-        timer.schedule(deadline: .now() + 1.0, repeating: 3.0)
+        timer.schedule(deadline: .now() + 5.0, repeating: 5.0)
         timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.checkPeerFreshness()
-            self.transport.sendPeerHeartbeat(origin: "mac")
-            if let info = self.latestWindowInfo {
-                self.transport.sendAppWindowInfo(info)
-            }
+            self?.checkPeerFreshness()
         }
         timer.resume()
         heartbeatTimer = timer
