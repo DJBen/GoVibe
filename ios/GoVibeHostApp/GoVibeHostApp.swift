@@ -20,7 +20,7 @@ struct GoVibeHostApp: App {
                         .frame(minWidth: 440, minHeight: 300)
                 } else if !auth.isAuthenticated {
                     HostSignInView(auth: auth)
-                        .frame(minWidth: 440, minHeight: 360)
+                        .frame(width: 440)
                 } else {
                     HostAppRootView(manager: manager)
                         .frame(minWidth: 980, minHeight: 680)

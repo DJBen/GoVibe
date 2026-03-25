@@ -9,22 +9,55 @@ private struct UniformPressButtonStyle: ButtonStyle {
     }
 }
 
+private struct ScrollingTitleView: View {
+    private let tools = ["Claude", "Codex", "Gemini"]
+    private let toolColors: [Color] = [
+        Color(red: 0.85, green: 0.45, blue: 0.25),
+        Color(red: 0.25, green: 0.75, blue: 0.55),
+        Color(red: 0.35, green: 0.50, blue: 0.95),
+    ]
+    @State private var currentIndex = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Vibe code with")
+                .font(.system(size: 42, weight: .bold))
+            Text(tools[currentIndex])
+                .font(.system(size: 42, weight: .bold))
+                .foregroundStyle(toolColors[currentIndex])
+                .transition(.push(from: .bottom))
+                .id(currentIndex)
+            Text("on the go")
+                .font(.system(size: 42, weight: .bold))
+        }
+        .onAppear {
+            startCycling()
+        }
+    }
+
+    private func startCycling() {
+        withAnimation(.smooth(duration: 0.4)) {
+            currentIndex = (currentIndex + 1) % tools.count
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+            startCycling()
+        }
+    }
+}
+
 struct HostSignInView: View {
     @State var auth: HostAuthController
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 20) {
+            ScrollingTitleView()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 40)
+
             Spacer()
 
-            Image(systemName: "desktopcomputer.and.macbook")
-                .font(.system(size: 54))
-                .foregroundStyle(.tint)
-
-            Text("Sign In Required")
-                .font(.largeTitle.bold())
-
-            Text("Sign in with Google or Apple to make Claude, Codex and Gemini CLI available to your phone. Vibe code anywhere you go.")
+            Text("Sign in with Google or Apple to make Claude, Codex and Gemini CLI available to your phone.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -69,9 +102,8 @@ struct HostSignInView: View {
                     .frame(width: 240)
                 }
             }
-
-            Spacer()
         }
-        .padding(32)
+        .padding(40)
+        .padding(.bottom, 20)
     }
 }

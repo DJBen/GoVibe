@@ -1,11 +1,52 @@
 import AuthenticationServices
 import SwiftUI
 
+private struct ScrollingTitleView: View {
+    private let tools = ["Claude", "Codex", "Gemini"]
+    private let toolColors: [Color] = [
+        Color(red: 0.85, green: 0.45, blue: 0.25),
+        Color(red: 0.25, green: 0.75, blue: 0.55),
+        Color(red: 0.35, green: 0.50, blue: 0.95),
+    ]
+    @State private var currentIndex = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Vibe code with")
+                .font(.system(size: 38, weight: .bold))
+            Text(tools[currentIndex])
+                .font(.system(size: 38, weight: .bold))
+                .foregroundStyle(toolColors[currentIndex])
+                .transition(.push(from: .bottom))
+                .id(currentIndex)
+            Text("on the go")
+                .font(.system(size: 38, weight: .bold))
+        }
+        .onAppear {
+            startCycling()
+        }
+    }
+
+    private func startCycling() {
+        withAnimation(.smooth(duration: 0.4)) {
+            currentIndex = (currentIndex + 1) % tools.count
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+            startCycling()
+        }
+    }
+}
+
 struct GoVibeSignInView: View {
     @State private var authController = GoVibeAuthController.shared
     @Environment(\.colorScheme) private var colorScheme
     var body: some View {
         VStack(spacing: 0) {
+            ScrollingTitleView()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 32)
+                .padding(.top, 80)
+
             Spacer()
 
             // Sign-in section
@@ -50,9 +91,7 @@ struct GoVibeSignInView: View {
                     .disabled(authController.isBusy)
                 }
             }
-
-            Spacer()
-                .frame(height: 48)
+            .padding(.bottom, 60)
         }
     }
 }
