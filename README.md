@@ -13,14 +13,16 @@ GoVibe is an open-source remote control system that lets you connect from an iPh
 | <img width="630" height="1368" alt="Screenshot 2026-03-16 at 4 39 13 PM" src="https://github.com/user-attachments/assets/95955b91-2427-4bbf-b4cf-a5d6053e2347" /> | <img width="630" height="1368" alt="Screenshot 2026-03-16 at 4 41 23 PM" src="https://github.com/user-attachments/assets/a8893684-9cf9-4539-b9a2-d54d316a402a" /> |
 
 ```
-iOS App ──WebSocket──▶ Cloud Run Relay ◀──WebSocket── macOS Host App (GoVibeHost)
+iOS App ──WebSocket──▶ Cloud Run Relay (N instances) ◀──WebSocket── macOS Host App (GoVibeHost)
                               │
-                    Firebase Auth + Functions
+                    Redis Pub/Sub Backplane (Cloud Memorystore)
+                              │
+                    Firebase Auth + Functions + Firestore
 
-                          (control plane)
+                          (control plane + discovery)
 ```
 
-The iOS app connects to a WebSocket relay hosted on Google Cloud Run. The macOS host app connects to the same relay service and exposes hosted terminal and simulator sessions. Firebase provides anonymous auth and a lightweight session-management API. No credentials are stored in the repo.
+The iOS app connects to a WebSocket relay hosted on Google Cloud Run. The macOS host app connects to the same relay service and exposes hosted terminal and simulator sessions. A Redis pub/sub backplane enables horizontal scaling across multiple relay instances. Firebase provides Google sign-in auth, Firestore-based host/session discovery, and a lightweight session-management API. No credentials are stored in the repo.
 
 ---
 
@@ -46,7 +48,7 @@ GoVibe/
 ├── backend/
 │   └── functions/                 # Firebase Functions (Node.js / TypeScript)
 ├── infra/
-│   └── cloud-run-relay/           # WebSocket relay service (Node.js)
+│   └── cloud-run-relay/           # WebSocket relay service (Node.js, Redis pub/sub backplane)
 ├── shared/
 │   └── protocol/                  # Canonical message schemas
 ├── firestore.rules
@@ -88,8 +90,9 @@ The Functions emulator starts on `http://127.0.0.1:5001` and Firestore on port `
 ```bash
 cd infra/cloud-run-relay
 npm install
-node index.js
-# Relay listens on ws://localhost:8080 by default; check index.js for the PORT env var
+npm start
+# Relay listens on ws://localhost:8080 by default (set PORT env var to change)
+# Omit REDIS_URL for local-only mode; set REDIS_URL=redis://localhost:6379 to test backplane
 ```
 
 ### 3. Run the macOS Host App
@@ -122,7 +125,7 @@ node index.js
 ### Step 1: Create a Firebase Project
 
 1. Go to [console.firebase.google.com](https://console.firebase.google.com) and create a new project.
-2. Enable **Authentication** → Anonymous sign-in.
+2. Enable **Authentication** → Google sign-in provider.
 3. Enable **Firestore** in production mode.
 4. Enable **Functions** (requires Blaze pay-as-you-go plan).
 
@@ -165,7 +168,8 @@ gcloud run deploy govibe-relay \
   --source . \
   --region us-west1 \
   --allow-unauthenticated \
-  --set-env-vars RELAY_TOKEN_SECRET=<same-secret-as-functions> \
+  --vpc-connector govibe-connector \
+  --set-env-vars RELAY_TOKEN_SECRET=<same-secret-as-functions>,REDIS_URL=redis://<redis-private-ip>:6379 \
   --project <your-project-id>
 ```
 
@@ -216,7 +220,7 @@ The iOS app intentionally crashes at startup with a descriptive error if any req
 
 ## API Endpoints
 
-All endpoints are served from the Firebase Functions HTTPS app (`api` export).
+All endpoints are served from the Firebase Functions HTTPS app (`api` export). All `POST` endpoints require a Firebase ID token.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -224,6 +228,13 @@ All endpoints are served from the Firebase Functions HTTPS app (`api` export).
 | `POST` | `/session/discover` | Discover active sessions for a device |
 | `POST` | `/session/resume` | Resume an existing session |
 | `POST` | `/session/close` | Close a session |
+| `POST` | `/device/register` | Register a host or client device |
+| `POST` | `/device/heartbeat` | Update device last-seen timestamp |
+| `POST` | `/device/fcmToken` | Register FCM push token for a device |
+| `POST` | `/relay/token` | Issue a signed relay join token for a room |
+| `POST` | `/hosts/discover` | Discover available hosts for the current user |
+| `POST` | `/user/reset` | Reset user data (devices, sessions) |
+| `GET`  | `/healthz` | Health check |
 
 ---
 

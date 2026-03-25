@@ -76,18 +76,20 @@ The Cloud Run relay must receive the same `RELAY_TOKEN_SECRET` value as Function
 
 Host discovery and relay token enforcement are both now expected parts of the production setup.
 
-## What This Branch Already Adds
+## Endpoints Added
 
 - `POST /device/register`
 - `POST /device/heartbeat`
-- `POST /hosts/discover`
+- `POST /relay/token`
 - Firestore device schema support for host metadata
 - iOS client models and store updates for discovered hosts
 
-## Recommended Next Implementation Steps
+## Completed Implementation
 
-1. Replace iOS anonymous auth with Google sign-in.
-2. Add macOS Google/Firebase sign-in.
-3. Register the macOS host on sign-in and heartbeat periodically.
-4. Update the iOS host/session UI to rely on discovered hosts instead of manual host entry.
-5. Lock down the relay with signed join tokens.
+All originally planned steps have been implemented:
+
+1. iOS uses Google sign-in (replaced anonymous auth).
+2. macOS host app uses Google/Firebase sign-in.
+3. macOS host registers on sign-in and heartbeats periodically.
+4. iOS discovers hosts and sessions automatically via real-time Firestore listeners.
+5. Relay connections require HMAC-signed tokens scoped to specific rooms and roles.

@@ -4,6 +4,7 @@ import { getMessaging } from "firebase-admin/messaging";
 import { createHmac } from "node:crypto";
 import http from "node:http";
 import { WebSocketServer } from "ws";
+import * as backplane from "./backplane.mjs";
 
 const port = Number(process.env.PORT || 8080);
 const RELAY_ROOMS_COLLECTION = "relay_rooms";
@@ -12,6 +13,8 @@ const relayTokenSecret = process.env.RELAY_TOKEN_SECRET || process.env.SESSION_T
 // Auto-initializes from the Cloud Run service account.
 initializeApp();
 const firestore = getFirestore();
+
+backplane.init(process.env.REDIS_URL);
 
 async function setRoomPresence(room, iosDeviceId) {
   try {
@@ -112,6 +115,29 @@ wss.on("connection", (ws, req) => {
     bindIOSDeviceToRoom(iosDeviceId, room);
   }
 
+  // Subscribe to backplane when the first local peer joins this room.
+  if (peers.size === 1) {
+    backplane.subscribe(
+      key,
+      (data, isBinary) => {
+        for (const peer of peers) {
+          if (peer.readyState === peer.OPEN) {
+            peer.send(data, { binary: isBinary });
+          }
+        }
+      },
+      (msg) => {
+        const notification = JSON.stringify({ type: msg.type });
+        for (const peer of peers) {
+          if (peer.readyState === peer.OPEN) {
+            peer.send(notification);
+          }
+        }
+      },
+    );
+  }
+  backplane.publishPresence(key, "peer_joined", peers.size);
+
   if (existingPeers.length > 0) {
     const msg = JSON.stringify({ type: "peer_joined" });
     for (const peer of existingPeers) {
@@ -133,6 +159,9 @@ wss.on("connection", (ws, req) => {
           for (const peer of peers) {
             if (peer !== ws && peer.readyState === peer.OPEN) peer.send(data);
           }
+          // Publish to backplane so remote peers get the message, but only
+          // this instance (the one with the originating WebSocket) sends FCM.
+          backplane.publishData(key, data, false);
           sendFCMForRoom(room, parsed.event, parsed.sessionName || null).catch(console.error);
           return;
         }
@@ -143,12 +172,14 @@ wss.on("connection", (ws, req) => {
         peer.send(data, { binary: isBinary });
       }
     }
+    backplane.publishData(key, data, isBinary);
   });
 
   ws.on("close", () => {
     peers.delete(ws);
     if (peers.size === 0) {
       rooms.delete(key);
+      backplane.unsubscribe(key);
     } else {
       const msg = JSON.stringify({ type: "peer_left" });
       for (const peer of peers) {
@@ -157,6 +188,7 @@ wss.on("connection", (ws, req) => {
         }
       }
     }
+    backplane.publishPresence(key, "peer_left", peers.size);
   });
 });
 

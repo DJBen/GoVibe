@@ -8,8 +8,9 @@ iOS Client ──[HTTPS]──► Firebase Cloud Functions (max 50 instances)
                               ├──► Firestore (devices, sessions, relay_rooms)
                               └──► Relay Token signing
 
-iOS Client ──[WSS]────► Cloud Run Relay Server (in-memory room state)
+iOS Client ──[WSS]────► Cloud Run Relay Server (N instances)
 Mac Host   ──[WSS]────►       │
+                              ├──► Cloud Memorystore Redis (pub/sub backplane)
                               ├──► Firestore (presence/relay_rooms)
                               └──► FCM (push notifications)
 ```
@@ -37,17 +38,19 @@ intentional.
 
 ---
 
-### 2. Cloud Run Relay Server — PRIMARY architectural bottleneck
+### 2. Cloud Run Relay Server — Horizontally scalable via Redis backplane
 
-This is the critical constraint. The relay uses an **in-memory `Map`** for room state:
+The relay uses an in-memory `Map` for local room state, with a **Redis pub/sub backplane**
+(`backplane.mjs`) that synchronizes messages across instances:
 
 ```js
-const rooms = new Map() // room → Set<WebSocket>
+const rooms = new Map() // room → Set<WebSocket> (local peers)
+// + Redis pub/sub channels for cross-instance routing
 ```
 
-**This means horizontal scaling breaks the architecture.** If Cloud Run spins up a second instance,
-rooms on instance A are invisible to instance B. A host connecting to instance A and a client routed
-to instance B can never exchange messages.
+When `REDIS_URL` is set, each instance publishes messages to Redis and subscribes to channels for
+its active rooms. A host on instance A and a client on instance B exchange messages via Redis.
+When `REDIS_URL` is unset, the relay operates in local-only mode (single-instance).
 
 Memory per connection estimate:
 - WebSocket overhead: ~8–15 KB per socket
@@ -141,24 +144,27 @@ receiving high-frequency notifications.
 | <100 | <100 | <50 | Fine | None |
 | ~500 | <500 | <100 | Fine | Relay RAM at ~512 MB |
 | ~1,000 | <1,000 | <200 | Warning | Relay hits single-instance RAM limit |
-| ~2,000 | any | any | **Relay architecture breaks** | In-memory state prevents horizontal scale |
+| ~2,000 | any | any | Fine (with Redis backplane) | Redis pub/sub throughput (~20 MB/s) |
 | ~10,000 | any | any | **Cloud Functions ceiling** | 50-instance limit hit |
 
 ---
 
 ## The Two Structural Issues to Solve First
 
-### Issue 1: Stateful relay prevents horizontal scaling
+### Issue 1: Stateful relay prevents horizontal scaling — RESOLVED
 
-The relay's `const rooms = new Map()` is the architectural ceiling. To go beyond ~1,000 concurrent
-sessions, you need one of:
+The relay now uses a **Redis pub/sub backplane** (`backplane.mjs` + Cloud Memorystore) that
+synchronizes room messages across Cloud Run instances. Each instance maintains local room state
+and publishes/subscribes via Redis for cross-instance delivery.
 
-- **Redis pub/sub** backing the room state (Cloud Memorystore for Redis, ~$50/month for a small
-  instance)
-- **Consistent hash routing** — a load balancer hashes `room` to always hit the same relay
-  instance (works but creates uneven load and single points of failure per shard)
-- **Separation by session type** — terminal rooms vs simulator rooms routed to different relay
+- **Infrastructure**: Cloud Memorystore Redis (Basic 1GB, us-west1) + VPC connector `govibe-connector`
+- **Opt-in**: Controlled by `REDIS_URL` env var; omit for local-only mode
+- **Graceful degradation**: If Redis goes down, local routing still works; backplane auto-reconnects
+
+Remaining scaling options for higher load:
+- **Session type separation** — terminal rooms vs simulator rooms routed to different relay
   clusters (see [Session Type Separation](#session-type-separation) below)
+- **WebRTC for simulator/window sessions** — bypass relay entirely for high-bandwidth video frames
 
 ### Issue 2: Cloud Functions `maxInstances: 50`
 
@@ -236,9 +242,8 @@ Min instances: 2 (avoid cold start on reconnect)
 - Plus egress: 25 MB/s × 2,592,000 s/month = ~64 TB/month → ~$640/month at $0.01/GB
 - **Total terminal relay: ~$1,000/month at 5,000 sustained concurrent users**
 
-The in-memory architecture still applies per instance. With 5 instances, you need consistent hash
-routing (hash of `room` ID → instance index). This is a single nginx/Envoy config change and adds
-no stateful coordination.
+With the Redis pub/sub backplane, these instances coordinate automatically — no consistent hash
+routing or nginx config required. Cloud Run auto-scaling handles instance count.
 
 ---
 
@@ -357,8 +362,8 @@ This is the recommended long-term path for simulator and window sessions at scal
 convention (`{hostId}-ctl` vs `{hostId}-{sessionId}`). Add a session type field to the relay token
 payload and use it at the load balancer to select the appropriate relay cluster.
 
-**Within each cluster**, consistent hash routing on `room` ensures the same room always reaches
-the same instance — no Redis required until you need cross-instance failover.
+**Within each cluster**, the Redis pub/sub backplane handles cross-instance routing automatically.
+No consistent hash routing or sticky sessions required.
 
 ---
 
@@ -366,8 +371,7 @@ the same instance — no Redis required until you need cross-instance failover.
 
 1. **Immediate (free):** Raise `maxInstances` from 50 → 500 in Cloud Functions config
 2. **~500 concurrent sessions:** Add 4 GB RAM to relay Cloud Run instance; set `concurrency: 1000`
-3. **~1,000 concurrent sessions:** Split relay into terminal and simulator clusters; add nginx
-   consistent-hash routing on `room` query param
-4. **~2,000+ concurrent sessions:** Add Redis-backed room state OR move simulator frames to WebRTC
-5. **~10,000 concurrent sessions:** Full WebRTC for video, Redis pub/sub for terminal relay,
-   regional deployment
+3. ~~**~1,000 concurrent sessions:** Split relay into terminal and simulator clusters~~ — Redis backplane handles this
+4. ~~**~2,000+ concurrent sessions:** Add Redis-backed room state~~ — **DONE** (Cloud Memorystore + `backplane.mjs`)
+5. **~2,000+ concurrent sessions:** Move simulator/window frames to WebRTC peer-to-peer
+6. **~10,000 concurrent sessions:** Full WebRTC for video, regional deployment, raise Cloud Functions limits

@@ -17,40 +17,39 @@ npm install
 npm start
 ```
 
-## 3) Start mac agent
+The relay listens on `ws://localhost:8080/relay` by default (set `PORT` env var to change).
+
+For local-only mode (no Redis), simply omit `REDIS_URL`. To test with Redis backplane locally:
 
 ```bash
-cd ios
-# Open GoVibe.xcworkspace and run scheme GoVibeMacAgent.
+redis-server --port 6399 --daemonize yes
+REDIS_URL=redis://localhost:6399 npm start
 ```
 
-In the Mac app:
-1. Select terminal source (`Terminal.app` or `Embedded Shell`).
-2. Click `Start Agent`.
+## 3) Start macOS host app
 
-Optional env vars:
-
-- `GOVIBE_API_BASE`
-- `GOVIBE_MAC_DEVICE_ID` (defaults to `mac-demo-01`)
-- `GOVIBE_SHELL`
-- `GOVIBE_ID_TOKEN`
-- `GOVIBE_TERMINAL_SOURCE` (`terminalapp` or `pty`)
+1. Open `ios/GoVibe.xcworkspace` in Xcode.
+2. Build and run the `GoVibeHost` macOS target.
+3. In the host onboarding flow:
+   - Sign in with your Google account
+   - Set the relay WebSocket URL to `ws://localhost:8080/relay`
+   - Grant Accessibility and Screen Recording permissions
+4. Create terminal/simulator sessions from the host dashboard.
 
 ## 4) Launch iOS app
 
-1. Add `GoogleService-Info.plist` to `ios/GoVibe` target.
-2. Build/run `GoVibe` in Xcode.
-3. Tap `Auth`, `Start Pair`, then `Create Session`.
-4. Terminal I/O now uses relay room `room=<macDeviceId>`.
+1. Copy `ios/GoVibe/GoogleService-Info.plist.template` to `ios/GoVibe/GoogleService-Info.plist` and replace with real Firebase config.
+2. Set `GOVIBE_GCP_RELAY_HOST = localhost:8080` in `ios/Config/Shared.xcconfig`.
+3. Build/run `GoVibe` in Xcode.
+4. Sign in with the same Google account as the host app.
+5. Your Mac host and its sessions appear automatically via Firestore discovery.
 
-## Relay Message Protocol
+## Relay Room Protocol
 
-- iOS -> Mac:
-  - `{ "type": "terminal_input", "text": "ls -la" }`
-- Mac -> iOS:
-  - `{ "type": "terminal_output", "text": "..." }`
+- Control rooms: `{hostId}-ctl` — session lifecycle commands
+- Session rooms: `{hostId}-{sessionId}` — terminal I/O, input events
 
-## Known Gaps
-
-- Dynamic room/session negotiation is not fully wired; current demo room defaults to `mac-demo-01`.
-- WebRTC transport remains deferred to v1.1.
+Message types:
+- iOS -> Mac: `{ "type": "terminal_input", "text": "ls -la" }`
+- Mac -> iOS: `{ "type": "terminal_output", "text": "..." }`
+- Mac -> relay: `{ "type": "push_notify", "event": "claude_approval_required", "sessionName": "..." }` (triggers FCM)

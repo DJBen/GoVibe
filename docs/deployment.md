@@ -43,7 +43,8 @@ gcloud run deploy govibe-relay \
   --source . \
   --region us-west1 \
   --allow-unauthenticated \
-  --set-env-vars RELAY_TOKEN_SECRET=<same-secret-as-functions> \
+  --vpc-connector govibe-connector \
+  --set-env-vars RELAY_TOKEN_SECRET=<same-secret-as-functions>,REDIS_URL=redis://10.70.249.59:6379 \
   --min-instances 0
 ```
 
