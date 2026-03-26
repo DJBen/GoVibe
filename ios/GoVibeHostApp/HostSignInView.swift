@@ -1,4 +1,3 @@
-import AuthenticationServices
 import GoVibeHostCore
 import SwiftUI
 
@@ -93,13 +92,22 @@ struct HostSignInView: View {
                     }
                     .buttonStyle(UniformPressButtonStyle())
 
-                    SignInWithAppleButton(.continue) { request in
-                        auth.prepareAppleSignIn(request)
-                    } onCompletion: { result in
-                        Task { await auth.completeAppleSignIn(result) }
+                    Button {
+                        Task { await auth.signInWithAppleWeb() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "apple.logo")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(colorScheme == .dark ? .black : .white)
+                            Text("Continue with Apple")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(colorScheme == .dark ? .black : .white)
+                        }
+                        .frame(width: 240, height: 32)
+                        .background(colorScheme == .dark ? Color.white : Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
-                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-                    .frame(width: 240)
+                    .buttonStyle(UniformPressButtonStyle())
                 }
             }
         }

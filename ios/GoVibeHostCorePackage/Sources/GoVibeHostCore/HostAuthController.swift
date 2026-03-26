@@ -34,8 +34,6 @@ public final class HostAuthController {
     private var registrationTask: Task<Void, Error>?
     @ObservationIgnored
     private var latestRegistrationPayload: HostRegistrationPayload?
-    @ObservationIgnored
-    private var currentAppleNonce: String?
 
     public var isAuthenticated: Bool {
         currentUser != nil
@@ -98,27 +96,64 @@ public final class HostAuthController {
         }
     }
 
-    public func prepareAppleSignIn(_ request: ASAuthorizationAppleIDRequest) {
-        let nonce = Self.randomNonceString()
-        currentAppleNonce = nonce
-        errorMessage = nil
-        request.requestedScopes = [.fullName, .email]
-        request.nonce = Self.sha256(nonce)
-    }
-
-    public func completeAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
-        isBusy = true
-        defer {
-            isBusy = false
-            currentAppleNonce = nil
+    public func signInWithAppleWeb() async {
+        guard let apiBaseURL = HostConfig.shared.apiBaseURL else {
+            errorMessage = "API base URL is not configured. Set GCP project ID and region first."
+            return
         }
 
+        isBusy = true
+        defer { isBusy = false }
+
         do {
-            let credential = try appleCredential(from: result)
-            let authResult = try await Auth.auth().signIn(with: credential)
-            updateCurrentUser(authResult.user)
+            let nonce = Self.randomNonceString()
+            let hashedNonce = Self.sha256(nonce)
+            let state = Self.randomNonceString()
+            let redirectURI = apiBaseURL.appendingPathComponent("apple-auth/callback").absoluteString
+
+            var components = URLComponents(string: "https://appleid.apple.com/auth/authorize")!
+            components.queryItems = [
+                URLQueryItem(name: "client_id", value: "dev.govibe.ios.DJBen.signinWithApple"),
+                URLQueryItem(name: "redirect_uri", value: redirectURI),
+                URLQueryItem(name: "response_type", value: "code id_token"),
+                URLQueryItem(name: "response_mode", value: "form_post"),
+                URLQueryItem(name: "scope", value: "name email"),
+                URLQueryItem(name: "nonce", value: hashedNonce),
+                URLQueryItem(name: "state", value: state),
+            ]
+
+            guard let authURL = components.url else {
+                throw HostAuthError.invalidAppleAuthURL
+            }
+
+            let callbackURL = try await startWebAuthSession(url: authURL, callbackScheme: "govibe-host")
+
+            guard let urlComponents = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+                  let idToken = urlComponents.queryItems?.first(where: { $0.name == "id_token" })?.value
+            else {
+                throw HostAuthError.missingAppleIDToken
+            }
+
+            var fullName: PersonNameComponents?
+            if let userJSON = urlComponents.queryItems?.first(where: { $0.name == "user" })?.value,
+               let userData = userJSON.data(using: .utf8),
+               let userDict = try? JSONSerialization.jsonObject(with: userData) as? [String: Any],
+               let nameDict = userDict["name"] as? [String: String] {
+                var name = PersonNameComponents()
+                name.givenName = nameDict["firstName"]
+                name.familyName = nameDict["lastName"]
+                fullName = name
+            }
+
+            let credential = OAuthProvider.appleCredential(
+                withIDToken: idToken,
+                rawNonce: nonce,
+                fullName: fullName
+            )
+            let result = try await Auth.auth().signIn(with: credential)
+            updateCurrentUser(result.user)
             errorMessage = nil
-        } catch HostAuthError.userCancelled {
+        } catch HostAuthError.webAuthCancelled {
             errorMessage = nil
         } catch {
             errorMessage = "Apple sign-in failed: \(error.localizedDescription)"
@@ -130,7 +165,6 @@ public final class HostAuthController {
         heartbeatTask = nil
         registrationTask?.cancel()
         registrationTask = nil
-        currentAppleNonce = nil
         do {
             try Auth.auth().signOut()
         } catch {
@@ -229,6 +263,33 @@ public final class HostAuthController {
         }
     }
 
+    private nonisolated func startWebAuthSession(url: URL, callbackScheme: String) async throws -> URL {
+        try await webAuthSessionRun(url: url, callbackScheme: callbackScheme)
+    }
+
+    private static func randomNonceString(length: Int = 32) -> String {
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
+        while remainingLength > 0 {
+            var randoms = [UInt8](repeating: 0, count: 16)
+            _ = SecRandomCopyBytes(kSecRandomDefault, randoms.count, &randoms)
+            for random in randoms where remainingLength > 0 {
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remainingLength -= 1
+                }
+            }
+        }
+        return result
+    }
+
+    private static func sha256(_ input: String) -> String {
+        let data = Data(input.utf8)
+        let hash = SHA256.hash(data: data)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
     private func signInToFirebase(with googleUser: GIDGoogleUser) async throws {
         guard let idToken = googleUser.idToken?.tokenString else {
             throw HostAuthError.missingGoogleIDToken
@@ -258,93 +319,87 @@ public final class HostAuthController {
         }
     }
 
-    private func appleCredential(from result: Result<ASAuthorization, Error>) throws -> OAuthCredential {
-        switch result {
-        case .failure(let error):
-            if let appleError = error as? ASAuthorizationError, appleError.code == .canceled {
-                throw HostAuthError.userCancelled
+}
+
+/// Runs an ASWebAuthenticationSession entirely outside any actor context so that
+/// the completion handler — which the system calls on an XPC background queue —
+/// carries no actor-isolation assertion.
+private func webAuthSessionRun(url: URL, callbackScheme: String) async throws -> URL {
+    final class Box: @unchecked Sendable {
+        var session: ASWebAuthenticationSession?
+        var context: NSObject? // prevent deallocation of presentation context
+    }
+    let box = Box()
+
+    // Build the completion handler here (nonisolated file scope) so Swift
+    // does NOT infer @MainActor isolation on it.
+    return try await withCheckedThrowingContinuation { continuation in
+        let handler: @Sendable (URL?, (any Error)?) -> Void = { callbackURL, error in
+            box.session = nil
+            box.context = nil
+            if let error = error as? ASWebAuthenticationSessionError,
+               error.code == .canceledLogin {
+                continuation.resume(throwing: HostAuthError.webAuthCancelled)
+                return
             }
-            throw error
-        case .success(let authorization):
-            guard let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential else {
-                throw HostAuthError.missingAppleCredential
+            if let error {
+                continuation.resume(throwing: error)
+                return
             }
-            guard let nonce = currentAppleNonce else {
-                throw HostAuthError.missingAppleNonce
+            guard let callbackURL else {
+                continuation.resume(throwing: HostAuthError.missingAppleIDToken)
+                return
             }
-            guard let identityToken = appleIDCredential.identityToken,
-                  let idTokenString = String(data: identityToken, encoding: .utf8) else {
-                throw HostAuthError.missingAppleIdentityToken
-            }
-            return OAuthProvider.appleCredential(
-                withIDToken: idTokenString,
-                rawNonce: nonce,
-                fullName: appleIDCredential.fullName
+            continuation.resume(returning: callbackURL)
+        }
+
+        DispatchQueue.main.async {
+            let ctx = WebAuthPresentationContext()
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: callbackScheme,
+                completionHandler: handler
             )
+            session.presentationContextProvider = ctx
+            session.prefersEphemeralWebBrowserSession = true
+            box.session = session
+            box.context = ctx
+            session.start()
         }
     }
+}
 
-    private static func sha256(_ input: String) -> String {
-        let digest = SHA256.hash(data: Data(input.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func randomNonceString(length: Int = 32) -> String {
-        precondition(length > 0)
-        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
-        var result = ""
-        var remainingLength = length
-
-        while remainingLength > 0 {
-            let randoms: [UInt8] = (0..<16).map { _ in
-                var random: UInt8 = 0
-                let status = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
-                if status != errSecSuccess {
-                    fatalError("Unable to generate nonce. OSStatus \(status)")
-                }
-                return random
-            }
-
-            for random in randoms where remainingLength > 0 {
-                if random < charset.count {
-                    result.append(charset[Int(random)])
-                    remainingLength -= 1
-                }
-            }
-        }
-
-        return result
+private final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        NSApp.keyWindow ?? NSApp.mainWindow ?? ASPresentationAnchor()
     }
 }
 
 private enum HostAuthError: LocalizedError {
     case missingGoogleIDToken
-    case missingAppleCredential
-    case missingAppleIdentityToken
-    case missingAppleNonce
     case apiUnavailable
     case notAuthenticated
     case registrationNotConfigured
-    case userCancelled
+    case invalidAppleAuthURL
+    case missingAppleIDToken
+    case webAuthCancelled
 
     var errorDescription: String? {
         switch self {
         case .missingGoogleIDToken:
             return "Google sign-in returned no ID token."
-        case .missingAppleCredential:
-            return "Apple sign-in did not return a valid credential."
-        case .missingAppleIdentityToken:
-            return "Apple sign-in returned no identity token."
-        case .missingAppleNonce:
-            return "Apple sign-in nonce was missing."
         case .apiUnavailable:
             return "Host API base URL is not configured."
         case .notAuthenticated:
             return "Authentication required. Sign in and try again."
         case .registrationNotConfigured:
             return "Host registration is not configured yet."
-        case .userCancelled:
-            return "Apple sign-in was cancelled."
+        case .invalidAppleAuthURL:
+            return "Failed to construct Apple sign-in URL."
+        case .missingAppleIDToken:
+            return "Apple sign-in did not return an ID token."
+        case .webAuthCancelled:
+            return nil
         }
     }
 }

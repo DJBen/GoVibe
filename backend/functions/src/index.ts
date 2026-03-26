@@ -18,6 +18,7 @@ const cfg = getConfig();
 
 app.use(cors({ origin: true }));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 async function requireAuth(req: Request): Promise<{ uid: string }> {
   const header = req.headers.authorization;
@@ -694,6 +695,26 @@ app.post("/user/reset", async (req: Request, res: Response) => {
       detail: error instanceof Error ? error.message : "unknown"
     });
   }
+});
+
+// Apple Sign-In OAuth callback for macOS Developer ID host app.
+// Apple form-posts (code, id_token, state, user) after user authenticates.
+// We redirect to a custom URL scheme so ASWebAuthenticationSession can capture the result.
+app.post("/apple-auth/callback", (req: Request, res: Response) => {
+  const { id_token, code, state, user } = req.body;
+
+  if (!id_token && !code) {
+    res.status(400).send("Missing id_token and code from Apple");
+    return;
+  }
+
+  const params = new URLSearchParams();
+  if (id_token) params.set("id_token", id_token);
+  if (code) params.set("code", code);
+  if (state) params.set("state", state);
+  if (user) params.set("user", typeof user === "string" ? user : JSON.stringify(user));
+
+  res.redirect(302, `govibe-host://apple-callback?${params.toString()}`);
 });
 
 app.get("/healthz", (_req: Request, res: Response) => {
