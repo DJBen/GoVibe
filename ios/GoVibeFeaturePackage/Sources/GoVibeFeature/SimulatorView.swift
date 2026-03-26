@@ -504,14 +504,17 @@ struct SimulatorView: View {
 
                     Spacer(minLength: 12)
 
-                    VStack(alignment: .trailing, spacing: 12) {
+                    ZStack(alignment: .bottomTrailing) {
+                        simulatorInteractionHintToggle
+
                         if showInteractionModeHint {
                             simulatorInteractionHintTooltip
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .transition(
+                                    .scale(scale: 0.01, anchor: .bottomTrailing)
+                                    .combined(with: .opacity)
+                                )
                                 .accessibilityIdentifier("simulator_interaction_mode_hint")
                         }
-
-                        simulatorInteractionHintToggle
                     }
                 }
                 .padding(.leading, 16)
@@ -581,6 +584,13 @@ struct SimulatorView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 16)
         .modifier(SimulatorLiquidGlassBannerStyle())
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                showInteractionModeHint = false
+            }
+            GoVibeBootstrap.hasSeenSimulatorInteractionModeHint = true
+        }
     }
 
     private var simulatorInteractionModeToggle: some View {
