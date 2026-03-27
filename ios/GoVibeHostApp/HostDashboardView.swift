@@ -86,15 +86,16 @@ struct HostDashboardView: View {
     private var sessionInspector: some View {
         if let selectedSessionID = manager.selectedSessionID,
            let session = manager.listSessions().first(where: { $0.sessionId == selectedSessionID }) {
-            GroupBox("Selected Session") {
-                VStack(alignment: .leading, spacing: 12) {
-                    LabeledContent("Session ID", value: session.sessionId)
-                    LabeledContent("Type", value: session.kind.rawValue.capitalized)
-                    LabeledContent("State", value: stateDescription(for: session))
-                    if let lastPeerActivityAt = session.lastPeerActivityAt {
-                        LabeledContent("Last active", value: relativeDateFormatter.localizedString(for: lastPeerActivityAt, relativeTo: .now))
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                GroupBox {
                     HStack {
+                        if session.kind == .terminal {
+                            Button {
+                                openSessionInTerminal(session)
+                            } label: {
+                                Label("Open in Terminal", systemImage: "terminal")
+                            }
+                        }
                         Button(toggleTitle(for: session.state)) { toggleSession(session) }
                             .buttonStyle(.borderedProminent)
                         Button("Remove", role: .destructive) {
@@ -104,12 +105,29 @@ struct HostDashboardView: View {
                                 manager.removeSession(id: session.sessionId)
                             }
                         }
+                        .foregroundStyle(.red)
+                        Spacer()
                     }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
-                    Divider()
+                GroupBox("Session Detail") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        LabeledContent("Session ID", value: session.sessionId)
+                        LabeledContent("Type", value: session.kind.rawValue.capitalized)
+                        LabeledContent("State", value: stateDescription(for: session))
+                        if let lastPeerActivityAt = session.lastPeerActivityAt {
+                            LabeledContent("Last active", value: relativeDateFormatter.localizedString(for: lastPeerActivityAt, relativeTo: .now))
+                        }
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
-                    Text("Logs").font(.headline)
-
+                GroupBox("Logs") {
                     ScrollView {
                         Text(logText(for: session.sessionId))
                             .font(.system(.caption, design: .monospaced))
@@ -117,9 +135,13 @@ struct HostDashboardView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(minHeight: 220)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
         } else {
             VStack(spacing: 16) {
                 Image(systemName: "dot.radiowaves.left.and.right")
@@ -135,6 +157,24 @@ struct HostDashboardView: View {
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func openSessionInTerminal(_ session: HostedSessionDescriptor) {
+        guard case .terminal(let config) = session.configuration else { return }
+        let tmuxName = config.tmuxSessionName
+        let escaped = tmuxName
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+        tell application "Terminal"
+            do script "tmux new-session -A -s \(escaped)"
+            activate
+        end tell
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        try? process.run()
     }
 
     private func toggleTitle(for state: HostedSessionState) -> String {
