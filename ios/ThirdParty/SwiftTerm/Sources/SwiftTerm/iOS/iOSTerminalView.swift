@@ -1676,7 +1676,9 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     }
 
     open func hideCursor(source: Terminal) {
-        caretView?.removeFromSuperview()
+        if !caretViewAlwaysVisible {
+            caretView?.removeFromSuperview()
+        }
     }
     
     open func cursorStyleChanged (source: Terminal, newStyle: CursorStyle) {

@@ -42,7 +42,6 @@ struct TerminalSurfaceView: UIViewRepresentable {
         terminal.terminalDelegate = context.coordinator
         terminal.backgroundColor = .black
         terminal.caretViewTracksFocus = false
-        terminal.caretViewAlwaysVisible = true
         terminal.caretColor = .white
         terminal.caretTextColor = .black
         terminal.isScrollEnabled = false

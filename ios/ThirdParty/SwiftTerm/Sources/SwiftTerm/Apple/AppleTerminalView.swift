@@ -1474,11 +1474,9 @@ extension TerminalView {
     func updateCursorPosition()
     {
         guard let caretView else { return }
-        //let lineOrigin = CGPoint(x: 0, y: frame.height - (cellDimension.height * (CGFloat(terminal.buffer.y - terminal.buffer.yDisp + 1))))
-        //caretView.frame.origin = CGPoint(x: lineOrigin.x + (cellDimension.width * CGFloat(terminal.buffer.x)), y: lineOrigin.y)
         let buffer = terminal.displayBuffer
         let vy = buffer.yBase + buffer.y
-        
+
         if vy >= buffer.yDisp + buffer.rows {
             caretView.removeFromSuperview()
             return

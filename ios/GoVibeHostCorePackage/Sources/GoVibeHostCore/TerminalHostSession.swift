@@ -243,15 +243,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
                 logger.info("tmux capture-pane returned empty output, skipping snapshot")
                 return
             }
-            var normalizedSnapshot = normalizeSnapshotLineEndings(captured)
-            // Restore cursor style: capture-pane replays screen content but does
-            // NOT preserve the cursor style set by the running program (e.g. Claude
-            // Code sets a bar cursor). Query tmux for the pane's cursor style and
-            // append the corresponding DECSCUSR escape sequence so the iOS terminal
-            // renders the correct cursor shape.
-            if let cursorEscape = tmuxCursorStyleEscape(sessionName: tmuxSessionName, tmuxPath: tmuxPath) {
-                normalizedSnapshot.append(contentsOf: cursorEscape)
-            }
+            let normalizedSnapshot = normalizeSnapshotLineEndings(captured)
             logger.info("Replaying tmux snapshot (\(normalizedSnapshot.count) bytes) to new peer")
             bridge.sendSnapshot(normalizedSnapshot)
             if !lastPaneProgram.isEmpty {
@@ -261,33 +253,6 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         } catch {
             logger.error("tmux capture-pane failed: \(error.localizedDescription)")
         }
-    }
-
-    /// Queries tmux for the current pane cursor style and returns the DECSCUSR
-    /// escape sequence bytes to restore it, or nil if unavailable.
-    private func tmuxCursorStyleEscape(sessionName: String, tmuxPath: String) -> [UInt8]? {
-        // #{cursor_style} is available in tmux 3.4+
-        guard let raw = runProcessCaptureOutput(
-            executable: tmuxPath,
-            arguments: ["display-message", "-p", "-t", sessionName, "#{cursor_style}"]
-        ) else { return nil }
-        let style = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // If tmux doesn't support the format variable, it returns the literal string
-        if style.isEmpty || style.contains("#{") { return nil }
-        let code: UInt8
-        switch style {
-        case "blinking-block":            code = 0x31 // '1'
-        case "block":                     code = 0x32 // '2'
-        case "blinking-underline":        code = 0x33 // '3'
-        case "underline":                 code = 0x34 // '4'
-        case "blinking-bar", "blinking-beam": code = 0x35 // '5'
-        case "bar", "beam":              code = 0x36 // '6'
-        default:
-            logger.info("Unknown tmux cursor style '\(style)', skipping DECSCUSR")
-            return nil
-        }
-        // ESC [ Ps SP q  — DECSCUSR (Set Cursor Style)
-        return [0x1B, 0x5B, code, 0x20, 0x71]
     }
 
     private func normalizeSnapshotLineEndings(_ payload: Data) -> Data {
