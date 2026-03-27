@@ -97,7 +97,13 @@ struct HostDashboardView: View {
                     HStack {
                         Button(toggleTitle(for: session.state)) { toggleSession(session) }
                             .buttonStyle(.borderedProminent)
-                        Button("Remove", role: .destructive) { sessionPendingRemoval = session }
+                        Button("Remove", role: .destructive) {
+                            if session.kind == .terminal {
+                                sessionPendingRemoval = session
+                            } else {
+                                manager.removeSession(id: session.sessionId)
+                            }
+                        }
                     }
 
                     Divider()
