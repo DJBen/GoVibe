@@ -58,6 +58,7 @@ struct SessionListView: View {
             SessionCreateView(host: host, store: store)
         }
         .accessibilityIdentifier("session_list_view")
+        .onAppear { GoVibeAnalytics.logScreenView("session_list") }
         .task {
             await store.refresh()
             consumePendingDeepLink()
@@ -159,6 +160,7 @@ struct SessionListView: View {
     }
 
     private func deleteSession(_ session: SavedSession, killTmux: Bool) {
+        GoVibeAnalytics.log("session_deleted", parameters: ["session_id": session.roomId, "kill_tmux": killTmux])
         userDeletingIds.insert(session.roomId)
         Task {
             await store.deleteSession(session, killTmux: killTmux)

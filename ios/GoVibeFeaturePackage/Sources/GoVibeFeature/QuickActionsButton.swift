@@ -54,6 +54,7 @@ struct QuickActionsButton: View {
             .confirmationDialog(paneProgram, isPresented: $showingActions, titleVisibility: .visible) {
                 ForEach(actions) { action in
                     Button(role: action.isDestructive ? .destructive : nil) {
+                        GoVibeAnalytics.log("quick_action_used", parameters: ["pane_program": paneProgram, "action": action.title])
                         for payload in action.payloads {
                             onSend(payload)
                         }

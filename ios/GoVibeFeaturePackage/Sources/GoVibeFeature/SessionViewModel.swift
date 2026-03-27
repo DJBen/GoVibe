@@ -121,6 +121,7 @@ final class SessionViewModel {
         guard candidateIndex < relayCandidates.count else {
             relayStatus = "Disconnected"
             logs.append(TerminalLine(text: "Relay connect failed across all endpoints"))
+            GoVibeAnalytics.log("relay_connect_failed", parameters: ["session_id": roomId])
             return
         }
 
@@ -167,6 +168,7 @@ final class SessionViewModel {
                     self.relayStatus = "Disconnected"
                     guard !self.intentionalDisconnect else { return }
                     self.logs.append(TerminalLine(text: "Relay error: \(error.localizedDescription). Reconnecting..."))
+                    GoVibeAnalytics.log("relay_error", parameters: ["session_id": self.roomId, "error_message": error.localizedDescription])
                     self.connectRelayNow()
                 }
             case .success(let message):
@@ -225,6 +227,7 @@ final class SessionViewModel {
             hasLivePeer = true
             relayStatus = "Connected"
             logs.append(TerminalLine(text: "Mac peer is live"))
+            GoVibeAnalytics.log("session_connected", parameters: ["session_id": roomId])
         }
     }
 
@@ -241,6 +244,7 @@ final class SessionViewModel {
         videoDecoder?.reset()
         videoDecoder = nil
         logs.append(TerminalLine(text: reason))
+        GoVibeAnalytics.log("session_disconnected", parameters: ["session_id": roomId, "reason": reason])
     }
 
     private func resetPeerState() {
@@ -256,6 +260,7 @@ final class SessionViewModel {
     private func checkPeerFreshness() {
         guard relayTask != nil, hasLivePeer, let lastPeerActivityAt else { return }
         if Date().timeIntervalSince(lastPeerActivityAt) > Self.peerStaleTimeout {
+            GoVibeAnalytics.log("peer_timeout", parameters: ["session_id": roomId])
             markPeerRetired(reason: "Mac session became stale")
         }
     }
@@ -356,7 +361,14 @@ final class SessionViewModel {
 
         if type == "pane_program" {
             recordPeerActivity()
-            paneProgram = json["name"] as? String
+            let name = json["name"] as? String
+            if let name, name != paneProgram {
+                let lowerName = name.lowercased()
+                if lowerName.contains("claude") || lowerName.contains("codex") || lowerName.contains("gemini") {
+                    GoVibeAnalytics.log("session_ai_detected", parameters: ["session_id": roomId, "ai_program": name])
+                }
+            }
+            paneProgram = name
             return
         }
 

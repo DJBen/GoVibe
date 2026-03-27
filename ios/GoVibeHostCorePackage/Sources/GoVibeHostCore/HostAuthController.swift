@@ -84,6 +84,7 @@ public final class HostAuthController {
             return
         }
 
+        HostAnalytics.log("host_auth_method_chosen", parameters: ["method": "google"])
         isBusy = true
         defer { isBusy = false }
 
@@ -91,12 +92,15 @@ public final class HostAuthController {
             let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: window)
             try await signInToFirebase(with: result.user)
             errorMessage = nil
+            HostAnalytics.log("host_auth_success", parameters: ["method": "google"])
         } catch {
             errorMessage = "Google sign-in failed: \(error.localizedDescription)"
+            HostAnalytics.log("host_auth_failure", parameters: ["method": "google", "error_message": error.localizedDescription])
         }
     }
 
     public func signInWithAppleWeb() async {
+        HostAnalytics.log("host_auth_method_chosen", parameters: ["method": "apple_web"])
         guard let apiBaseURL = HostConfig.shared.apiBaseURL else {
             errorMessage = "API base URL is not configured. Set GCP project ID and region first."
             return
@@ -153,14 +157,18 @@ public final class HostAuthController {
             let result = try await Auth.auth().signIn(with: credential)
             updateCurrentUser(result.user)
             errorMessage = nil
+            HostAnalytics.log("host_auth_success", parameters: ["method": "apple_web"])
         } catch HostAuthError.webAuthCancelled {
             errorMessage = nil
         } catch {
             errorMessage = "Apple sign-in failed: \(error.localizedDescription)"
+            HostAnalytics.log("host_auth_failure", parameters: ["method": "apple_web", "error_message": error.localizedDescription])
         }
     }
 
     public func signOut() {
+        HostAnalytics.log("host_sign_out")
+        HostAnalytics.setUserID(nil)
         heartbeatTask?.cancel()
         heartbeatTask = nil
         registrationTask?.cancel()
@@ -217,6 +225,7 @@ public final class HostAuthController {
 
         let task = Task {
             try await apiClient.registerHost(payload)
+            HostAnalytics.log("host_registered")
         }
         registrationTask = task
 
@@ -314,6 +323,8 @@ public final class HostAuthController {
                 email: user.email,
                 displayName: user.displayName
             )
+            HostAnalytics.setUserID(user.uid)
+            HostAnalytics.setUserProperties()
         } else {
             currentUser = nil
         }

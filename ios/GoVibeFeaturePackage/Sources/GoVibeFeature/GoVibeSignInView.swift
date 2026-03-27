@@ -93,5 +93,6 @@ struct GoVibeSignInView: View {
             }
             .padding(.bottom, 60)
         }
+        .onAppear { GoVibeAnalytics.logScreenView("sign_in") }
     }
 }

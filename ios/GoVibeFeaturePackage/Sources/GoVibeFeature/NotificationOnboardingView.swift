@@ -28,6 +28,7 @@ struct NotificationOnboardingView: View {
                 Button {
                     GoVibeBootstrap.hasSeenNotificationOnboarding = true
                     GoVibeBootstrap.requestNotificationPermission()
+                    GoVibeAnalytics.log("notif_permission_granted")
                     onDismiss()
                 } label: {
                     Text("Allow Notifications")
@@ -41,6 +42,7 @@ struct NotificationOnboardingView: View {
 
                 Button {
                     GoVibeBootstrap.hasSeenNotificationOnboarding = true
+                    GoVibeAnalytics.log("notif_permission_denied")
                     onDismiss()
                 } label: {
                     Text("Not now")
@@ -52,6 +54,7 @@ struct NotificationOnboardingView: View {
             .padding(.bottom, 8)
         }
         .padding(.horizontal, 24)
+        .onAppear { GoVibeAnalytics.logScreenView("notification_onboarding") }
     }
 
     private var mockNotificationBanner: some View {

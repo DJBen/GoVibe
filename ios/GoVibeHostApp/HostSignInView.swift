@@ -113,5 +113,6 @@ struct HostSignInView: View {
         }
         .padding(40)
         .padding(.bottom, 20)
+        .onAppear { HostAnalytics.logScreenView("host_sign_in") }
     }
 }

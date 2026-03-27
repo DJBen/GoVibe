@@ -535,6 +535,7 @@ public final class HostSessionManager {
         selectedSessionID = descriptor.sessionId
         persistSessions()
         startSession(id: descriptor.sessionId)
+        HostAnalytics.log("host_session_created", parameters: ["kind": "terminal", "session_id": sessionID])
         Task.detached { [sessionSync] in await sessionSync.upsert(descriptor) }
     }
 
@@ -554,6 +555,7 @@ public final class HostSessionManager {
         selectedSessionID = descriptor.sessionId
         persistSessions()
         startSession(id: descriptor.sessionId)
+        HostAnalytics.log("host_session_created", parameters: ["kind": "simulator", "session_id": sessionID])
         Task.detached { [sessionSync] in await sessionSync.upsert(descriptor) }
     }
 
@@ -574,6 +576,7 @@ public final class HostSessionManager {
         selectedSessionID = descriptor.sessionId
         persistSessions()
         startSession(id: descriptor.sessionId)
+        HostAnalytics.log("host_session_created", parameters: ["kind": "app_window", "session_id": sessionID])
         Task.detached { [sessionSync] in await sessionSync.upsert(descriptor) }
     }
 
@@ -631,6 +634,7 @@ public final class HostSessionManager {
         }
         do {
             try runtime.start()
+            HostAnalytics.log("host_session_started", parameters: ["session_id": id])
         } catch {
             runtimes[id] = nil
             updateSession(id: id) { descriptor in
@@ -640,6 +644,7 @@ public final class HostSessionManager {
             logsBySessionID[id, default: []].append(
                 HostLogEntry(sessionId: id, level: .error, message: error.localizedDescription)
             )
+            HostAnalytics.log("host_session_start_failed", parameters: ["session_id": id, "error_message": error.localizedDescription])
         }
     }
 
@@ -649,6 +654,7 @@ public final class HostSessionManager {
         updateSession(id: id) { descriptor in
             descriptor.state = .stopped
         }
+        HostAnalytics.log("host_session_stopped", parameters: ["session_id": id])
     }
 
     public func stopAllSessions() {
@@ -677,6 +683,7 @@ public final class HostSessionManager {
             selectedSessionID = sessions.first?.sessionId
         }
         persistSessions()
+        HostAnalytics.log("host_session_removed", parameters: ["session_id": id])
         Task.detached { [sessionSync] in await sessionSync.remove(sessionId: id) }
     }
 

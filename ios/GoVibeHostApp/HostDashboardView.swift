@@ -53,6 +53,7 @@ struct HostDashboardView: View {
             SessionCreationWizard(manager: manager)
         }
         .onAppear {
+            HostAnalytics.logScreenView("host_dashboard")
             manager.refreshPermissions()
             manager.startControlChannel()
         }

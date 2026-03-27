@@ -129,14 +129,24 @@ struct SessionDetailView: View {
             }
         }
         .onChange(of: viewModel.simInfo) { _, simInfo in
-            if simInfo != nil { onKindDiscovered?(.simulator) }
+            if simInfo != nil {
+                onKindDiscovered?(.simulator)
+                GoVibeAnalytics.log("session_kind_discovered", parameters: ["session_id": session.roomId, "kind": "simulator"])
+            }
         }
         .onChange(of: viewModel.appWindowInfo) { _, appWindowInfo in
-            if appWindowInfo != nil { onKindDiscovered?(.appWindow) }
+            if appWindowInfo != nil {
+                onKindDiscovered?(.appWindow)
+                GoVibeAnalytics.log("session_kind_discovered", parameters: ["session_id": session.roomId, "kind": "app_window"])
+            }
         }
         .onChange(of: viewModel.paneProgram) { _, program in
-            if program != nil { onKindDiscovered?(.terminal) }
+            if program != nil {
+                onKindDiscovered?(.terminal)
+                GoVibeAnalytics.log("session_kind_discovered", parameters: ["session_id": session.roomId, "kind": "terminal"])
+            }
         }
+        .onAppear { GoVibeAnalytics.logScreenView("session_detail") }
         .task {
             await viewModel.bootstrapAuth()
         }
@@ -247,6 +257,10 @@ struct SessionDetailView: View {
     private var viewPlanButton: some View {
         Button {
             showPlanSheet = true
+            GoVibeAnalytics.log("plan_viewed", parameters: [
+                "session_id": session.roomId,
+                "assistant": viewModel.planState?.assistant ?? "unknown",
+            ])
         } label: {
             Label("View Plan", systemImage: "doc.text")
                 .font(.subheadline.weight(.bold))

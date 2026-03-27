@@ -87,6 +87,7 @@ public final class GoVibeAuthController {
             return
         }
 
+        GoVibeAnalytics.log("auth_method_chosen", parameters: ["method": "google"])
         isBusy = true
         defer { isBusy = false }
 
@@ -94,8 +95,10 @@ public final class GoVibeAuthController {
             let result = try await GIDSignIn.sharedInstance.signIn(withPresenting: presentingViewController)
             try await signInToFirebase(with: result.user)
             errorMessage = nil
+            GoVibeAnalytics.log("auth_success", parameters: ["method": "google"])
         } catch {
             errorMessage = "Google sign-in failed: \(error.localizedDescription)"
+            GoVibeAnalytics.log("auth_failure", parameters: ["method": "google", "error_message": error.localizedDescription])
         }
     }
 
@@ -108,6 +111,7 @@ public final class GoVibeAuthController {
     }
 
     public func completeAppleSignIn(_ result: Result<ASAuthorization, Error>) async {
+        GoVibeAnalytics.log("auth_method_chosen", parameters: ["method": "apple"])
         isBusy = true
         defer {
             isBusy = false
@@ -120,14 +124,18 @@ public final class GoVibeAuthController {
             try await ensureCurrentIOSDeviceRegistered()
             await resolveAuthenticatedUser(authResult.user)
             errorMessage = nil
+            GoVibeAnalytics.log("auth_success", parameters: ["method": "apple"])
         } catch AuthError.userCancelled {
             errorMessage = nil
         } catch {
             errorMessage = "Apple sign-in failed: \(error.localizedDescription)"
+            GoVibeAnalytics.log("auth_failure", parameters: ["method": "apple", "error_message": error.localizedDescription])
         }
     }
 
     public func signOut() {
+        GoVibeAnalytics.log("auth_sign_out")
+        GoVibeAnalytics.setUserID(nil)
         deviceRegistrationTask?.cancel()
         deviceRegistrationTask = nil
         currentAppleNonce = nil
@@ -202,6 +210,8 @@ public final class GoVibeAuthController {
             displayName: user.displayName
         )
         bootstrapState = .authenticated
+        GoVibeAnalytics.setUserID(user.uid)
+        GoVibeAnalytics.setUserProperties()
     }
 
     private func resolveUnauthenticatedUser() {

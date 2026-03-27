@@ -105,6 +105,7 @@ struct SessionCreateView: View {
             }
             .navigationTitle("New Terminal Session")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { GoVibeAnalytics.logScreenView("session_create") }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -212,9 +213,11 @@ struct SessionCreateView: View {
                 tmuxSession: effectiveTmux
             )
             store.add(sessionId: trimmedId, hostId: host.id)
+            GoVibeAnalytics.log("session_created", parameters: ["host_id": host.id, "session_id": trimmedId])
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+            GoVibeAnalytics.log("session_create_failed", parameters: ["error_message": error.localizedDescription])
         }
     }
 }
