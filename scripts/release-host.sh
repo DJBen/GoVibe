@@ -92,10 +92,14 @@ else
     exit 1
 fi
 
-# Also update HostRelease.xcconfig so the checked-in values stay current
+# Also update HostRelease.xcconfig and Shared.xcconfig so checked-in values stay current
 XCCONFIG_RELEASE="$REPO_ROOT/ios/Config/HostRelease.xcconfig"
 sed -i '' "s/^MARKETING_VERSION = .*/MARKETING_VERSION = ${VERSION}/" "$XCCONFIG_RELEASE"
 sed -i '' "s/^CURRENT_PROJECT_VERSION = .*/CURRENT_PROJECT_VERSION = ${CURRENT_PROJECT_VERSION}/" "$XCCONFIG_RELEASE"
+
+XCCONFIG_SHARED="$REPO_ROOT/ios/Config/Shared.xcconfig"
+sed -i '' "s/^MARKETING_VERSION = .*/MARKETING_VERSION = ${VERSION}/" "$XCCONFIG_SHARED"
+sed -i '' "s/^CURRENT_PROJECT_VERSION = .*/CURRENT_PROJECT_VERSION = ${CURRENT_PROJECT_VERSION}/" "$XCCONFIG_SHARED"
 
 echo "==> Stamped MARKETING_VERSION = ${VERSION}, CURRENT_PROJECT_VERSION = ${CURRENT_PROJECT_VERSION}"
 

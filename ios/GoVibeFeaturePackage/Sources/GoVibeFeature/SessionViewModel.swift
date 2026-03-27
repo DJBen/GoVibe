@@ -24,6 +24,7 @@ final class SessionViewModel {
     private(set) var relayConnectTrigger: Int = 0
     private var intentionalDisconnect = false
     private(set) var isInTmuxScrollMode = false
+    var suppressResize = false
     var paneProgram: String?
     private(set) var planState: TerminalPlanState?
     private var peerWatchdogTask: Task<Void, Never>?
@@ -436,6 +437,7 @@ final class SessionViewModel {
     }
 
     func sendResize(cols: Int, rows: Int) async {
+        if suppressResize { return }
         if let last = lastKnownTerminalSize, last.cols == cols, last.rows == rows { return }
         lastKnownTerminalSize = (cols: cols, rows: rows)
         guard relayTask != nil else { return }

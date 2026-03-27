@@ -83,6 +83,11 @@ struct SessionDetailView: View {
             }
         }
         .toolbar(presentationMode == .compact ? .hidden : .automatic, for: .navigationBar)
+        .background {
+            if presentationMode == .compact {
+                InteractivePopGestureEnabler(viewModel: viewModel)
+            }
+        }
         .background(Color.black)
         .accessibilityIdentifier("govibe_root_view")
         .onChange(of: viewModel.paneProgram) { _, newProgram in
@@ -278,5 +283,64 @@ extension SessionDetailView {
         var copy = self
         copy.onSnapshot = handler
         return copy
+    }
+}
+
+private struct InteractivePopGestureEnabler: UIViewControllerRepresentable {
+    weak var viewModel: SessionViewModel?
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let controller = UIViewController()
+        controller.view.isHidden = true
+        controller.view.frame = .zero
+        return controller
+    }
+
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        context.coordinator.viewModel = viewModel
+        DispatchQueue.main.async {
+            guard let nav = controller.navigationController,
+                  let gesture = nav.interactivePopGestureRecognizer else { return }
+            gesture.isEnabled = true
+            // The navigation controller's built-in delegate blocks the gesture when the
+            // nav bar is hidden. Replace it only when we're not on the root view controller
+            // (swiping back on root with no delegate freezes the navigation stack).
+            if nav.viewControllers.count > 1 {
+                gesture.delegate = context.coordinator
+                gesture.addTarget(context.coordinator, action: #selector(Coordinator.handlePopGesture(_:)))
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        weak var viewModel: SessionViewModel?
+        private var isTracking = false
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            false
+        }
+
+        @objc func handlePopGesture(_ gesture: UIGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                isTracking = true
+                viewModel?.suppressResize = true
+            case .ended, .cancelled, .failed:
+                guard isTracking else { return }
+                isTracking = false
+                viewModel?.suppressResize = false
+            default:
+                break
+            }
+        }
     }
 }
