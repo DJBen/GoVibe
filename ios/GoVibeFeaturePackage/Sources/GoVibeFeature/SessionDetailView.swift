@@ -190,24 +190,12 @@ struct SessionDetailView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .frame(height: 34)
         .background(Color.black)
     }
 
     private var sessionMenu: some View {
         Menu {
-            Button {
-                viewModel.forceResizeSync()
-            } label: {
-                Label("Force Resize", systemImage: "arrow.up.left.and.arrow.down.right")
-            }
-            #if DEBUG
-            Button {
-                viewModel.debugDisconnectAndReconnectRelay()
-            } label: {
-                Label("Debug: Reconnect Relay", systemImage: "arrow.clockwise.circle")
-            }
-            #endif
             Button(role: .destructive) {
                 exitSession()
             } label: {
@@ -239,7 +227,7 @@ struct SessionDetailView: View {
                 }
             }
         }
-        .padding(.top, 44)
+        .padding(.top, 32)
         .padding(.trailing, 12)
     }
 

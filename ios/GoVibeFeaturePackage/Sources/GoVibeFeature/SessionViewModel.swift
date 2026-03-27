@@ -143,6 +143,7 @@ final class SessionViewModel {
         let task = URLSession.shared.webSocketTask(with: url)
         task.resume()
         relayTask = task
+        lastKnownTerminalSize = nil
         relayConnectTrigger += 1
         relayStatus = "Waiting for Mac"
         logs.append(TerminalLine(text: "Relay connected: \(url.absoluteString)"))
@@ -435,6 +436,7 @@ final class SessionViewModel {
     }
 
     func sendResize(cols: Int, rows: Int) async {
+        if let last = lastKnownTerminalSize, last.cols == cols, last.rows == rows { return }
         lastKnownTerminalSize = (cols: cols, rows: rows)
         guard relayTask != nil else { return }
         let envelope: [String: Any] = [

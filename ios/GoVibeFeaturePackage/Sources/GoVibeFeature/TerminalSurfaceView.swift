@@ -16,10 +16,14 @@ struct TerminalScrollGestureMapper {
     ) -> Int {
         let rows = max(1, visibleRows)
         let adjustedRows: Int
-        if let previousDirection, previousDirection != direction {
-            adjustedRows = max(1, (rows - 2) + rows)
+        if let previousDirection {
+            if previousDirection != direction {
+                adjustedRows = max(1, (rows + 3) + rows)
+            } else {
+                adjustedRows = rows - 3
+            }
         } else {
-            adjustedRows = rows
+            adjustedRows = max(1, (rows + 3) + rows)
         }
         switch direction {
         case .up:
@@ -130,6 +134,7 @@ struct TerminalSurfaceView: UIViewRepresentable {
         private var lastScrollPosition: Double?
         private var lastRelayConnectTrigger: Int = 0
         private var lastSwipeDirection: TerminalScrollPageDirection?
+        private var wasInScrollMode = false
         private var scrollMapper = TerminalScrollGestureMapper()
 
         init(viewModel: SessionViewModel) {
@@ -182,6 +187,12 @@ struct TerminalSurfaceView: UIViewRepresentable {
             let isNewConnection = relayConnectTrigger != lastRelayConnectTrigger
             lastRelayConnectTrigger = relayConnectTrigger
             publishCurrentSizeIfNeeded(source: source, force: isNewConnection)
+
+            let inScrollMode = viewModel?.isInTmuxScrollMode ?? false
+            if wasInScrollMode, !inScrollMode {
+                lastSwipeDirection = nil
+            }
+            wasInScrollMode = inScrollMode
         }
 
         func publishCurrentSizeIfNeeded(source: TerminalView, force: Bool) {
