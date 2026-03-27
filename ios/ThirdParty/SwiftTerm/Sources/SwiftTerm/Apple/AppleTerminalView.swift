@@ -45,6 +45,15 @@ struct ViewLineSegment {
     }
 }
 
+/// An emoji-default character that should be drawn with text presentation
+/// instead of Apple Color Emoji. Follows the same pattern as BlockElementRenderItem.
+struct EmojiAsTextRenderItem {
+    let column: Int
+    let columnWidth: Int
+    let character: Character
+    let foregroundColor: TTColor
+}
+
 // Holds the information used to render a line
 struct ViewLineInfo {
     // Contains the generated segments for this line
@@ -54,11 +63,36 @@ struct ViewLineInfo {
     var kittyPlaceholders: [KittyPlaceholderCell]
     var blockElements: [BlockElementRenderItem]
     var boxDrawings: [BoxDrawingRenderItem]
+    var emojiAsText: [EmojiAsTextRenderItem]
 }
+
+#if os(iOS) || os(visionOS)
+/// Caches a system text font with Apple Color Emoji removed from its cascade
+/// list, keyed by point size. Used to draw emoji-default characters as text.
+enum EmojiAsTextFontCache {
+    private static var cache: [CGFloat: TTFont] = [:]
+
+    static func font(size: CGFloat) -> TTFont {
+        if let cached = cache[size] { return cached }
+        let base = TTFont.systemFont(ofSize: size)
+        let ctFont = base as CTFont
+        let cascade = CTFontCopyDefaultCascadeListForLanguages(ctFont, nil) as? [CTFontDescriptor] ?? []
+        let filtered = cascade.filter { desc in
+            let name = CTFontDescriptorCopyAttribute(desc, kCTFontFamilyNameAttribute) as? String ?? ""
+            return !name.contains("Emoji")
+        }
+        let cascadeKey = UIFontDescriptor.AttributeName(rawValue: kCTFontCascadeListAttribute as String)
+        let newDesc = base.fontDescriptor.addingAttributes([cascadeKey: filtered])
+        let result = TTFont(descriptor: newDesc, size: size)
+        cache[size] = result
+        return result
+    }
+}
+#endif
 
 extension TerminalView {
     typealias CellDimension = CGSize
-    
+
     func resetCaches ()
     {
         self.attributes = [:]
@@ -528,6 +562,7 @@ extension TerminalView {
         var previousPlaceholderAttribute: Attribute?
         var blockElements: [BlockElementRenderItem] = []
         var boxDrawings: [BoxDrawingRenderItem] = []
+        var emojiAsText: [EmojiAsTextRenderItem] = []
         
         // Batching state: accumulate consecutive characters with the same attributes
         var pendingText = ""
@@ -627,25 +662,45 @@ extension TerminalView {
                 previousPlaceholder = placeholder
                 previousPlaceholderAttribute = attr
             } else {
-                // Common path: just accumulate into the batch
-                pendingText.append(character)
-                previousPlaceholder = nil
-                previousPlaceholderAttribute = nil
+                var handled = false
+                #if os(iOS) || os(visionOS)
+                // On iOS, CoreText's font fallback uses Apple Color Emoji for
+                // characters that have the Emoji property (e.g. ⏸ U+23F8,
+                // ⏺ U+23FA). Intercept text-default emoji (isEmoji but NOT
+                // isEmojiPresentation) and draw them with a text font instead,
+                // matching macOS Terminal.app behavior.
+                if character.unicodeScalars.contains(where: { $0.properties.isEmoji && !$0.properties.isEmojiPresentation }) {
+                    flushPending()
+                    let fgColor = (currentAttributes[.foregroundColor] as? TTColor) ?? nativeForegroundColor
+                    emojiAsText.append(EmojiAsTextRenderItem(column: col, columnWidth: width, character: character, foregroundColor: fgColor))
+                    builder?.append(text: " ", attributes: currentAttributes)
+                    previousPlaceholder = nil
+                    previousPlaceholderAttribute = nil
+                    handled = true
+                }
+                #endif
+                if !handled {
+                    // Common path: just accumulate into the batch
+                    pendingText.append(character)
+                    previousPlaceholder = nil
+                    previousPlaceholderAttribute = nil
+                }
             }
 
             col += width
         }
         flushPending()
-        
+
         if let finished = builder?.buildIfNeeded() {
             segments.append(finished)
         }
-        
+
         return ViewLineInfo(segments: segments,
                             images: line.images,
                             kittyPlaceholders: kittyPlaceholders,
                             blockElements: blockElements,
-                            boxDrawings: boxDrawings)
+                            boxDrawings: boxDrawings,
+                            emojiAsText: emojiAsText)
     }
     
     /// Returns the selection range for the specified row, if any.
@@ -878,7 +933,63 @@ extension TerminalView {
         context.restoreGState()
     }
 
-    
+    #if os(iOS) || os(visionOS)
+    /// Draws characters that have emoji-default presentation using a system
+    /// text font instead of letting CoreText pick Apple Color Emoji. Uses
+    /// UIFont.systemFont which contains monochrome text glyphs for symbols
+    /// like ⏸ (U+23F8) and ⏺ (U+23FA).
+    private func drawEmojiAsText(_ items: [EmojiAsTextRenderItem], lineOrigin: CGPoint, yOffset: CGFloat, in context: CGContext) {
+        guard !items.isEmpty else { return }
+        context.saveGState()
+        context.setShouldAntialias(true)
+        context.setAllowsAntialiasing(true)
+
+        // Use system font (SF Pro) which has text-presentation glyphs for
+        // symbols. Build a font with Apple Color Emoji explicitly removed
+        // from its cascade list.
+        let fontSize = fontSet.normal.pointSize
+        let textFont = EmojiAsTextFontCache.font(size: fontSize)
+
+        for item in items {
+            let cellWidth = cellDimension.width * CGFloat(item.columnWidth)
+            let x = lineOrigin.x + CGFloat(item.column) * cellDimension.width
+            let y = lineOrigin.y + yOffset
+
+            let str = NSAttributedString(
+                string: String(item.character),
+                attributes: [
+                    .font: textFont,
+                    .foregroundColor: item.foregroundColor
+                ]
+            )
+            let ctLine = CTLineCreateWithAttributedString(str)
+            for run in CTLineGetGlyphRuns(ctLine) as? [CTRun] ?? [] {
+                let glyphCount = CTRunGetGlyphCount(run)
+                if glyphCount == 0 { continue }
+                let runAttrs = CTRunGetAttributes(run) as? [NSAttributedString.Key: Any] ?? [:]
+                let runFont = runAttrs[.font] as? TTFont ?? textFont
+
+                // Skip if CoreText still chose an emoji font
+                let fontName = CTFontCopyPostScriptName(runFont as CTFont) as String
+                if fontName.contains("Emoji") { continue }
+
+                let glyphs = [CGGlyph](unsafeUninitializedCapacity: glyphCount) { buf, count in
+                    CTRunGetGlyphs(run, CFRange(), buf.baseAddress!)
+                    count = glyphCount
+                }
+                // Center the glyph in the cell
+                let glyphAdvance = CTFontGetAdvancesForGlyphs(runFont as CTFont, .horizontal, glyphs, nil, glyphCount)
+                let xOffset = max(0, (cellWidth - glyphAdvance) / 2)
+                var positions = [CGPoint](repeating: CGPoint(x: x + xOffset, y: y), count: glyphCount)
+
+                context.setFillColor(item.foregroundColor.cgColor)
+                CTFontDrawGlyphs(runFont as CTFont, glyphs, &positions, glyphCount, context)
+            }
+        }
+        context.restoreGState()
+    }
+    #endif
+
     // TODO: this should not render any lines outside the dirtyRect
     func drawTerminalContents (dirtyRect: TTRect, context: CGContext, bufferOffset: Int)
     {
@@ -1096,6 +1207,12 @@ extension TerminalView {
             if !lineInfo.blockElements.isEmpty {
                 drawBlockElements(lineInfo.blockElements, lineOrigin: lineOrigin, in: context)
             }
+
+            #if os(iOS) || os(visionOS)
+            if !lineInfo.emojiAsText.isEmpty {
+                drawEmojiAsText(lineInfo.emojiAsText, lineOrigin: lineOrigin, yOffset: yOffset, in: context)
+            }
+            #endif
 
             context.setShouldAntialias(true)
             context.setAllowsAntialiasing(true)
@@ -1365,9 +1482,15 @@ extension TerminalView {
         if vy >= buffer.yDisp + buffer.rows {
             caretView.removeFromSuperview()
             return
-        } else if terminal.cursorHidden == false && caretView.superview != self {
+        }
+        #if os(iOS) || os(visionOS)
+        let effectiveCursorHidden = caretViewAlwaysVisible ? false : terminal.cursorHidden
+        #else
+        let effectiveCursorHidden = terminal.cursorHidden
+        #endif
+        if effectiveCursorHidden == false && caretView.superview != self {
             addSubview(caretView)
-        } else if terminal.cursorHidden == true && caretView.superview == self {
+        } else if effectiveCursorHidden == true && caretView.superview == self {
             caretView.removeFromSuperview()
         }
         let doublePosition = buffer.lines [vy].renderMode == .single ? 1.0 : 2.0

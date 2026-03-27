@@ -133,6 +133,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         )
         bridge.start(room: macDeviceId, hostId: hostId, relayBase: relayBase)
         try pty.start()
+        configureTmuxCursorPassthrough()
         startProgramPolling()
         startPeerWatchdog()
         eventHandler(.stateChanged(.waitingForPeer, nil, nil))
@@ -242,7 +243,15 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
                 logger.info("tmux capture-pane returned empty output, skipping snapshot")
                 return
             }
-            let normalizedSnapshot = normalizeSnapshotLineEndings(captured)
+            var normalizedSnapshot = normalizeSnapshotLineEndings(captured)
+            // Restore cursor style: capture-pane replays screen content but does
+            // NOT preserve the cursor style set by the running program (e.g. Claude
+            // Code sets a bar cursor). Query tmux for the pane's cursor style and
+            // append the corresponding DECSCUSR escape sequence so the iOS terminal
+            // renders the correct cursor shape.
+            if let cursorEscape = tmuxCursorStyleEscape(sessionName: tmuxSessionName, tmuxPath: tmuxPath) {
+                normalizedSnapshot.append(contentsOf: cursorEscape)
+            }
             logger.info("Replaying tmux snapshot (\(normalizedSnapshot.count) bytes) to new peer")
             bridge.sendSnapshot(normalizedSnapshot)
             if !lastPaneProgram.isEmpty {
@@ -252,6 +261,33 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         } catch {
             logger.error("tmux capture-pane failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Queries tmux for the current pane cursor style and returns the DECSCUSR
+    /// escape sequence bytes to restore it, or nil if unavailable.
+    private func tmuxCursorStyleEscape(sessionName: String, tmuxPath: String) -> [UInt8]? {
+        // #{cursor_style} is available in tmux 3.4+
+        guard let raw = runProcessCaptureOutput(
+            executable: tmuxPath,
+            arguments: ["display-message", "-p", "-t", sessionName, "#{cursor_style}"]
+        ) else { return nil }
+        let style = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // If tmux doesn't support the format variable, it returns the literal string
+        if style.isEmpty || style.contains("#{") { return nil }
+        let code: UInt8
+        switch style {
+        case "blinking-block":            code = 0x31 // '1'
+        case "block":                     code = 0x32 // '2'
+        case "blinking-underline":        code = 0x33 // '3'
+        case "underline":                 code = 0x34 // '4'
+        case "blinking-bar", "blinking-beam": code = 0x35 // '5'
+        case "bar", "beam":              code = 0x36 // '6'
+        default:
+            logger.info("Unknown tmux cursor style '\(style)', skipping DECSCUSR")
+            return nil
+        }
+        // ESC [ Ps SP q  — DECSCUSR (Set Cursor Style)
+        return [0x1B, 0x5B, code, 0x20, 0x71]
     }
 
     private func normalizeSnapshotLineEndings(_ payload: Data) -> Data {
@@ -566,6 +602,43 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             return true
         default:
             return false
+        }
+    }
+
+    /// Configures tmux to pass through cursor style changes (DECSCUSR) from
+    /// programs running inside the session to the outer PTY. Without this,
+    /// tmux strips cursor style escape sequences, so Claude Code's bar cursor
+    /// in its input area never reaches the iOS terminal.
+    private func configureTmuxCursorPassthrough() {
+        guard let sessionName = pty.tmuxSessionName,
+              let tmuxPath = PtySession.resolveTmux() else { return }
+        // Allow tmux a moment to start — the new-session command may still be
+        // initialising when we return from pty.start().
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            // Ss sets cursor style, Se resets cursor style.
+            // This appends to existing terminal-overrides so we don't clobber
+            // any user-defined overrides.
+            let result = self.runProcessCaptureOutput(
+                executable: tmuxPath,
+                arguments: [
+                    "set-option", "-g", "-a",
+                    "terminal-overrides",
+                    ",xterm-256color:Ss=\\E[%p1%d q:Se=\\E[2 q"
+                ]
+            )
+            if result != nil || true {
+                // Also try the per-terminal terminal-features approach (tmux 3.2+)
+                _ = self.runProcessCaptureOutput(
+                    executable: tmuxPath,
+                    arguments: [
+                        "set-option", "-g", "-a",
+                        "terminal-features",
+                        ",xterm-256color:cstyle"
+                    ]
+                )
+            }
+            self.logger.info("Configured tmux cursor passthrough for session '\(sessionName)'")
         }
     }
 

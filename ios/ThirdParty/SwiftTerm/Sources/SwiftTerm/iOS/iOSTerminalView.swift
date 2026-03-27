@@ -57,11 +57,11 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         let bold: UIFont
         let italic: UIFont
         let boldItalic: UIFont
-        
+
         static var defaultFont: UIFont {
             UIFont.monospacedSystemFont (ofSize: 12, weight: .regular)
         }
-        
+
         public init(font baseFont: UIFont) {
             self.normal = baseFont
             if let boldDescriptor = baseFont.fontDescriptor.withSymbolicTraits ([.traitBold]) {
@@ -69,13 +69,13 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             } else {
                 self.bold = baseFont
             }
-            
+
             if let italicDescriptor = baseFont.fontDescriptor.withSymbolicTraits ([.traitItalic]) {
                 self.italic = UIFont (descriptor: italicDescriptor, size: 0)
             } else {
                 self.italic = baseFont
             }
-            
+
             if let boldItalicDescriptor = baseFont.fontDescriptor.withSymbolicTraits ([.traitItalic, .traitBold]) {
                 self.boldItalic = UIFont (descriptor: boldItalicDescriptor, size: 0)
             } else {
@@ -151,6 +151,11 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             caretView?.tracksFocus = newValue
         }
     }
+
+    /// When true, the caret view remains visible even when the running program
+    /// hides the cursor via DECTCEM (CSI ?25l). Useful for remote-projection
+    /// terminals where the hardware cursor should always be shown.
+    public var caretViewAlwaysVisible: Bool = false
     var accessibility: AccessibilityService = AccessibilityService()
     var search: SearchService!
     var debug: UIView?
