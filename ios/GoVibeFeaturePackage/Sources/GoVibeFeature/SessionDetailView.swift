@@ -38,20 +38,9 @@ struct SessionDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             statusBar
-
-            if viewModel.simInfo != nil || viewModel.appWindowInfo != nil {
-                SimulatorView(viewModel: viewModel)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black)
-                    .accessibilityIdentifier("simulator_surface_view")
-            } else {
-                TerminalSurfaceView(viewModel: viewModel)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black)
-                    .safeAreaPadding(.bottom, 14)
-                    .accessibilityIdentifier("terminal_log_view")
-            }
+            surfaceContent
         }
+        .ignoresSafeArea(.keyboard, edges: viewModel.suppressResize ? .bottom : [])
         .overlay(alignment: .topTrailing) {
             if presentationMode == .compact && !viewModel.isInTmuxScrollMode {
                 floatingTopControls
@@ -162,6 +151,22 @@ struct SessionDetailView: View {
             }
             viewModel.pendingSnapshotImage = nil
             viewModel.disconnectRelay()
+        }
+    }
+
+    @ViewBuilder
+    private var surfaceContent: some View {
+        if viewModel.simInfo != nil || viewModel.appWindowInfo != nil {
+            SimulatorView(viewModel: viewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black)
+                .accessibilityIdentifier("simulator_surface_view")
+        } else {
+            TerminalSurfaceView(viewModel: viewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black)
+                .safeAreaPadding(.bottom, 14)
+                .accessibilityIdentifier("terminal_log_view")
         }
     }
 
@@ -348,6 +353,7 @@ private struct InteractivePopGestureEnabler: UIViewControllerRepresentable {
             case .began:
                 isTracking = true
                 viewModel?.suppressResize = true
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             case .ended, .cancelled, .failed:
                 guard isTracking else { return }
                 isTracking = false
