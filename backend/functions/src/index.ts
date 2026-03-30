@@ -721,6 +721,8 @@ app.get("/healthz", (_req: Request, res: Response) => {
   res.json({ status: "ok", service: "govibe-api" });
 });
 
+export { onFeedbackCreated } from "./feedbackNotify";
+
 export const api = onRequest(
   {
     region: "us-west1",

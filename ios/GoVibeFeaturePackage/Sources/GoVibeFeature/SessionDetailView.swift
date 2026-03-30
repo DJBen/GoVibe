@@ -18,6 +18,9 @@ struct SessionDetailView: View {
     @State private var showNotificationOnboarding = false
     @State private var notificationOnboardingProgram = ""
     @State private var showPlanSheet = false
+    @State private var showArtifactsSheet = false
+    @State private var showFeedbackSheet = false
+    @State private var feedbackTerminalText: String?
     @State private var foregroundNotifications = ForegroundNotificationCoordinator.shared
 
     init(
@@ -48,9 +51,12 @@ struct SessionDetailView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if viewModel.simInfo == nil, viewModel.appWindowInfo == nil, let paneProgram = viewModel.paneProgram {
-                QuickActionsButton(paneProgram: paneProgram) { data in
-                    viewModel.sendInputDataAsync(data)
-                }
+                QuickActionsButton(
+                    paneProgram: paneProgram,
+                    artifactCount: viewModel.artifacts.count,
+                    onSend: { data in viewModel.sendInputDataAsync(data) },
+                    onViewArtifacts: { showArtifactsSheet = true }
+                )
                 .padding(.trailing, 16)
                 .padding(.bottom, 16)
             }
@@ -94,10 +100,18 @@ struct SessionDetailView: View {
             }
             .presentationDetents([.medium])
         }
+        .sheet(isPresented: $showFeedbackSheet) {
+            FeedbackView(sessionId: session.roomId, terminalText: feedbackTerminalText) {
+                showFeedbackSheet = false
+            }
+        }
         .fullScreenCover(isPresented: $showPlanSheet) {
             if let planState = viewModel.planState {
                 PlanMarkdownSheet(plan: planState)
             }
+        }
+        .sheet(isPresented: $showArtifactsSheet) {
+            ArtifactListView(artifacts: viewModel.artifacts)
         }
         .onChange(of: foregroundNotifications.pendingDeepLinkRoomId) { _, newRoomId in
             guard let newRoomId else { return }
@@ -216,6 +230,12 @@ struct SessionDetailView: View {
 
     private var sessionMenu: some View {
         Menu {
+            Button {
+                feedbackTerminalText = viewModel.captureTerminalText?()
+                showFeedbackSheet = true
+            } label: {
+                Label("Send Feedback", systemImage: "bubble.left.and.text.bubble.right")
+            }
             Button(role: .destructive) {
                 exitSession()
             } label: {

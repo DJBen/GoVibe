@@ -109,6 +109,9 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             onPlanStateChanged: { [weak self] artifact in
                 self?.setPlanArtifact(artifact)
             },
+            onPlanArtifactsLoaded: { [weak self] artifacts in
+                self?.bridge.sendPlanArtifacts(artifacts)
+            },
             onLastUserPromptChanged: promptHandler
         )
         codexLogWatcher = CodexLogWatcher(
@@ -119,6 +122,9 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             },
             onPlanStateChanged: { [weak self] artifact in
                 self?.setPlanArtifact(artifact)
+            },
+            onPlanArtifactsLoaded: { [weak self] artifacts in
+                self?.bridge.sendPlanArtifacts(artifacts)
             },
             onLastUserPromptChanged: promptHandler
         )

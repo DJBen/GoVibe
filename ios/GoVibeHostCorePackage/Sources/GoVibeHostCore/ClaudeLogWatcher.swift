@@ -52,6 +52,7 @@ final class ClaudeLogWatcher {
 
     let onTurnComplete: (ClaudePushEvent) -> Void
     let onPlanStateChanged: (TerminalPlanArtifact?) -> Void
+    let onPlanArtifactsLoaded: ([TerminalPlanArtifact]) -> Void
     let onLastUserPromptChanged: (String) -> Void
 
     init(
@@ -60,6 +61,7 @@ final class ClaudeLogWatcher {
         logger: HostLogger,
         onTurnComplete: @escaping (ClaudePushEvent) -> Void,
         onPlanStateChanged: @escaping (TerminalPlanArtifact?) -> Void,
+        onPlanArtifactsLoaded: @escaping ([TerminalPlanArtifact]) -> Void = { _ in },
         onLastUserPromptChanged: @escaping (String) -> Void
     ) {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -72,6 +74,7 @@ final class ClaudeLogWatcher {
         self.projectsRoot = home.appendingPathComponent(".claude/projects")
         self.onTurnComplete = onTurnComplete
         self.onPlanStateChanged = onPlanStateChanged
+        self.onPlanArtifactsLoaded = onPlanArtifactsLoaded
         self.onLastUserPromptChanged = onLastUserPromptChanged
     }
 
@@ -262,7 +265,11 @@ final class ClaudeLogWatcher {
         filePinned = true
         // Write claim file so other watchers skip this file.
         try? url.path.write(to: claimFileURL, atomically: true, encoding: .utf8)
-        updatePlanArtifact(existingPlanArtifact(in: url))
+        let allArtifacts = existingPlanArtifacts(in: url)
+        if !allArtifacts.isEmpty {
+            onPlanArtifactsLoaded(allArtifacts)
+        }
+        updatePlanArtifact(allArtifacts.last)
         updateLastUserPrompt(existingLastUserPrompt(in: url))
     }
 
@@ -377,10 +384,15 @@ final class ClaudeLogWatcher {
     }
 
     private func existingPlanArtifact(in url: URL) -> TerminalPlanArtifact? {
-        guard let data = try? Data(contentsOf: url),
-              let text = String(data: data, encoding: .utf8) else { return nil }
+        existingPlanArtifacts(in: url).last
+    }
 
-        var artifact: TerminalPlanArtifact?
+    private func existingPlanArtifacts(in url: URL) -> [TerminalPlanArtifact] {
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8) else { return [] }
+
+        var artifacts: [TerminalPlanArtifact] = []
+        var currentArtifact: TerminalPlanArtifact?
         for line in text.components(separatedBy: "\n") where !line.isEmpty {
             guard let lineData = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any]
@@ -391,21 +403,27 @@ final class ClaudeLogWatcher {
             let message = obj["message"] as? [String: Any]
 
             if type == "user", isExternalUserPrompt(message) {
-                artifact = nil
+                if let artifact = currentArtifact {
+                    artifacts.append(artifact)
+                    currentArtifact = nil
+                }
                 continue
             }
 
             if type == "assistant", let uuid {
                 if let planArtifact = exitPlanModeArtifact(from: message, uuid: uuid) {
-                    artifact = planArtifact
+                    currentArtifact = planArtifact
                 } else if let text = assistantText(from: message),
                           let planArtifact = TerminalPlanParser.parseArtifact(
                             assistant: "Claude", turnId: uuid, text: text) {
-                    artifact = planArtifact
+                    currentArtifact = planArtifact
                 }
             }
         }
-        return artifact
+        if let artifact = currentArtifact {
+            artifacts.append(artifact)
+        }
+        return artifacts
     }
 
     private func updatePlanArtifact(_ artifact: TerminalPlanArtifact?) {

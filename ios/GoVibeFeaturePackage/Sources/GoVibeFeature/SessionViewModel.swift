@@ -27,6 +27,7 @@ final class SessionViewModel {
     var suppressResize = false
     var paneProgram: String?
     private(set) var planState: TerminalPlanState?
+    private(set) var artifacts: [TerminalPlanState] = []
     private var peerWatchdogTask: Task<Void, Never>?
     private var lastPeerActivityAt: Date?
     private var hasLivePeer = false
@@ -36,6 +37,7 @@ final class SessionViewModel {
     private(set) var appWindowInfo: AppWindowInfo?
     var videoDecoder: SimulatorVideoDecoder?
     var captureSnapshot: (() -> UIImage?)?   // registered by the active surface view
+    var captureTerminalText: (() -> String?)?  // registered by TerminalSurfaceView
     var pendingSnapshotImage: UIImage?       // captured eagerly during dismantleUIView
 
     let iosDeviceId: String
@@ -338,6 +340,32 @@ final class SessionViewModel {
             return
         }
 
+        if type == "plan_artifacts" {
+            recordPeerActivity()
+            if let items = json["artifacts"] as? [[String: Any]] {
+                for item in items {
+                    guard let assistant = item["assistant"] as? String,
+                          let turnId = item["turnId"] as? String,
+                          let markdown = item["markdown"] as? String,
+                          let blockCount = item["blockCount"] as? Int
+                    else { continue }
+                    let artifact = TerminalPlanState(
+                        assistant: assistant,
+                        turnId: turnId,
+                        title: item["title"] as? String,
+                        markdown: markdown,
+                        blockCount: blockCount
+                    )
+                    if let idx = artifacts.firstIndex(where: { $0.turnId == turnId }) {
+                        artifacts[idx] = artifact
+                    } else {
+                        artifacts.append(artifact)
+                    }
+                }
+            }
+            return
+        }
+
         if type == "plan_state" {
             recordPeerActivity()
             let available = (json["available"] as? Bool) ?? false
@@ -346,13 +374,19 @@ final class SessionViewModel {
                let turnId = json["turnId"] as? String,
                let markdown = json["markdown"] as? String,
                let blockCount = json["blockCount"] as? Int {
-                planState = TerminalPlanState(
+                let newPlan = TerminalPlanState(
                     assistant: assistant,
                     turnId: turnId,
                     title: json["title"] as? String,
                     markdown: markdown,
                     blockCount: blockCount
                 )
+                planState = newPlan
+                if let idx = artifacts.firstIndex(where: { $0.turnId == turnId }) {
+                    artifacts[idx] = newPlan
+                } else {
+                    artifacts.append(newPlan)
+                }
             } else {
                 planState = nil
             }

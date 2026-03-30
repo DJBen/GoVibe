@@ -90,6 +90,12 @@ struct TerminalSurfaceView: UIViewRepresentable {
             }
         }
 
+        viewModel.captureTerminalText = { [weak terminal] in
+            guard let terminal else { return nil }
+            let data = terminal.getTerminal().getBufferAsData(kind: .active, encoding: .utf8)
+            return String(data: data, encoding: .utf8)
+        }
+
         return terminal
     }
 

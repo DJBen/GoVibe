@@ -72,16 +72,28 @@ final class GeminiLogWatcher {
     /// Called every second by `TerminalHostSession.pollPaneProgram()` while Gemini is active.
     func poll() {
         let permPath = permissionSentinelURL.path
+        let legacyPermPath = Self.legacyPermissionSentinelURL.path
+        
         if FileManager.default.fileExists(atPath: permPath) {
-            logger.info("GeminiLogWatcher: permission sentinel detected, firing approval push")
+            logger.info("GeminiLogWatcher: permission sentinel detected at \(permPath), firing approval push")
             try? FileManager.default.removeItem(atPath: permPath)
+            onTurnComplete(.awaitingApproval)
+        } else if FileManager.default.fileExists(atPath: legacyPermPath) {
+            logger.info("GeminiLogWatcher: legacy permission sentinel detected, firing approval push")
+            try? FileManager.default.removeItem(atPath: legacyPermPath)
             onTurnComplete(.awaitingApproval)
         }
 
         let turnPath = turnCompleteSentinelURL.path
+        let legacyTurnPath = Self.legacyTurnCompleteSentinelURL.path
+        
         if FileManager.default.fileExists(atPath: turnPath) {
-            logger.info("GeminiLogWatcher: turn-complete sentinel detected, firing turn-complete push")
+            logger.info("GeminiLogWatcher: turn-complete sentinel detected at \(turnPath), firing turn-complete push")
             try? FileManager.default.removeItem(atPath: turnPath)
+            onTurnComplete(.turnComplete)
+        } else if FileManager.default.fileExists(atPath: legacyTurnPath) {
+            logger.info("GeminiLogWatcher: legacy turn-complete sentinel detected, firing turn-complete push")
+            try? FileManager.default.removeItem(atPath: legacyTurnPath)
             onTurnComplete(.turnComplete)
         }
 

@@ -2,7 +2,9 @@ import SwiftUI
 
 struct QuickActionsButton: View {
     let paneProgram: String
+    var artifactCount: Int = 0
     let onSend: (Data) -> Void
+    var onViewArtifacts: (() -> Void)? = nil
 
     @State private var showingActions = false
 
@@ -41,7 +43,7 @@ struct QuickActionsButton: View {
     }
 
     var body: some View {
-        if !actions.isEmpty {
+        if !actions.isEmpty || artifactCount > 0 {
             Button {
                 showingActions = true
             } label: {
@@ -60,6 +62,20 @@ struct QuickActionsButton: View {
                         }
                     } label: {
                         Label(action.title, systemImage: action.systemImage)
+                    }
+                }
+                if artifactCount > 0 {
+                    Button {
+                        GoVibeAnalytics.log("artifacts_viewed", parameters: [
+                            "pane_program": paneProgram,
+                            "count": "\(artifactCount)",
+                        ])
+                        onViewArtifacts?()
+                    } label: {
+                        Label(
+                            "View \(artifactCount) artifact\(artifactCount == 1 ? "" : "s")",
+                            systemImage: "doc.on.doc"
+                        )
                     }
                 }
             }

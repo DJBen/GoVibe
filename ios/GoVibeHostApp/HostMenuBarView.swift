@@ -17,8 +17,9 @@ struct HostMenuBarView: View {
 
                 Divider()
 
-                SettingsLink {
-                    Text("Settings…")
+                Button("Settings…") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
                 }
 
                 Divider()

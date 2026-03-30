@@ -143,6 +143,34 @@ public final class RelayTransport: @unchecked Sendable {
         }
     }
 
+    func sendPlanArtifacts(_ artifacts: [TerminalPlanArtifact]) {
+        let items: [[String: Any]] = artifacts.map { artifact in
+            var item: [String: Any] = [
+                "assistant": artifact.assistant,
+                "turnId": artifact.turnId,
+                "markdown": artifact.markdown,
+                "blockCount": artifact.blockCount,
+            ]
+            if let title = artifact.title {
+                item["title"] = title
+            }
+            return item
+        }
+        let payload: [String: Any] = [
+            "type": "plan_artifacts",
+            "artifacts": items,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        queue.async {
+            if self.outboundQueue.count >= self.maxQueuedMessages {
+                self.outboundQueue.removeFirst(self.outboundQueue.count - self.maxQueuedMessages + 1)
+            }
+            self.outboundQueue.append(json)
+            self.flushOutboundQueueLocked()
+        }
+    }
+
     public func sendSnapshot(_ data: Data) {
         let payload: [String: String] = [
             "type": "terminal_snapshot",

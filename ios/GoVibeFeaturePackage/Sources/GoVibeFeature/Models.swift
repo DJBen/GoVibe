@@ -143,10 +143,12 @@ struct AppWindowInfo: Codable, Sendable, Equatable {
     let fps: Int
 }
 
-struct TerminalPlanState: Equatable, Sendable {
+struct TerminalPlanState: Identifiable, Equatable, Sendable {
     let assistant: String
     let turnId: String
     let title: String?
     let markdown: String
     let blockCount: Int
+
+    var id: String { turnId }
 }

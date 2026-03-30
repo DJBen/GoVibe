@@ -107,14 +107,18 @@ public final class HostSessionManager {
         )
     }
 
-    private static func detectTmux() -> Bool {
+    private static func resolveTmuxPath() -> String? {
         let candidates = [
             "/opt/homebrew/bin/tmux",  // Homebrew Apple Silicon
             "/usr/local/bin/tmux",     // Homebrew Intel
             "/opt/local/bin/tmux",     // MacPorts
             "/usr/bin/tmux",
         ]
-        return candidates.contains { FileManager.default.fileExists(atPath: $0) }
+        return candidates.first { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    private static func detectTmux() -> Bool {
+        return resolveTmuxPath() != nil
     }
 
     public func installTmux() async {
@@ -163,11 +167,10 @@ public final class HostSessionManager {
         var hasPermission = false
         if let notificationHooks = hooks["Notification"] as? [[String: Any]] {
             outer: for entry in notificationHooks {
-                guard (entry["matcher"] as? String) == "permission_prompt",
-                      let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
+                guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
                     if let cmd = hook["command"] as? String,
-                       cmd.contains("govibe-") && cmd.contains("permission-pending") && cmd.contains("|| true") {
+                       cmd.contains("govibe-") && cmd.contains("permission-pending") {
                         hasPermission = true
                         break outer
                     }
@@ -182,7 +185,7 @@ public final class HostSessionManager {
                 guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
                     if let cmd = hook["command"] as? String,
-                       cmd.contains("govibe-") && cmd.contains("turn-complete-pending") && cmd.contains("|| true") {
+                       cmd.contains("govibe-") && cmd.contains("turn-complete-pending") {
                         hasStop = true
                         break outer
                     }
@@ -198,6 +201,7 @@ public final class HostSessionManager {
 
         let settingsURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/settings.json")
+        let tmuxPath = Self.resolveTmuxPath() ?? "tmux"
 
         var root: [String: Any] = (
             (try? Data(contentsOf: settingsURL))
@@ -216,7 +220,7 @@ public final class HostSessionManager {
         let permissionEntry: [String: Any] = [
             "matcher": "permission_prompt",
             "hooks": [
-                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-permission-pending || true"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(\(tmuxPath) display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-permission-pending || true"]
             ]
         ]
         notificationHooks.append(permissionEntry)
@@ -230,7 +234,7 @@ public final class HostSessionManager {
         }
         let stopEntry: [String: Any] = [
             "hooks": [
-                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-turn-complete-pending || true"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(\(tmuxPath) display-message -p '#{session_name}' 2>/dev/null) && touch ~/.claude/govibe-${S}-turn-complete-pending || true"]
             ]
         ]
         stopHooks.append(stopEntry)
@@ -238,7 +242,7 @@ public final class HostSessionManager {
 
         root["hooks"] = hooks
 
-        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) else {
             return
         }
 
@@ -261,14 +265,13 @@ public final class HostSessionManager {
         }
 
         // Check AfterAgent hook for turn-complete sentinel.
-        // Each entry must use the nested { hooks: [...] } format required by Gemini CLI.
         var hasAfterAgent = false
         if let afterAgentEntries = hooks["AfterAgent"] as? [[String: Any]] {
             outer: for entry in afterAgentEntries {
                 guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
                 for hook in innerHooks {
                     if let cmd = hook["command"] as? String,
-                       cmd.contains("govibe-") && cmd.contains("turn-complete-pending") && cmd.contains("|| true") {
+                       cmd.contains("govibe-") && cmd.contains("turn-complete-pending") {
                         hasAfterAgent = true
                         break outer
                     }
@@ -282,11 +285,10 @@ public final class HostSessionManager {
             return false
         }
         for entry in notificationHooks {
-            guard (entry["matcher"] as? String) == "ToolPermission",
-                  let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
+            guard let innerHooks = entry["hooks"] as? [[String: Any]] else { continue }
             for hook in innerHooks {
                 if let cmd = hook["command"] as? String,
-                   cmd.contains("govibe-") && cmd.contains("permission-pending") && cmd.contains("|| true") {
+                   cmd.contains("govibe-") && cmd.contains("permission-pending") {
                     return true
                 }
             }
@@ -300,6 +302,7 @@ public final class HostSessionManager {
 
         let settingsURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".gemini/settings.json")
+        let tmuxPath = Self.resolveTmuxPath() ?? "tmux"
 
         var root: [String: Any] = (
             (try? Data(contentsOf: settingsURL))
@@ -318,7 +321,7 @@ public final class HostSessionManager {
         }
         let afterAgentEntry: [String: Any] = [
             "hooks": [
-                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-turn-complete-pending || true"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(\(tmuxPath) display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-turn-complete-pending || true"]
             ]
         ]
         afterAgentHooks.append(afterAgentEntry)
@@ -333,7 +336,7 @@ public final class HostSessionManager {
         let notificationEntry: [String: Any] = [
             "matcher": "ToolPermission",
             "hooks": [
-                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(tmux display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-permission-pending || true"]
+                ["type": "command", "command": "[ -n \"$TMUX\" ] && S=$(\(tmuxPath) display-message -p '#{session_name}' 2>/dev/null) && touch ~/.gemini/govibe-${S}-permission-pending || true"]
             ]
         ]
         notificationHooks.append(notificationEntry)
@@ -341,7 +344,7 @@ public final class HostSessionManager {
 
         root["hooks"] = hooks
 
-        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]) else {
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) else {
             return
         }
 

@@ -29,6 +29,7 @@ final class CodexLogWatcher {
 
     let onTurnComplete: (CodexPushEvent) -> Void
     let onPlanStateChanged: (TerminalPlanArtifact?) -> Void
+    let onPlanArtifactsLoaded: ([TerminalPlanArtifact]) -> Void
     let onLastUserPromptChanged: (String) -> Void
 
     init(
@@ -36,6 +37,7 @@ final class CodexLogWatcher {
         logger: HostLogger,
         onTurnComplete: @escaping (CodexPushEvent) -> Void,
         onPlanStateChanged: @escaping (TerminalPlanArtifact?) -> Void,
+        onPlanArtifactsLoaded: @escaping ([TerminalPlanArtifact]) -> Void = { _ in },
         onLastUserPromptChanged: @escaping (String) -> Void
     ) {
         self.cwd = cwd
@@ -44,6 +46,7 @@ final class CodexLogWatcher {
             .appendingPathComponent(".codex/sessions")
         self.onTurnComplete = onTurnComplete
         self.onPlanStateChanged = onPlanStateChanged
+        self.onPlanArtifactsLoaded = onPlanArtifactsLoaded
         self.onLastUserPromptChanged = onLastUserPromptChanged
     }
 

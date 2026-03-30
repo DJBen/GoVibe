@@ -8,6 +8,9 @@
     "rules": "backend/firestore.rules",
     "indexes": "backend/firestore.indexes.json"
   },
+  "storage": {
+    "rules": "backend/storage.rules"
+  },
   "hosting": {
     "public": "web/public",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
