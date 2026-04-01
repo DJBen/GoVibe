@@ -58,6 +58,12 @@ final class CodexLogWatcher {
         reset()
     }
 
+    /// Returns all plan artifacts from the current session.
+    func currentArtifacts() -> [TerminalPlanArtifact] {
+        guard let artifact = currentPlanArtifact else { return [] }
+        return [artifact]
+    }
+
     /// Called every second by `TerminalHostSession.pollPaneProgram()` while Codex is active.
     func poll() {
         refreshFileIfNeeded()

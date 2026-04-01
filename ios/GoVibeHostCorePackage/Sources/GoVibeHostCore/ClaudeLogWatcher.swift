@@ -78,6 +78,12 @@ final class ClaudeLogWatcher {
         self.onLastUserPromptChanged = onLastUserPromptChanged
     }
 
+    /// Returns all plan artifacts from the currently pinned log file.
+    func currentArtifacts() -> [TerminalPlanArtifact] {
+        guard let url = fileURL else { return [] }
+        return existingPlanArtifacts(in: url)
+    }
+
     /// Update the working directory (e.g. when the tmux pane's cwd changes).
     func updateCwd(_ newCwd: String) {
         guard newCwd != cwd else { return }
