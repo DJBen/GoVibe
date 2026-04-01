@@ -23,7 +23,7 @@ PRODUCT_NAME = GoVibe
 PRODUCT_DISPLAY_NAME = GoVibe
 PRODUCT_BUNDLE_IDENTIFIER = dev.govibe.ios
 MARKETING_VERSION = 0.4.0
-CURRENT_PROJECT_VERSION = 202603311728
+CURRENT_PROJECT_VERSION = 202603311729
 
 // ==========================================
 // Platform Configuration
