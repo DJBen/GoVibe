@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>GOVIBE_GCP_PROJECT_ID</key>
+	<string>$(GOVIBE_GCP_PROJECT_ID)</string>
+	<key>GOVIBE_GCP_REGION</key>
+	<string>$(GOVIBE_GCP_REGION)</string>
+	<key>GOVIBE_GCP_RELAY_HOST</key>
+	<string>$(GOVIBE_GCP_RELAY_HOST)</string>
+	<key>GOVIBE_FIREBASE_API_KEY</key>
+	<string>$(GOVIBE_FIREBASE_API_KEY)</string>
+	<key>GOVIBE_GOOGLE_DEVICE_CLIENT_ID</key>
+	<string>$(GOVIBE_GOOGLE_DEVICE_CLIENT_ID)</string>
+	<key>GOVIBE_GOOGLE_DEVICE_CLIENT_SECRET</key>
+	<string>$(GOVIBE_GOOGLE_DEVICE_CLIENT_SECRET)</string>
+</dict>
+</plist>

@@ -11,6 +11,9 @@
 		8B41F6852DEDD25C001A66F9 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* GoVibeFeature */; };
 		FC1BF8842F5ACF1F009F5597 /* GoVibeFeature in Frameworks */ = {isa = PBXBuildFile; productRef = FC1BF8832F5ACF1F009F5597 /* GoVibeFeature */; };
 		FC9B93582F7116680046B3BF /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = FC9B93572F7116680046B3BF /* Sparkle */; };
+		FCB1E0402F7C60000087345A /* GoVibeHostCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCB1E0432F7C60000087345A /* GoVibeHostCore */; };
+		FCB1E0412F7C60000087345A /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCB1E0442F7C60000087345A /* FirebaseCore */; };
+		FCB1E0422F7C60000087345A /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = FCB1E0452F7C60000087345A /* FirebaseFirestore */; };
 		FCD000102F700001009F5597 /* GoVibeHostCore in Frameworks */ = {isa = PBXBuildFile; productRef = FCD000122F700001009F5597 /* GoVibeHostCore */; };
 		FCD100012F700001009F5597 /* GoVibe/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */; };
 		FCE000022F700001009F5597 /* GoVibeHostApp/GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = FCE000012F700001009F5597 /* GoVibeHostApp/GoogleService-Info.plist */; };
@@ -26,9 +29,22 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		FCB1E0352F7C50440087345A /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = /usr/share/man/man1/;
+			dstSubfolderSpec = 0;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 1;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		8B41F6452DEDD0D5001A66F9 /* GoVibe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoVibe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B41F65C2DEDD0D6001A66F9 /* GoVibe.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoVibe.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FCB1E0372F7C50440087345A /* GoVibeHostCli */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = GoVibeHostCli; sourceTree = BUILT_PRODUCTS_DIR; };
 		FCD000012F700001009F5597 /* GoVibeHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoVibeHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = GoVibe/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 		FCE000012F700001009F5597 /* GoVibeHostApp/GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoVibeHostApp/GoogleService-Info.plist"; sourceTree = SOURCE_ROOT; };
@@ -77,6 +93,11 @@
 			path = Config;
 			sourceTree = "<group>";
 		};
+		FCB1E0382F7C50440087345A /* GoVibeHostCli */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = GoVibeHostCli;
+			sourceTree = "<group>";
+		};
 		FCD000022F700001009F5597 /* GoVibeHostApp */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -105,6 +126,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FCB1E0342F7C50440087345A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FCB1E0402F7C60000087345A /* GoVibeHostCore in Frameworks */,
+				FCB1E0412F7C60000087345A /* FirebaseCore in Frameworks */,
+				FCB1E0422F7C60000087345A /* FirebaseFirestore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FCD000082F700001009F5597 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -126,6 +157,7 @@
 				FCD000022F700001009F5597 /* GoVibeHostApp */,
 				FCD100022F700001009F5597 /* GoVibe/Assets.xcassets */,
 				FCE000012F700001009F5597 /* GoVibeHostApp/GoogleService-Info.plist */,
+				FCB1E0382F7C50440087345A /* GoVibeHostCli */,
 				8B41F6812DEDD23B001A66F9 /* Frameworks */,
 				8B41F6462DEDD0D5001A66F9 /* Products */,
 			);
@@ -137,6 +169,7 @@
 				8B41F6452DEDD0D5001A66F9 /* GoVibe.app */,
 				8B41F65C2DEDD0D6001A66F9 /* GoVibe.xctest */,
 				FCD000012F700001009F5597 /* GoVibeHost.app */,
+				FCB1E0372F7C50440087345A /* GoVibeHostCli */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -200,6 +233,31 @@
 			productReference = 8B41F65C2DEDD0D6001A66F9 /* GoVibe.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		FCB1E0362F7C50440087345A /* GoVibeHostCli */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FCB1E03D2F7C50440087345A /* Build configuration list for PBXNativeTarget "GoVibeHostCli" */;
+			buildPhases = (
+				FCB1E0332F7C50440087345A /* Sources */,
+				FCB1E0342F7C50440087345A /* Frameworks */,
+				FCB1E0352F7C50440087345A /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				FCB1E0382F7C50440087345A /* GoVibeHostCli */,
+			);
+			name = GoVibeHostCli;
+			packageProductDependencies = (
+				FCB1E0432F7C60000087345A /* GoVibeHostCore */,
+				FCB1E0442F7C60000087345A /* FirebaseCore */,
+				FCB1E0452F7C60000087345A /* FirebaseFirestore */,
+			);
+			productName = GoVibeHostCli;
+			productReference = FCB1E0372F7C50440087345A /* GoVibeHostCli */;
+			productType = "com.apple.product-type.tool";
+		};
 		FCD000032F700001009F5597 /* GoVibeHost */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = FCD000042F700001009F5597 /* Build configuration list for PBXNativeTarget "GoVibeHost" */;
@@ -241,6 +299,9 @@
 						CreatedOnToolsVersion = 16.3;
 						TestTargetID = 8B41F6442DEDD0D5001A66F9;
 					};
+					FCB1E0362F7C50440087345A = {
+						CreatedOnToolsVersion = 26.3;
+					};
 					FCD000032F700001009F5597 = {
 						CreatedOnToolsVersion = 16.3;
 					};
@@ -268,6 +329,7 @@
 				8B41F6442DEDD0D5001A66F9 /* GoVibe */,
 				8B41F65B2DEDD0D6001A66F9 /* GoVibeUITests */,
 				FCD000032F700001009F5597 /* GoVibeHost */,
+				FCB1E0362F7C50440087345A /* GoVibeHostCli */,
 			);
 		};
 /* End PBXProject section */
@@ -307,6 +369,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		8B41F6582DEDD0D6001A66F9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FCB1E0332F7C50440087345A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -477,7 +546,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.5;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.govibe.ios.DJBen;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -511,7 +580,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2.5;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.govibe.ios.DJBen;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -547,6 +616,36 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = GoVibe;
+			};
+			name = Release;
+		};
+		FCB1E03B2F7C50440087345A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
+			baseConfigurationReferenceRelativePath = CLIDebug.xcconfig;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 52RD2GH5DP;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		FCB1E03C2F7C50440087345A /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
+			baseConfigurationReferenceRelativePath = CLIRelease.xcconfig;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 52RD2GH5DP;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
@@ -667,6 +766,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		FCB1E03D2F7C50440087345A /* Build configuration list for PBXNativeTarget "GoVibeHostCli" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FCB1E03B2F7C50440087345A /* Debug */,
+				FCB1E03C2F7C50440087345A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		FCD000042F700001009F5597 /* Build configuration list for PBXNativeTarget "GoVibeHost" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -717,6 +825,19 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FC9B93562F7116680046B3BF /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		FCB1E0432F7C60000087345A /* GoVibeHostCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCD000112F700001009F5597 /* XCLocalSwiftPackageReference "GoVibeHostCorePackage" */;
+			productName = GoVibeHostCore;
+		};
+		FCB1E0442F7C60000087345A /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FirebaseCore;
+		};
+		FCB1E0452F7C60000087345A /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FirebaseFirestore;
 		};
 		FCD000122F700001009F5597 /* GoVibeHostCore */ = {
 			isa = XCSwiftPackageProductDependency;
