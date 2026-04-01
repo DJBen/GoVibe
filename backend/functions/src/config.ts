@@ -22,7 +22,7 @@ export function getConfig(): RuntimeConfig {
     relayTokenSecret: process.env.RELAY_TOKEN_SECRET || process.env.SESSION_TOKEN_SECRET || "dev-relay-secret",
     turnSecret: process.env.TURN_SECRET || "dev-turn-secret",
     sessionTtlSeconds: Number(process.env.SESSION_TTL_SECONDS || 3600),
-    relayTokenTtlSeconds: Number(process.env.RELAY_TOKEN_TTL_SECONDS || 300),
+    relayTokenTtlSeconds: Number(process.env.RELAY_TOKEN_TTL_SECONDS || 10800),
     graceTtlSeconds: Number(process.env.GRACE_TTL_SECONDS || 180)
   };
 }
