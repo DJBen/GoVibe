@@ -25,7 +25,6 @@ final class SessionStore {
         let sessionId: String?   // nil in data persisted before the host-scoped room fix
         let hostId: String?
         let kind: SessionKind?
-        let lastRelayStatus: String?
         let lastActiveAt: Date?
         let lastConversationSummary: String?
     }
@@ -185,7 +184,6 @@ final class SessionStore {
     }
 
     private func applyHostDiscoverySnapshot(_ snapshot: QuerySnapshot) {
-        let now = Date()
         let discoveredHosts: [DiscoveredHost] = snapshot.documents.compactMap { doc in
             let data = doc.data()
             // Mirror the backend: only mac hosts with discoveryVisible != false.
@@ -193,20 +191,12 @@ final class SessionStore {
             guard data["isHost"] as? Bool == true else { return nil }
             if let visible = data["discoveryVisible"] as? Bool, !visible { return nil }
 
-            let lastSeenTimestamp = data["lastSeenAt"] as? Timestamp
-            let lastOnlineTimestamp = data["lastOnlineAt"] as? Timestamp
-            let lastSeenDate = lastSeenTimestamp?.dateValue()
-            let isOnline = lastSeenDate.map { now.timeIntervalSince($0) <= 60 } ?? false
-
             return DiscoveredHost(
                 deviceId: doc.documentID,
                 displayName: data["displayName"] as? String ?? doc.documentID,
                 capabilities: data["capabilities"] as? [String] ?? [],
                 appVersion: data["appVersion"] as? String,
-                osVersion: data["osVersion"] as? String,
-                lastSeenAt: lastSeenDate,
-                lastOnlineAt: lastOnlineTimestamp?.dateValue(),
-                isOnline: isOnline
+                osVersion: data["osVersion"] as? String
             )
         }
         applyDiscoveredHosts(discoveredHosts)
@@ -235,13 +225,6 @@ final class SessionStore {
     func update(roomId: String, kind: SessionKind) {
         guard let index = sessions.firstIndex(where: { $0.roomId == roomId }) else { return }
         sessions[index].kind = kind
-        guard let userId = currentUserId else { return }
-        save(for: userId)
-    }
-
-    func update(roomId: String, relayStatus: String) {
-        guard let index = sessions.firstIndex(where: { $0.roomId == roomId }) else { return }
-        sessions[index].lastRelayStatus = relayStatus
         guard let userId = currentUserId else { return }
         save(for: userId)
     }
@@ -329,7 +312,6 @@ final class SessionStore {
                 let sid = session.sessionId ?? session.roomId
                 var saved = SavedSession(sessionId: sid, hostId: hostId)
                 saved.kind = session.kind
-                saved.lastRelayStatus = session.lastRelayStatus
                 saved.lastActiveAt = session.lastActiveAt
                 saved.lastConversationSummary = session.lastConversationSummary
                 return saved
@@ -355,21 +337,11 @@ final class SessionStore {
             HostInfo(
                 id: discovered.deviceId,
                 name: discovered.displayName,
-                capabilities: discovered.capabilities,
-                isOnline: discovered.isOnline,
-                lastSeenAt: discovered.lastSeenAt,
-                lastOnlineAt: discovered.lastOnlineAt
+                capabilities: discovered.capabilities
             )
         }
         .sorted { lhs, rhs in
-            switch ((lhs.isOnline ?? false), (rhs.isOnline ?? false)) {
-            case (true, false):
-                return true
-            case (false, true):
-                return false
-            default:
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-            }
+            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
 
         let activeHostIDs = Set(hosts.map(\.id))

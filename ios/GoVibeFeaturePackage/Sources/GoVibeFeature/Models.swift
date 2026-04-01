@@ -43,9 +43,6 @@ struct DiscoveredHost: Codable, Hashable, Identifiable {
     let capabilities: [String]
     let appVersion: String?
     let osVersion: String?
-    let lastSeenAt: Date?
-    let lastOnlineAt: Date?
-    let isOnline: Bool
 
     var id: String { deviceId }
 }
@@ -81,24 +78,15 @@ struct HostInfo: Identifiable, Codable, Hashable {
     var id: String       // stable host device ID from the authenticated macOS GoVibe Host app
     var name: String     // display name reported by the host
     var capabilities: [String]
-    var isOnline: Bool?
-    var lastSeenAt: Date?
-    var lastOnlineAt: Date?
 
     init(
         id: String,
         name: String,
-        capabilities: [String] = [],
-        isOnline: Bool? = nil,
-        lastSeenAt: Date? = nil,
-        lastOnlineAt: Date? = nil
+        capabilities: [String] = []
     ) {
         self.id = id
         self.name = name
         self.capabilities = capabilities
-        self.isOnline = isOnline
-        self.lastSeenAt = lastSeenAt
-        self.lastOnlineAt = lastOnlineAt
     }
 }
 
@@ -111,7 +99,6 @@ struct SavedSession: Identifiable, Codable, Hashable {
     var sessionId: String
     var hostId: String
     var kind: SessionKind?
-    var lastRelayStatus: String?
     var lastActiveAt: Date?      // set when user leaves session
     var lastConversationSummary: String?
 

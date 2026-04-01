@@ -11,7 +11,6 @@ struct SessionDetailView: View {
     let presentationMode: PresentationMode
     let onExit: (() -> Void)?
     var onKindDiscovered: ((SessionKind) -> Void)? = nil
-    var onStatusChanged: ((String) -> Void)? = nil
     var onSnapshot: ((UIImage, Date) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SessionViewModel
@@ -27,14 +26,12 @@ struct SessionDetailView: View {
         session: SavedSession,
         presentationMode: PresentationMode = .compact,
         onExit: (() -> Void)? = nil,
-        onKindDiscovered: ((SessionKind) -> Void)? = nil,
-        onStatusChanged: ((String) -> Void)? = nil
+        onKindDiscovered: ((SessionKind) -> Void)? = nil
     ) {
         self.session = session
         self.presentationMode = presentationMode
         self.onExit = onExit
         self.onKindDiscovered = onKindDiscovered
-        self.onStatusChanged = onStatusChanged
         _viewModel = State(initialValue: SessionViewModel(roomId: session.roomId, hostId: session.hostId))
     }
 
@@ -50,15 +47,38 @@ struct SessionDetailView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            if viewModel.simInfo == nil, viewModel.appWindowInfo == nil, let paneProgram = viewModel.paneProgram {
-                QuickActionsButton(
-                    paneProgram: paneProgram,
-                    artifactCount: viewModel.artifacts.count,
-                    onSend: { data in viewModel.sendInputDataAsync(data) },
-                    onViewArtifacts: { showArtifactsSheet = true }
-                )
-                .padding(.trailing, 16)
-                .padding(.bottom, 16)
+            if viewModel.simInfo == nil, viewModel.appWindowInfo == nil {
+                if let paneProgram = viewModel.paneProgram {
+                    QuickActionsButton(
+                        paneProgram: paneProgram,
+                        artifactCount: viewModel.artifacts.count,
+                        onSend: { data in viewModel.sendInputDataAsync(data) },
+                        onViewArtifacts: { showArtifactsSheet = true }
+                    )
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 16)
+                } else if !viewModel.artifacts.isEmpty {
+                    Button {
+                        showArtifactsSheet = true
+                        GoVibeAnalytics.log("artifacts_viewed", parameters: [
+                            "pane_program": "none",
+                            "count": "\(viewModel.artifacts.count)",
+                        ])
+                    } label: {
+                        Label(
+                            "\(viewModel.artifacts.count)",
+                            systemImage: "doc.on.doc"
+                        )
+                        .font(.footnote.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 16)
+                }
             }
         }
         .overlay(alignment: .bottom) {
@@ -122,9 +142,6 @@ struct SessionDetailView: View {
                 return
             }
             exitSession()
-        }
-        .onChange(of: viewModel.relayStatus) { _, newStatus in
-            onStatusChanged?(newStatus)
         }
         .onChange(of: viewModel.planState) { _, newValue in
             if newValue == nil {

@@ -25,8 +25,7 @@ struct SessionListView: View {
                             presentationMode: .regular,
                             onExit: { self.selectedSession = nil },
                             onKindDiscovered: { kind in store.update(roomId: selectedSession.roomId, kind: kind) },
-                            onStatusChanged: { status in store.update(roomId: selectedSession.roomId, relayStatus: status) }
-                        )
+                            )
                         .withSnapshot { image, date in
                             saveSnapshot(image: image, date: date, roomId: selectedSession.roomId)
                         }
@@ -45,7 +44,6 @@ struct SessionListView: View {
                                 session: session,
                                 presentationMode: .compact,
                                 onKindDiscovered: { kind in store.update(roomId: session.roomId, kind: kind) },
-                                onStatusChanged: { status in store.update(roomId: session.roomId, relayStatus: status) }
                             )
                             .withSnapshot { image, date in
                                 saveSnapshot(image: image, date: date, roomId: session.roomId)
@@ -400,21 +398,8 @@ struct SessionListView: View {
             Image(systemName: session.kind?.iconName ?? "questionmark.circle")
                 .foregroundStyle(session.kind == nil ? Color.secondary : Color.primary)
                 .frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.sessionId)
-                    .font(.body)
-                Text(session.lastRelayStatus ?? "Never connected")
-                    .font(.caption)
-                    .foregroundStyle(statusColor(session.lastRelayStatus))
-            }
-        }
-    }
-
-    private func statusColor(_ status: String?) -> Color {
-        switch status {
-        case "Connected":                        return .green
-        case "Connecting...", "Waiting for Mac": return .orange
-        default:                                 return .secondary
+            Text(session.sessionId)
+                .font(.body)
         }
     }
 
@@ -505,16 +490,11 @@ private struct SessionCardView: View {
             }
             .overlay(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(statusDotColor(session.lastRelayStatus))
-                            .frame(width: 8, height: 8)
-                        Text(session.sessionId)
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                    }
+                    Text(session.sessionId)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
                     if let summary = session.lastConversationSummary {
                         Text(summary)
                             .font(.caption2)
@@ -538,11 +518,4 @@ private struct SessionCardView: View {
             }
     }
 
-    private func statusDotColor(_ status: String?) -> Color {
-        switch status {
-        case "Connected":                        return .green
-        case "Connecting...", "Waiting for Mac": return .orange
-        default:                                 return .gray
-        }
-    }
 }
