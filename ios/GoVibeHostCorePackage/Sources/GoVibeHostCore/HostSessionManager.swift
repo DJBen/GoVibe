@@ -600,12 +600,13 @@ public final class HostSessionManager {
                 hostId: settings.hostId,
                 config: config,
                 relayBase: settings.relayBase,
-                logger: logger
-            ) { [weak self] event in
-                Task { @MainActor in
-                    self?.handleRuntimeEvent(event, sessionID: id)
+                logger: logger,
+                eventHandler: { [weak self] event in
+                    Task { @MainActor in
+                        self?.handleRuntimeEvent(event, sessionID: id)
+                    }
                 }
-            }
+            )
         case .simulator(let config):
             runtime = SimulatorHostSession(
                 hostId: settings.hostId,

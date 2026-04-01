@@ -41,6 +41,8 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         config: TerminalSessionConfig,
         relayBase: String,
         logger: HostLogger,
+        tokenProvider: HostTokenProvider = FirebaseSDKTokenProvider(),
+        onEnsureRegistration: (@Sendable () async throws -> Void)? = nil,
         eventHandler: @escaping @Sendable (HostSessionRuntimeEvent) -> Void = { _ in }
     ) {
         self.hostId = hostId
@@ -48,7 +50,11 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
         self.sessionDisplayName = config.tmuxSessionName
         self.pty = PtySession(shellPath: config.shellPath, tmuxSessionName: config.tmuxSessionName, logger: logger)
         self.logger = logger
-        self.bridge = RelayTransport(logger: logger)
+        self.bridge = RelayTransport(
+            logger: logger,
+            tokenProvider: tokenProvider,
+            onEnsureRegistration: onEnsureRegistration
+        )
         self.relayBase = relayBase
         self.eventHandler = eventHandler
     }
@@ -83,6 +89,7 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
             self?.recordPeerJoin()
             self?.scheduleSnapshotReplay()
             self?.sendCurrentPlanState()
+            self?.sendCurrentArtifacts()
         }
         bridge.onPeerLeft = { [weak self] in
             self?.recordPeerLeave()
@@ -350,6 +357,17 @@ public final class TerminalHostSession: @unchecked Sendable, ManagedHostRuntime 
 
     private func sendCurrentPlanState() {
         bridge.sendPlanState(currentPlanArtifact)
+    }
+
+    private func sendCurrentArtifacts() {
+        var artifacts = claudeLogWatcher?.currentArtifacts() ?? []
+        let codexArtifacts = codexLogWatcher?.currentArtifacts() ?? []
+        if !codexArtifacts.isEmpty {
+            artifacts.append(contentsOf: codexArtifacts)
+        }
+        if !artifacts.isEmpty {
+            bridge.sendPlanArtifacts(artifacts)
+        }
     }
 
     private func currentPaneProgramName(sessionName: String, tmuxPath: String) -> String {

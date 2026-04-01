@@ -3,7 +3,6 @@ import AuthenticationServices
 import CryptoKit
 @preconcurrency import FirebaseAuth
 import FirebaseCore
-@preconcurrency import FirebaseFirestore
 import Foundation
 @preconcurrency import GoogleSignIn
 import Observation
@@ -26,8 +25,6 @@ public final class HostAuthController {
 
     @ObservationIgnored
     private var authStateHandle: AuthStateDidChangeListenerHandle?
-    @ObservationIgnored
-    private var heartbeatTask: Task<Void, Never>?
     @ObservationIgnored
     private var apiClient: HostAPIClient?
     @ObservationIgnored
@@ -169,8 +166,6 @@ public final class HostAuthController {
     public func signOut() {
         HostAnalytics.log("host_sign_out")
         HostAnalytics.setUserID(nil)
-        heartbeatTask?.cancel()
-        heartbeatTask = nil
         registrationTask?.cancel()
         registrationTask = nil
         do {
@@ -188,7 +183,6 @@ public final class HostAuthController {
         capabilities: [String],
         discoveryVisible: Bool
     ) {
-        heartbeatTask?.cancel()
         guard isAuthenticated else { return }
 
         let payload = HostRegistrationPayload(
@@ -202,9 +196,9 @@ public final class HostAuthController {
         latestRegistrationPayload = payload
         registrationTask = nil
 
-        heartbeatTask = Task { [weak self] in
+        Task { [weak self] in
             guard let self else { return }
-            await self.runHostRegistrationLoop()
+            await self.performInitialRegistration()
         }
     }
 
@@ -237,8 +231,8 @@ public final class HostAuthController {
         }
     }
 
-    private func runHostRegistrationLoop() async {
-        guard let apiClient else {
+    private func performInitialRegistration() async {
+        guard apiClient != nil else {
             errorMessage = "Host API base URL is not configured."
             return
         }
@@ -248,27 +242,6 @@ public final class HostAuthController {
             errorMessage = nil
         } catch {
             errorMessage = "Host registration failed: \(error.localizedDescription)"
-            return
-        }
-
-        let db = Firestore.firestore()
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(for: .seconds(30))
-                guard let payload = latestRegistrationPayload else { continue }
-                var update: [String: Any] = [
-                    "lastSeenAt": FieldValue.serverTimestamp(),
-                    "lastOnlineAt": FieldValue.serverTimestamp(),
-                ]
-                update["discoveryVisible"] = payload.discoveryVisible
-                try await db.collection("devices").document(payload.deviceId).updateData(update)
-            } catch is CancellationError {
-                break
-            } catch {
-                await MainActor.run {
-                    self.errorMessage = "Host heartbeat failed: \(error.localizedDescription)"
-                }
-            }
         }
     }
 

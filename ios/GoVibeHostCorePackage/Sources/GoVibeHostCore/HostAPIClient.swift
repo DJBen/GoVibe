@@ -1,4 +1,3 @@
-@preconcurrency import FirebaseAuth
 import Foundation
 
 public struct HostRegistrationPayload: Sendable {
@@ -26,15 +25,17 @@ public struct HostRegistrationPayload: Sendable {
     }
 }
 
-actor HostAPIClient {
+public actor HostAPIClient {
     private let baseURL: URL
+    private let tokenProvider: HostTokenProvider
     private let decoder = JSONDecoder()
 
-    init(baseURL: URL) {
+    public init(baseURL: URL, tokenProvider: HostTokenProvider = FirebaseSDKTokenProvider()) {
         self.baseURL = baseURL
+        self.tokenProvider = tokenProvider
     }
 
-    func registerHost(_ payload: HostRegistrationPayload) async throws {
+    public func registerHost(_ payload: HostRegistrationPayload) async throws {
         _ = try await request(
             path: "/device/register",
             body: [
@@ -51,21 +52,7 @@ actor HostAPIClient {
         )
     }
 
-    func heartbeat(_ payload: HostRegistrationPayload) async throws {
-        _ = try await request(
-            path: "/device/heartbeat",
-            body: [
-                "deviceId": payload.deviceId,
-                "discoveryVisible": payload.discoveryVisible,
-                "capabilities": payload.capabilities,
-                "appVersion": payload.appVersion as Any,
-                "osVersion": payload.osVersion as Any,
-            ],
-            responseType: HostOKResponse.self
-        )
-    }
-
-    func resetUser() async throws {
+    public func resetUser() async throws {
         _ = try await request(
             path: "/user/reset",
             body: [:],
@@ -73,7 +60,7 @@ actor HostAPIClient {
         )
     }
 
-    func issueRelayToken(deviceId: String, hostId: String, room: String, role: String) async throws -> HostRelayTokenResponse {
+    public func issueRelayToken(deviceId: String, hostId: String, room: String, role: String) async throws -> HostRelayTokenResponse {
         try await request(
             path: "/relay/token",
             body: [
@@ -87,11 +74,7 @@ actor HostAPIClient {
     }
 
     private func request<T: Decodable>(path: String, method: String = "POST", body: [String: Any], responseType: T.Type) async throws -> T {
-        guard let user = Auth.auth().currentUser else {
-            throw HostAPIError.notAuthenticated
-        }
-
-        let token = try await user.getIDTokenResult().token
+        let token = try await tokenProvider.currentIDToken()
         var urlRequest = URLRequest(url: baseURL.appending(path: path))
         urlRequest.httpMethod = method
         urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -115,16 +98,16 @@ private struct HostOKResponse: Decodable {
     let ok: Bool
 }
 
-struct HostRelayTokenResponse: Decodable {
+public struct HostRelayTokenResponse: Decodable, Sendable {
     let token: String
 }
 
-enum HostAPIError: Error, LocalizedError {
+public enum HostAPIError: Error, LocalizedError {
     case notAuthenticated
     case invalidResponse
     case httpError(Int, String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .notAuthenticated:
             return "Host authentication is required."

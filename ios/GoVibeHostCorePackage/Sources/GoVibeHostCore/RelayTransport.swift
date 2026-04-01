@@ -30,8 +30,17 @@ public final class RelayTransport: @unchecked Sendable {
     public var onSimDragMove: ((Double, Double) -> Void)?
     public var onSimDragEnd: (() -> Void)?
 
-    public init(logger: HostLogger) {
+    private let tokenProvider: HostTokenProvider
+    private let onEnsureRegistration: (@Sendable () async throws -> Void)?
+
+    public init(
+        logger: HostLogger,
+        tokenProvider: HostTokenProvider = FirebaseSDKTokenProvider(),
+        onEnsureRegistration: (@Sendable () async throws -> Void)? = nil
+    ) {
         self.logger = logger
+        self.tokenProvider = tokenProvider
+        self.onEnsureRegistration = onEnsureRegistration
     }
 
     public func start(room: String, hostId: String, relayBase: String) {
@@ -65,7 +74,12 @@ public final class RelayTransport: @unchecked Sendable {
             guard let self, await self.checkActive() else { return }
             do {
                 let apiBaseURL = await MainActor.run { HostConfig.shared.apiBaseURL }
-                let auth = HostRelayAuth(relayWebSocketBase: relayBase, apiBaseURL: apiBaseURL)
+                let auth = HostRelayAuth(
+                    relayWebSocketBase: relayBase,
+                    apiBaseURL: apiBaseURL,
+                    tokenProvider: self.tokenProvider,
+                    onEnsureRegistration: self.onEnsureRegistration
+                )
                 let url = try await auth.authorizedURL(deviceId: hostId, hostId: hostId, room: room, role: "host-session")
                 self.logger.info("Connecting relay socket: \(url.absoluteString)")
                 self.queue.async {

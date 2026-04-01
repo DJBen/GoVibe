@@ -3,7 +3,7 @@ import Foundation
 
 /// Writes hosted session metadata to Firestore so iOS can discover sessions
 /// via addSnapshotListener instead of the relay control channel.
-actor HostSessionSync {
+public actor HostSessionSync {
     private var _db: Firestore?
     private var db: Firestore {
         if _db == nil { _db = Firestore.firestore() }
@@ -12,12 +12,14 @@ actor HostSessionSync {
     private var hostId: String = ""
     private var ownerUid: String = ""
 
-    func configure(hostId: String, ownerUid: String) {
+    public init() {}
+
+    public func configure(hostId: String, ownerUid: String) {
         self.hostId = hostId
         self.ownerUid = ownerUid
     }
 
-    func upsert(_ descriptor: HostedSessionDescriptor) async {
+    public func upsert(_ descriptor: HostedSessionDescriptor) async {
         guard !hostId.isEmpty, !ownerUid.isEmpty else { return }
         let ref = db.collection("devices").document(hostId)
                     .collection("hostedSessions").document(descriptor.sessionId)
@@ -38,7 +40,7 @@ actor HostSessionSync {
         try? await ref.setData(data, merge: true)
     }
 
-    func remove(sessionId: String) async {
+    public func remove(sessionId: String) async {
         guard !hostId.isEmpty else { return }
         try? await db.collection("devices").document(hostId)
                      .collection("hostedSessions").document(sessionId).delete()

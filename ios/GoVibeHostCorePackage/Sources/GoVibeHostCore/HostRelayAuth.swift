@@ -17,18 +17,32 @@ enum HostRelayAuthError: LocalizedError {
     }
 }
 
-struct HostRelayAuth {
+public struct HostRelayAuth {
     let relayWebSocketBase: String
     let apiBaseURL: URL?
+    let tokenProvider: HostTokenProvider
+    var onEnsureRegistration: (@Sendable () async throws -> Void)?
 
-    func authorizedURL(deviceId: String, hostId: String, room: String, role: String) async throws -> URL {
+    public init(
+        relayWebSocketBase: String,
+        apiBaseURL: URL?,
+        tokenProvider: HostTokenProvider = FirebaseSDKTokenProvider(),
+        onEnsureRegistration: (@Sendable () async throws -> Void)? = nil
+    ) {
+        self.relayWebSocketBase = relayWebSocketBase
+        self.apiBaseURL = apiBaseURL
+        self.tokenProvider = tokenProvider
+        self.onEnsureRegistration = onEnsureRegistration
+    }
+
+    public func authorizedURL(deviceId: String, hostId: String, room: String, role: String) async throws -> URL {
         guard let apiBaseURL else {
             throw HostRelayAuthError.apiUnavailable
         }
 
-        try await HostAuthController.shared.ensureHostRegistrationReady()
+        try await onEnsureRegistration?()
 
-        let apiClient = HostAPIClient(baseURL: apiBaseURL)
+        let apiClient = HostAPIClient(baseURL: apiBaseURL, tokenProvider: tokenProvider)
         let tokenResponse = try await apiClient.issueRelayToken(
             deviceId: deviceId,
             hostId: hostId,
