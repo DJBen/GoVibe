@@ -5,6 +5,11 @@ import Security
 #endif
 
 public enum HostMachineIdentity {
+    #if canImport(Security)
+    private static let keychainService = "dev.govibe.host.machine-identity"
+    private static let keychainAccount = "default-host-id"
+    #endif
+
     private static let directoryName = ".govibe"
     private static let fileName = "host-id"
 
@@ -23,8 +28,8 @@ public enum HostMachineIdentity {
             return hostId
         }
 
-        // One-time migration from Keychain to file (macOS only).
-        migrateFromKeychainIfNeeded()
+        // One-time migration from file back to Keychain (macOS only).
+        migrateFromFileIfNeeded()
 
         let baseID: String
         if let existing = loadHostID(), !existing.isEmpty {
@@ -45,12 +50,34 @@ public enum HostMachineIdentity {
     }
 
     public static func deleteHostID() {
+        #if canImport(Security)
+        deleteFromKeychain()
+        #else
         try? FileManager.default.removeItem(at: fileURL)
+        #endif
     }
 
-    // MARK: - File Storage
+    // MARK: - Storage
 
     private static func loadHostID() -> String? {
+        #if canImport(Security)
+        return loadFromKeychain()
+        #else
+        return loadFromFile()
+        #endif
+    }
+
+    private static func saveHostID(_ hostId: String) {
+        #if canImport(Security)
+        saveToKeychain(hostId)
+        #else
+        saveToFile(hostId)
+        #endif
+    }
+
+    // MARK: - File Storage (Linux)
+
+    private static func loadFromFile() -> String? {
         guard let data = try? Data(contentsOf: fileURL),
               let hostId = String(data: data, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -60,7 +87,7 @@ public enum HostMachineIdentity {
         return hostId
     }
 
-    private static func saveHostID(_ hostId: String) {
+    private static func saveToFile(_ hostId: String) {
         let dir = fileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? Data(hostId.utf8).write(to: fileURL, options: .atomic)
@@ -70,26 +97,19 @@ public enum HostMachineIdentity {
         )
     }
 
-    // MARK: - Keychain Migration (macOS only)
-
-    private static func migrateFromKeychainIfNeeded() {
-        #if canImport(Security)
-        guard loadHostID() == nil else { return }
-        guard let keychainID = loadFromKeychain() else { return }
-        saveHostID(keychainID)
-        deleteFromKeychain()
-        #endif
+    private static func deleteFile() {
+        try? FileManager.default.removeItem(at: fileURL)
     }
 
-    #if canImport(Security)
-    private static let keychainService = "dev.govibe.host.machine-identity"
-    private static let keychainAccount = "default-host-id"
+    // MARK: - Keychain Storage (Apple platforms)
 
+    #if canImport(Security)
     private static func loadFromKeychain() -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: keychainAccount,
+            kSecAttrSynchronizable as String: false,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -104,13 +124,45 @@ public enum HostMachineIdentity {
         return hostId
     }
 
+    private static func saveToKeychain(_ hostId: String) {
+        let data = Data(hostId.utf8)
+        let baseQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecAttrSynchronizable as String: false,
+        ]
+
+        let updateStatus = SecItemUpdate(
+            baseQuery as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess {
+            return
+        }
+
+        var addQuery = baseQuery
+        addQuery[kSecValueData as String] = data
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
     private static func deleteFromKeychain() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: keychainAccount,
+            kSecAttrSynchronizable as String: false,
         ]
         SecItemDelete(query as CFDictionary)
     }
+
+    private static func migrateFromFileIfNeeded() {
+        guard loadFromKeychain() == nil else { return }
+        guard let fileID = loadFromFile() else { return }
+        saveToKeychain(fileID)
+        deleteFile()
+    }
+    #else
+    private static func migrateFromFileIfNeeded() {}
     #endif
 }
