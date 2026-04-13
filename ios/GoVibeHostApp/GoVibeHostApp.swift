@@ -38,6 +38,9 @@ struct GoVibeHostApp: App {
                 }
                 syncHostRegistration()
             }
+            .onChange(of: manager.settings.onboardingCompleted) {
+                syncHostRegistration()
+            }
             .task {
                 await auth.restoreSessionIfPossible()
                 manager.syncAuthScope(userID: auth.currentUser?.uid)
