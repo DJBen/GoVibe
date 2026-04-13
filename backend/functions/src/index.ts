@@ -609,6 +609,39 @@ app.post("/device/fcmToken", async (req: Request, res: Response) => {
   }
 });
 
+const fcmUnregisterSchema = z.object({
+  deviceId: z.string().min(3)
+});
+
+app.post("/device/fcmToken/unregister", async (req: Request, res: Response) => {
+  try {
+    const { uid } = await requireAuth(req);
+    const body = fcmUnregisterSchema.parse(req.body);
+
+    const deviceRef = firestore.collection("devices").doc(body.deviceId);
+    const deviceSnap = await deviceRef.get();
+
+    if (!deviceSnap.exists) {
+      res.json({ ok: true });
+      return;
+    }
+
+    const device = deviceSnap.data() as DeviceDoc;
+    if (device.ownerUid !== uid) {
+      res.status(403).json({ error: "device_not_owned_by_user" });
+      return;
+    }
+
+    await deviceRef.update({ fcmToken: "" });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(400).json({
+      error: "fcm_token_unregister_failed",
+      detail: error instanceof Error ? error.message : "unknown"
+    });
+  }
+});
+
 app.post("/hosts/discover", async (req: Request, res: Response) => {
   try {
     const { uid } = await requireAuth(req);

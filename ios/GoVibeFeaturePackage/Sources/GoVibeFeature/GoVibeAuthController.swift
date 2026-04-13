@@ -1,6 +1,7 @@
 import AuthenticationServices
 import CryptoKit
 import FirebaseAuth
+import FirebaseMessaging
 import GoogleSignIn
 import Observation
 import UIKit
@@ -139,6 +140,26 @@ public final class GoVibeAuthController {
         deviceRegistrationTask?.cancel()
         deviceRegistrationTask = nil
         currentAppleNonce = nil
+
+        // Unregister FCM token from the backend while we still have auth.
+        // Capture the device ID before sign-out since it depends on the current user.
+        let deviceId = LocalDevice.iosDeviceID
+        if let apiBaseURL = AppRuntimeConfig.apiBaseURL {
+            let apiClient = GoVibeAPIClient(baseURL: apiBaseURL)
+            Task {
+                try? await apiClient.unregisterFCMToken(deviceId: deviceId)
+            }
+        }
+
+        // Clear the callback so stale token refreshes don't re-register.
+        GoVibeAppDelegate.onFCMTokenRefresh = nil
+
+        // Delete the local FCM token so Firebase generates a fresh one on
+        // the next sign-in, preventing the old token from receiving pushes.
+        Task {
+            try? await Messaging.messaging().deleteToken()
+        }
+
         do {
             try Auth.auth().signOut()
         } catch {

@@ -55,6 +55,14 @@ actor GoVibeAPIClient {
         )
     }
 
+    func unregisterFCMToken(deviceId: String) async throws {
+        _ = try await request(
+            path: "/device/fcmToken/unregister",
+            body: ["deviceId": deviceId],
+            responseType: OkResponse.self
+        )
+    }
+
     func registerIOSDevice(deviceId: String, displayName: String) async throws {
         _ = try await request(
             path: "/device/register",
