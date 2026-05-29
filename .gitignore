@@ -28,6 +28,9 @@ ios/GoVibe.xcodeproj/xcshareddata/xcschemes/GoVibeMacCli.xcscheme
 .env
 **/.env
 
+# Per-developer Claude settings (not shared)
+.claude/settings.local.json
+
 # Firebase config — each contributor generates their own from their Firebase project
 ios/GoVibe/GoogleService-Info.plist
 ios/GoVibeHostApp/GoogleService-Info.plist
