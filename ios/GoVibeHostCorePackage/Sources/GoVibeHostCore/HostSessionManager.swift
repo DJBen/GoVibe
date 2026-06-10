@@ -31,6 +31,7 @@ public final class HostSessionManager {
     public private(set) var isGeminiHookInstalling: Bool = false
 
     private let defaults: UserDefaults
+    private static let maxLogEntriesPerSession = 2000
     private var logsBySessionID: [String: [HostLogEntry]] = [:]
     private var runtimes: [String: ManagedHostRuntime] = [:]
     private var controlChannel: HostControlChannel?
@@ -457,7 +458,7 @@ public final class HostSessionManager {
 
         let logger = HostLogger(sessionId: "control") { [weak self] entry in
             Task { @MainActor in
-                self?.logsBySessionID["control", default: []].append(entry)
+                self?.appendLog(entry, sessionID: "control")
             }
         }
         let channel = HostControlChannel(
@@ -589,7 +590,7 @@ public final class HostSessionManager {
 
         let logger = HostLogger(sessionId: id) { [weak self] entry in
             Task { @MainActor in
-                self?.logsBySessionID[id, default: []].append(entry)
+                self?.appendLog(entry, sessionID: id)
             }
         }
 
@@ -645,8 +646,9 @@ public final class HostSessionManager {
                 descriptor.state = .error
                 descriptor.lastError = error.localizedDescription
             }
-            logsBySessionID[id, default: []].append(
-                HostLogEntry(sessionId: id, level: .error, message: error.localizedDescription)
+            appendLog(
+                HostLogEntry(sessionId: id, level: .error, message: error.localizedDescription),
+                sessionID: id
             )
             HostAnalytics.log("host_session_start_failed", parameters: ["session_id": id, "error_message": error.localizedDescription])
         }
@@ -709,6 +711,13 @@ public final class HostSessionManager {
 
     public func sessionLogs(id: String) -> [HostLogEntry] {
         logsBySessionID[id] ?? []
+    }
+
+    private func appendLog(_ entry: HostLogEntry, sessionID: String) {
+        logsBySessionID[sessionID, default: []].append(entry)
+        if let count = logsBySessionID[sessionID]?.count, count > Self.maxLogEntriesPerSession {
+            logsBySessionID[sessionID]?.removeFirst(count - Self.maxLogEntriesPerSession)
+        }
     }
 
     private func autoStartPersistedSessionsIfNeeded() {

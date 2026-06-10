@@ -129,17 +129,34 @@ struct HostDashboardView: View {
                 }
 
                 GroupBox("Logs") {
-                    ScrollView {
-                        Text(logText(for: session.sessionId))
+                    let logs = manager.sessionLogs(id: session.sessionId)
+                    if logs.isEmpty {
+                        Text("No logs yet.")
                             .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ScrollViewReader { proxy in
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    ForEach(logs) { entry in
+                                        Text("[\(Self.logTimestampFormatter.string(from: entry.timestamp))] [\(entry.level.rawValue.uppercased())] \(entry.message)")
+                                            .font(.system(.caption, design: .monospaced))
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .id(entry.id)
+                                    }
+                                }
+                            }
+                            .defaultScrollAnchor(.bottom)
+                        }
                     }
-                    .frame(minHeight: 220)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer(minLength: 0)
                 }
+                .frame(minHeight: 220)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -190,14 +207,6 @@ struct HostDashboardView: View {
         case .stopped, .error: manager.startSession(id: session.sessionId)
         default: manager.stopSession(id: session.sessionId)
         }
-    }
-
-    private func logText(for sessionID: String) -> String {
-        let lines = manager.sessionLogs(id: sessionID).map {
-            let timestamp = Self.logTimestampFormatter.string(from: $0.timestamp)
-            return "[\(timestamp)] [\($0.level.rawValue.uppercased())] \($0.message)"
-        }
-        return lines.isEmpty ? "No logs yet." : lines.joined(separator: "\n")
     }
 
     private func stateDescription(for session: HostedSessionDescriptor) -> String {
